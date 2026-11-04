@@ -7,7 +7,7 @@ Snapshot: 4 November 2026. This describes the current development branch; physic
 - Android application entry point and interactive phone-shell prototype.
 - Three device profiles: Nokia 6300/S40 style, Sony Ericsson K750i style and Nokia N73/S60 style.
 - Versioned JSON device-profile registry with logical display dimensions, display aperture and 22 canonical keypad controls.
-- All three active device profiles select Java ME. Symbian is deferred and is not selectable in the current interface.
+- All three device profiles start in Java ME. The N73 profile retains its Symbian backend declaration for a later milestone; Symbian is not selectable in the current interface.
 - Local Java ME package library:
   - imports `.jar` and `.jad` through Android's document picker;
   - copies packages into app-private storage and identifies them by SHA-256;
@@ -30,12 +30,13 @@ Snapshot: 4 November 2026. This describes the current development branch; physic
 - Symbian/EKA2L1 is deferred; no Symbian firmware or SIS/SISX execution is part of the current milestone.
 - WAP browser, OTA catalogue and website.
 - Manufacturer-specific finished phone artwork and original sound packs; current color LCD/menu rendering is an original approximation, not original firmware UI.
+- Historically faithful Nokia 6300 standby/menu/submenu screen flow is still being implemented; this is now the first UI priority.
 - Per-title network permissions and runtime isolation beyond the import library's private storage.
 
 ## Next engineering steps
 
-1. Run CI for the Java package-library branch and fix any failures.
-2. Validate JAR import, metadata display, J2ME Loader handoff and MIDlet installation on a physical Android phone.
-3. Prove display sizing and canonical key mapping with reference MIDlets; decide whether to embed a maintained J2ME Loader fork or keep a companion process temporarily.
-4. Add per-title settings, RMS persistence and explicit runtime permissions.
-5. Revisit Symbian only after Java ME runtime, display and keypad integration are complete.
+1. Complete the Nokia 6300 standby, main menu, soft-key, Navi-key and submenu experience against the original user guide.
+2. Add the remaining visible Series 40 screens: Messaging, Contacts, Gallery, Media, Organizer and Settings.
+3. Validate color rendering, screen geometry and keypad navigation on the physical test phone.
+4. Resume Java ME engine integration: JAR/JAD launch, display surface, canonical key events, RMS and lifecycle.
+5. Revisit Symbian only after the Nokia/Java ME experience is complete.

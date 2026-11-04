@@ -4,14 +4,17 @@
 
 - [x] Product direction and modular architecture documented.
 - [x] Engine candidates and headline licences researched.
-- [x] Device profile model and three sample profiles drafted, with Java ME as the only active runtime in the current release; Symbian is deferred.
+- [x] Device profile model and three sample profiles drafted; N73 retains a deferred Symbian backend, while Java ME is the only runtime enabled in the current user interface.
 - [x] JSON profile loader wired into Android startup; per-device display aperture and all 22 canonical keypad controls are profile data.
 - [x] Static source registry format drafted.
 - [x] Android CI workflow, Gradle Wrapper, remote build and local Android SDK build established.
 
 ## Milestone 1 — phone-shell vertical slice
 
-- [x] Basic Android phone-shell prototype with profile switching and runtime selection.
+- [x] Basic Android phone-shell prototype with model-specific color display palettes.
+- [ ] Recreate the Nokia 6300 standby screen, original soft-key layout and Navi-key path into the main menu.
+- [ ] Build the Series 40 main menu grid and navigable category submenus from the 6300 reference manual.
+- [ ] Add consistent Contacts, Messaging, Gallery, Media, Organizer and Settings screen layouts.
 - [x] Install and launch the shell on a physical Android device.
 - [ ] Replace placeholder geometry with original, scalable vector shell artwork.
 - [ ] Verify all soft keys, D-pad, digits, star/hash and back/call/end hit areas on each profile.

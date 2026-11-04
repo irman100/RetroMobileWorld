@@ -25,9 +25,12 @@ class RetroPhoneView(
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var profileIndex = 0
     private var selectedItem = 0
-    private var activeRuntime = profile.defaultRuntime
     private var detailMessage: String? = null
-    private var showingJavaLibrary = false
+    private var screen = PhoneScreen.STANDBY
+    private var submenuTitle = ""
+    private var submenuEntries: List<String> = emptyList()
+    private var submenuSelection = 0
+    private var quickAccessSelection = 0
     private var javaLibrarySelection = 0
     private var javaPackages: List<LegacyPackageRecord> = emptyList()
 
@@ -37,7 +40,25 @@ class RetroPhoneView(
     private val profile: DeviceProfile
         get() = profiles[profileIndex]
 
-    private val menuItems = listOf("Java applications", "WAP browser", "Games", "Settings")
+    private enum class PhoneScreen { STANDBY, MAIN_MENU, SUBMENU, JAVA_LIBRARY, QUICK_ACCESS, CONTACTS }
+
+    private data class MenuItem(val title: String, val glyph: String)
+
+    private val menuItems = listOf(
+        MenuItem("Messaging", "M"),
+        MenuItem("Contacts", "C"),
+        MenuItem("Call log", "↺"),
+        MenuItem("Settings", "S"),
+        MenuItem("Gallery", "G"),
+        MenuItem("Media", "♪"),
+        MenuItem("Organizer", "O"),
+        MenuItem("Applications", "J"),
+        MenuItem("Web", "W"),
+        MenuItem("Bluetooth", "B"),
+        MenuItem("SIM services", "SIM")
+    )
+
+    private val quickAccessItems = listOf("Profiles", "Java applications", "Gallery", "Settings")
 
     init {
         require(profiles.isNotEmpty()) { "At least one device profile is required" }
@@ -103,7 +124,12 @@ class RetroPhoneView(
         paint.textAlign = Paint.Align.CENTER
         canvas.drawText(profile.displayName, 200f, 844f, paint)
         paint.textSize = 10f
-        canvas.drawText("JAVA ME · MIDP 2.0", 200f, 866f, paint)
+        val platformLabel = when (profile.osFamily) {
+            DeviceOsFamily.NOKIA_S40 -> "SERIES 40 · JAVA ME"
+            DeviceOsFamily.SONY_ERICSSON_CLASSIC -> "JAVA ME"
+            DeviceOsFamily.SYMBIAN_S60 -> "S60 STYLE · JAVA ME"
+        }
+        canvas.drawText(platformLabel, 200f, 866f, paint)
     }
 
     private data class ScreenPalette(
@@ -181,10 +207,13 @@ class RetroPhoneView(
         drawWallpaper(canvas, logicalHeight, palette)
         drawStatusBar(canvas, palette)
 
-        if (showingJavaLibrary) {
-            drawJavaLibraryScreen(canvas, logicalHeight, palette)
-        } else {
-            drawHomeScreen(canvas, logicalHeight, palette)
+        when (screen) {
+            PhoneScreen.STANDBY -> drawStandbyScreen(canvas, logicalHeight, palette)
+            PhoneScreen.MAIN_MENU -> drawMainMenuScreen(canvas, logicalHeight, palette)
+            PhoneScreen.SUBMENU -> drawSubmenuScreen(canvas, logicalHeight, palette)
+            PhoneScreen.JAVA_LIBRARY -> drawJavaLibraryScreen(canvas, logicalHeight, palette)
+            PhoneScreen.QUICK_ACCESS -> drawQuickAccessScreen(canvas, logicalHeight, palette)
+            PhoneScreen.CONTACTS -> drawContactsScreen(canvas, logicalHeight, palette)
         }
         canvas.restore()
     }
@@ -270,63 +299,157 @@ class RetroPhoneView(
         canvas.drawRect(207f, 8f, 222f, 14f, paint)
     }
 
-    private fun drawHomeScreen(canvas: Canvas, logicalHeight: Float, palette: ScreenPalette) {
+    private fun drawStandbyScreen(canvas: Canvas, logicalHeight: Float, palette: ScreenPalette) {
         val now = Date()
         val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(now)
-        val date = SimpleDateFormat("EEE, d MMM", Locale.getDefault())
+        val date = SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault())
             .format(now)
-            .uppercase(Locale.getDefault())
+            .replaceFirstChar { it.uppercase(Locale.getDefault()) }
 
         paint.color = palette.text
         paint.textAlign = Paint.Align.CENTER
-        paint.textSize = 29f
-        canvas.drawText(time, 120f, 66f, paint)
+        paint.textSize = 13f
+        val brand = when (profile.osFamily) {
+            DeviceOsFamily.NOKIA_S40 -> "NOKIA"
+            DeviceOsFamily.SONY_ERICSSON_CLASSIC -> "Sony Ericsson"
+            DeviceOsFamily.SYMBIAN_S60 -> "Nokia"
+        }
+        canvas.drawText(brand, 120f, 57f, paint)
+
+        paint.textSize = 31f
+        canvas.drawText(time, 120f, 112f, paint)
         paint.color = palette.muted
         paint.textSize = 9f
-        canvas.drawText(date, 120f, 82f, paint)
+        canvas.drawText(date, 120f, 132f, paint)
 
         paint.color = palette.panel
-        canvas.drawRoundRect(RectF(7f, 99f, 233f, logicalHeight - 23f), 7f, 7f, paint)
+        canvas.drawRoundRect(RectF(24f, 159f, 216f, 226f), 7f, 7f, paint)
+        paint.color = palette.text
+        paint.textSize = 10f
+        canvas.drawText("Welcome", 120f, 183f, paint)
+        paint.color = palette.muted
+        paint.textSize = 8f
+        canvas.drawText("Your phone is ready", 120f, 201f, paint)
+
+        detailMessage?.let {
+            paint.color = palette.text
+            paint.textSize = 8f
+            canvas.drawText(it.take(30), 120f, 246f, paint)
+        }
+        drawSoftKeyBar(canvas, logicalHeight, palette, "Go to", "Names", "Menu")
+    }
+
+    private fun drawMainMenuScreen(canvas: Canvas, logicalHeight: Float, palette: ScreenPalette) {
         paint.color = palette.text
         paint.textAlign = Paint.Align.LEFT
-        paint.textSize = 10f
-        val heading = when (profile.osFamily) {
-            DeviceOsFamily.NOKIA_S40 -> "MAIN MENU"
-            DeviceOsFamily.SONY_ERICSSON_CLASSIC -> "MENU"
-            DeviceOsFamily.SYMBIAN_S60 -> "APPLICATIONS"
-        }
-        canvas.drawText(heading, 14f, 116f, paint)
+        paint.textSize = 13f
+        canvas.drawText("Menu", 10f, 45f, paint)
 
-        val labels = listOf("Java apps", "Browser", "Games", "Settings")
-        val glyphs = listOf("J", "W", "G", "S")
+        val columns = 3
+        val cellWidth = 78f
+        val cellHeight = 55f
         menuItems.forEachIndexed { index, item ->
-            val column = index % 2
-            val row = index / 2
-            val left = 14f + column * 112f
-            val top = 130f + row * 67f
-            if (index == selectedItem) {
+            val column = index % columns
+            val row = index / columns
+            val left = 3f + column * cellWidth
+            val top = 55f + row * cellHeight
+            val selected = index == selectedItem
+
+            if (selected) {
                 paint.color = palette.selected
-                canvas.drawRoundRect(RectF(left - 3f, top - 3f, left + 101f, top + 56f), 6f, 6f, paint)
+                canvas.drawRoundRect(
+                    RectF(left + 2f, top + 1f, left + cellWidth - 2f, top + cellHeight - 2f),
+                    5f,
+                    5f,
+                    paint
+                )
             }
+
             paint.color = palette.iconColors[index % palette.iconColors.size]
-            canvas.drawRoundRect(RectF(left + 4f, top + 3f, left + 34f, top + 33f), 7f, 7f, paint)
+            canvas.drawRoundRect(
+                RectF(left + 25f, top + 3f, left + 51f, top + 29f),
+                6f,
+                6f,
+                paint
+            )
             paint.color = 0xFFFFFFFF.toInt()
             paint.textAlign = Paint.Align.CENTER
-            paint.textSize = 17f
-            canvas.drawText(glyphs[index], left + 19f, top + 24f, paint)
+            paint.textSize = if (item.glyph == "SIM") 7f else 14f
+            canvas.drawText(item.glyph, left + 38f, top + 21f, paint)
+
+            paint.color = if (selected) 0xFFFFFFFF.toInt() else palette.text
+            paint.textSize = 7.5f
+            canvas.drawText(item.title, left + cellWidth / 2f, top + 42f, paint)
+        }
+
+        drawSoftKeyBar(canvas, logicalHeight, palette, "Options", "Select")
+    }
+
+    private fun drawSubmenuScreen(canvas: Canvas, logicalHeight: Float, palette: ScreenPalette) {
+        paint.color = palette.text
+        paint.textAlign = Paint.Align.LEFT
+        paint.textSize = 13f
+        canvas.drawText(submenuTitle, 10f, 48f, paint)
+
+        submenuEntries.forEachIndexed { index, entry ->
+            val y = 78f + index * 27f
+            if (index == submenuSelection) {
+                paint.color = palette.selected
+                canvas.drawRoundRect(RectF(5f, y - 17f, 235f, y + 6f), 4f, 4f, paint)
+            }
+            paint.color = if (index == submenuSelection) 0xFFFFFFFF.toInt() else palette.text
             paint.textAlign = Paint.Align.LEFT
-            paint.textSize = 9f
-            paint.color = palette.text
-            canvas.drawText(labels[index], left + 40f, top + 21f, paint)
+            paint.textSize = 10f
+            canvas.drawText(entry, 13f, y, paint)
+            if (index == submenuSelection) {
+                paint.textAlign = Paint.Align.RIGHT
+                canvas.drawText("›", 225f, y, paint)
+            }
         }
 
         detailMessage?.let {
             paint.color = palette.muted
-            paint.textSize = 8f
+            paint.textSize = 7f
             paint.textAlign = Paint.Align.LEFT
-            canvas.drawText(it.take(34), 12f, logicalHeight - 29f, paint)
+            canvas.drawText(it.take(38), 10f, logicalHeight - 28f, paint)
         }
-        drawSoftKeyBar(canvas, logicalHeight, palette, "Profiles", "Open")
+        drawSoftKeyBar(canvas, logicalHeight, palette, "Options", "Open")
+    }
+
+    private fun drawQuickAccessScreen(canvas: Canvas, logicalHeight: Float, palette: ScreenPalette) {
+        paint.color = palette.text
+        paint.textAlign = Paint.Align.LEFT
+        paint.textSize = 13f
+        canvas.drawText("Go to", 10f, 48f, paint)
+
+        quickAccessItems.forEachIndexed { index, item ->
+            val y = 82f + index * 35f
+            if (index == quickAccessSelection) {
+                paint.color = palette.selected
+                canvas.drawRoundRect(RectF(5f, y - 19f, 235f, y + 8f), 4f, 4f, paint)
+            }
+            paint.color = if (index == quickAccessSelection) 0xFFFFFFFF.toInt() else palette.text
+            paint.textSize = 10f
+            canvas.drawText(item, 13f, y, paint)
+        }
+        drawSoftKeyBar(canvas, logicalHeight, palette, "Options", "Open")
+    }
+
+    private fun drawContactsScreen(canvas: Canvas, logicalHeight: Float, palette: ScreenPalette) {
+        paint.color = palette.text
+        paint.textAlign = Paint.Align.LEFT
+        paint.textSize = 13f
+        canvas.drawText("Contacts", 10f, 48f, paint)
+        paint.color = palette.panel
+        canvas.drawRoundRect(RectF(8f, 72f, 232f, logicalHeight - 28f), 6f, 6f, paint)
+        paint.color = palette.text
+        paint.textAlign = Paint.Align.CENTER
+        paint.textSize = 10f
+        canvas.drawText("No contacts saved", 120f, 139f, paint)
+        paint.color = palette.muted
+        paint.textSize = 8f
+        canvas.drawText("Names will appear here", 120f, 156f, paint)
+        drawSoftKeyBar(canvas, logicalHeight, palette, "Options", "Add")
     }
 
     private fun drawJavaLibraryScreen(canvas: Canvas, logicalHeight: Float, palette: ScreenPalette) {
@@ -388,7 +511,8 @@ class RetroPhoneView(
         logicalHeight: Float,
         palette: ScreenPalette,
         leftLabel: String,
-        rightLabel: String
+        rightLabel: String,
+        centerLabel: String? = null
     ) {
         paint.color = 0xD90A1019.toInt()
         canvas.drawRect(0f, logicalHeight - 20f, 240f, logicalHeight, paint)
@@ -396,6 +520,10 @@ class RetroPhoneView(
         paint.textSize = 9f
         paint.textAlign = Paint.Align.LEFT
         canvas.drawText(leftLabel, 8f, logicalHeight - 7f, paint)
+        if (centerLabel != null) {
+            paint.textAlign = Paint.Align.CENTER
+            canvas.drawText(centerLabel, 120f, logicalHeight - 7f, paint)
+        }
         paint.textAlign = Paint.Align.RIGHT
         canvas.drawText(rightLabel, 232f, logicalHeight - 7f, paint)
     }
@@ -460,8 +588,12 @@ class RetroPhoneView(
             paint.textAlign = Paint.Align.CENTER
             paint.textSize = if (control.visual == ControlVisual.NUMERIC_KEY) 18f else 11f
             val label = when {
-                showingJavaLibrary && control.key == CanonicalKey.SOFT_LEFT -> "IMPORT"
-                showingJavaLibrary && control.key == CanonicalKey.SOFT_RIGHT -> "RUN"
+                screen == PhoneScreen.JAVA_LIBRARY && control.key == CanonicalKey.SOFT_LEFT -> "IMPORT"
+                screen == PhoneScreen.JAVA_LIBRARY && control.key == CanonicalKey.SOFT_RIGHT -> "RUN"
+                screen == PhoneScreen.STANDBY && control.key == CanonicalKey.SOFT_LEFT -> "GO TO"
+                screen == PhoneScreen.STANDBY && control.key == CanonicalKey.SOFT_RIGHT -> "NAMES"
+                screen != PhoneScreen.STANDBY && control.key == CanonicalKey.SOFT_LEFT -> "OPTIONS"
+                screen != PhoneScreen.STANDBY && control.key == CanonicalKey.SOFT_RIGHT -> "OPEN"
                 else -> control.label
             }
             canvas.drawText(label, rect.centerX(), rect.centerY() + 4f, paint)
@@ -493,92 +625,148 @@ class RetroPhoneView(
     }
 
     private fun nextProfile() {
-        showingJavaLibrary = false
+        screen = PhoneScreen.STANDBY
         profileIndex = (profileIndex + 1) % profiles.size
         selectedItem = 0
-        activeRuntime = profile.defaultRuntime
-        detailMessage = runtimeMessage()
+        detailMessage = profile.displayName
+    }
+
+    private fun entriesFor(title: String): List<String> = when (title) {
+        "Messaging" -> listOf("Create message", "Inbox", "Sent items", "Drafts", "Archive", "Templates")
+        "Contacts" -> listOf("Names", "Add new contact", "Search", "Groups", "Speed dials")
+        "Call log" -> listOf("Missed calls", "Received calls", "Dialled numbers", "Call duration")
+        "Settings" -> listOf("Profiles", "Tones", "Display", "Themes", "Time and date", "My shortcuts", "Phone settings")
+        "Gallery" -> listOf("Images", "Video clips", "Music files", "Themes", "Memory card")
+        "Media" -> listOf("Camera", "Music player", "Radio", "Voice recorder", "Equalizer")
+        "Organizer" -> listOf("Alarm clock", "Calendar", "To-do list", "Notes", "Calculator", "Stopwatch")
+        "Applications" -> listOf("Games", "Collection", "Java applications")
+        "Web" -> listOf("Home", "Bookmarks", "Go to address", "Last web address", "Settings")
+        "Bluetooth" -> listOf("Bluetooth", "Paired devices", "Active devices", "My phone's visibility")
+        else -> listOf("SIM services")
     }
 
     private fun openSelected() {
-        when (selectedItem) {
-            0 -> if (activeRuntime == RuntimeFamily.JAVA_ME) {
-                showingJavaLibrary = true
-                javaLibrarySelection = 0
-                detailMessage = null
-            } else {
-                detailMessage = "SIS/SISX Symbian integration pending"
+        submenuTitle = menuItems.getOrNull(selectedItem)?.title ?: return
+        submenuEntries = entriesFor(submenuTitle)
+        submenuSelection = 0
+        detailMessage = null
+        screen = PhoneScreen.SUBMENU
+    }
+
+    private fun openSubmenuSelection() {
+        val entry = submenuEntries.getOrNull(submenuSelection) ?: return
+        if (submenuTitle == "Applications" && entry == "Java applications") {
+            javaLibrarySelection = 0
+            screen = PhoneScreen.JAVA_LIBRARY
+            detailMessage = null
+        } else if (submenuTitle == "Settings" && entry == "Profiles") {
+            nextProfile()
+        } else {
+            detailMessage = "$entry selected"
+        }
+    }
+
+    private fun openQuickAccessSelection() {
+        when (quickAccessSelection) {
+            0 -> nextProfile()
+            1 -> {
+                submenuTitle = "Applications"
+                submenuEntries = entriesFor(submenuTitle)
+                submenuSelection = submenuEntries.indexOf("Java applications").coerceAtLeast(0)
+                screen = PhoneScreen.SUBMENU
             }
-            1 -> detailMessage = "WAP/catalogue adapter pending"
-            2 -> detailMessage = "No game packages installed"
-            else -> detailMessage = "Profile settings prototype"
+            2 -> {
+                submenuTitle = "Gallery"
+                submenuEntries = entriesFor(submenuTitle)
+                submenuSelection = 0
+                screen = PhoneScreen.SUBMENU
+            }
+            else -> {
+                submenuTitle = "Settings"
+                submenuEntries = entriesFor(submenuTitle)
+                submenuSelection = 0
+                screen = PhoneScreen.SUBMENU
+            }
         }
-    }
-
-    private fun switchRuntime() {
-        val available = profile.supportedRuntimes.toList()
-        if (available.size < 2) {
-            detailMessage = "Only one runtime is defined for this profile"
-            return
-        }
-        showingJavaLibrary = false
-        val currentIndex = available.indexOf(activeRuntime).coerceAtLeast(0)
-        activeRuntime = available[(currentIndex + 1) % available.size]
-        detailMessage = runtimeMessage()
-    }
-
-    private fun runtimeMessage(): String = when (activeRuntime) {
-        RuntimeFamily.JAVA_ME -> "Java ME selected · JAR/JAD"
-        RuntimeFamily.SYMBIAN -> "Symbian selected · system image required"
     }
 
     private fun onKey(key: CanonicalKey) {
-        if (showingJavaLibrary) {
-            when (key) {
-                CanonicalKey.UP -> javaLibrarySelection =
-                    (javaLibrarySelection - 1).coerceAtLeast(0)
-                CanonicalKey.DOWN -> javaLibrarySelection =
-                    (javaLibrarySelection + 1).coerceAtMost((javaPackages.size - 1).coerceAtLeast(0))
-                CanonicalKey.SELECT, CanonicalKey.SOFT_RIGHT -> {
-                    javaPackages.getOrNull(javaLibrarySelection)?.let { record ->
-                        onLaunchJavaApp?.invoke(record)
-                    }
+        when (screen) {
+            PhoneScreen.STANDBY -> when (key) {
+                CanonicalKey.SELECT -> {
+                    screen = PhoneScreen.MAIN_MENU
+                    selectedItem = 0
+                    detailMessage = null
                 }
-                CanonicalKey.SOFT_LEFT -> onImportJavaAppRequested?.invoke()
-                CanonicalKey.BACK -> showingJavaLibrary = false
+                CanonicalKey.SOFT_LEFT -> {
+                    screen = PhoneScreen.QUICK_ACCESS
+                    quickAccessSelection = 0
+                }
+                CanonicalKey.SOFT_RIGHT -> screen = PhoneScreen.CONTACTS
+                CanonicalKey.CALL -> {
+                    submenuTitle = "Call log"
+                    submenuEntries = entriesFor(submenuTitle)
+                    submenuSelection = 0
+                    screen = PhoneScreen.SUBMENU
+                }
                 else -> Unit
             }
-            invalidate()
-            return
+            PhoneScreen.MAIN_MENU -> when (key) {
+                CanonicalKey.UP -> selectedItem = (selectedItem - 3).coerceAtLeast(0)
+                CanonicalKey.DOWN -> selectedItem = (selectedItem + 3).coerceAtMost(menuItems.lastIndex)
+                CanonicalKey.LEFT -> selectedItem = (selectedItem - 1).coerceAtLeast(0)
+                CanonicalKey.RIGHT -> selectedItem = (selectedItem + 1).coerceAtMost(menuItems.lastIndex)
+                CanonicalKey.SELECT, CanonicalKey.SOFT_RIGHT -> openSelected()
+                CanonicalKey.BACK, CanonicalKey.SOFT_LEFT -> screen = PhoneScreen.STANDBY
+                else -> Unit
+            }
+            PhoneScreen.SUBMENU -> when (key) {
+                CanonicalKey.UP -> submenuSelection = (submenuSelection - 1).coerceAtLeast(0)
+                CanonicalKey.DOWN -> submenuSelection = (submenuSelection + 1).coerceAtMost((submenuEntries.size - 1).coerceAtLeast(0))
+                CanonicalKey.SELECT, CanonicalKey.SOFT_RIGHT -> openSubmenuSelection()
+                CanonicalKey.BACK -> {
+                    screen = PhoneScreen.MAIN_MENU
+                    detailMessage = null
+                }
+                CanonicalKey.SOFT_LEFT -> detailMessage = "Options"
+                else -> Unit
+            }
+            PhoneScreen.JAVA_LIBRARY -> when (key) {
+                CanonicalKey.UP -> javaLibrarySelection = (javaLibrarySelection - 1).coerceAtLeast(0)
+                CanonicalKey.DOWN -> javaLibrarySelection = (javaLibrarySelection + 1).coerceAtMost((javaPackages.size - 1).coerceAtLeast(0))
+                CanonicalKey.SELECT, CanonicalKey.SOFT_RIGHT -> {
+                    javaPackages.getOrNull(javaLibrarySelection)?.let { onLaunchJavaApp?.invoke(it) }
+                }
+                CanonicalKey.SOFT_LEFT -> onImportJavaAppRequested?.invoke()
+                CanonicalKey.BACK -> screen = PhoneScreen.SUBMENU
+                else -> Unit
+            }
+            PhoneScreen.QUICK_ACCESS -> when (key) {
+                CanonicalKey.UP -> quickAccessSelection = (quickAccessSelection - 1).coerceAtLeast(0)
+                CanonicalKey.DOWN -> quickAccessSelection = (quickAccessSelection + 1).coerceAtMost(quickAccessItems.lastIndex)
+                CanonicalKey.SELECT, CanonicalKey.SOFT_RIGHT -> openQuickAccessSelection()
+                CanonicalKey.BACK, CanonicalKey.SOFT_LEFT -> screen = PhoneScreen.STANDBY
+                else -> Unit
+            }
+            PhoneScreen.CONTACTS -> when (key) {
+                CanonicalKey.BACK, CanonicalKey.SOFT_LEFT -> screen = PhoneScreen.STANDBY
+                CanonicalKey.SOFT_RIGHT, CanonicalKey.SELECT -> detailMessage = "Add contact"
+                else -> Unit
+            }
         }
-
-        when (key) {
-            CanonicalKey.UP -> selectedItem = (selectedItem - 1).coerceAtLeast(0)
-            CanonicalKey.DOWN -> selectedItem = (selectedItem + 1).coerceAtMost(menuItems.lastIndex)
-            CanonicalKey.SELECT, CanonicalKey.SOFT_RIGHT -> openSelected()
-            CanonicalKey.SOFT_LEFT -> nextProfile()
-            CanonicalKey.BACK -> detailMessage = null
-            else -> detailMessage = "Key: " + key.name
-        }
+        invalidate()
     }
 
     fun handleBack(): Boolean {
-        if (showingJavaLibrary) {
-            showingJavaLibrary = false
-            invalidate()
-            return true
+        when (screen) {
+            PhoneScreen.STANDBY -> return false
+            PhoneScreen.MAIN_MENU, PhoneScreen.QUICK_ACCESS, PhoneScreen.CONTACTS -> screen = PhoneScreen.STANDBY
+            PhoneScreen.SUBMENU -> screen = PhoneScreen.MAIN_MENU
+            PhoneScreen.JAVA_LIBRARY -> screen = PhoneScreen.SUBMENU
         }
-        if (detailMessage != null) {
-            detailMessage = null
-            invalidate()
-            return true
-        }
-        if (selectedItem != 0) {
-            selectedItem = 0
-            invalidate()
-            return true
-        }
-        return false
+        detailMessage = null
+        invalidate()
+        return true
     }
 
     private fun UnitRect.toCanvasRect(): RectF = RectF(
