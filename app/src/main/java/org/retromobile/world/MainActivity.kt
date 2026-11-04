@@ -34,9 +34,9 @@ class MainActivity : Activity() {
         phoneView = RetroPhoneView(this, profiles).apply {
             onImportJavaAppRequested = { requestJavaPackageImport() }
             onLaunchJavaApp = { record -> launchJavaApp(record) }
-            updateJavaPackages(packageLibrary.listInstalled())
         }
         setContentView(phoneView)
+        refreshJavaPackages()
     }
 
     private fun requestJavaPackageImport() {
@@ -67,7 +67,7 @@ class MainActivity : Activity() {
             runOnUiThread {
                 if (isFinishing || !::phoneView.isInitialized) return@runOnUiThread
                 result.onSuccess { record ->
-                    phoneView.updateJavaPackages(packageLibrary.listInstalled())
+                    refreshJavaPackages()
                     showMessage(
                         "Added to Java applications",
                         record.metadata.title + " · " + record.metadata.vendor +
@@ -161,6 +161,17 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun refreshJavaPackages() {
+        importExecutor.execute {
+            val packages = packageLibrary.listInstalled()
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed && ::phoneView.isInitialized) {
+                    phoneView.updateJavaPackages(packages)
+                }
+            }
+        }
+    }
+
     private fun showMessage(title: String, message: String) {
         AlertDialog.Builder(this)
             .setTitle(title)
@@ -172,7 +183,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         if (::phoneView.isInitialized && ::packageLibrary.isInitialized) {
-            phoneView.updateJavaPackages(packageLibrary.listInstalled())
+            refreshJavaPackages()
         }
     }
 

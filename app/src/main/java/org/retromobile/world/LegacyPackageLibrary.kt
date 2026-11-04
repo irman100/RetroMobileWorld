@@ -25,7 +25,7 @@ class LegacyPackageLibrary(context: Context) {
     fun listInstalled(): List<LegacyPackageRecord> {
         val files = packagesDirectory.listFiles().orEmpty()
         return files.asSequence()
-            .filter { it.isFile && it.extension.lowercase() in SUPPORTED_EXTENSIONS }
+            .filter { it.isFile && !it.name.startsWith(".") && it.extension.lowercase() in SUPPORTED_EXTENSIONS }
             .mapNotNull { file ->
                 runCatching {
                     LegacyPackageRecord(
