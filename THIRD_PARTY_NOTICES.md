@@ -1,8 +1,8 @@
 # Third-party notices
 
-No emulator source code or binary is vendored in this bootstrap project.
+No emulator source code or binary is vendored in this branch.
 
-When an engine is integrated, copy its unmodified licence and required notice files into a dedicated directory under `third_party/<engine>/` and list the pinned upstream commit here.
+The first Java ME integration calls the separately installed J2ME Loader application through its exported Android file-opening activity. Retro Mobile World does not copy, bundle or modify J2ME Loader code or binaries. Users must install the runtime separately. If J2ME Loader is ever vendored or linked into this app, copy its unmodified licence and required notice files into a dedicated directory under `third_party/j2me-loader/`, pin the exact upstream commit and review all dependency licences.
 
 Candidates researched on 2026-11-04:
 

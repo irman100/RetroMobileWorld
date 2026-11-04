@@ -9,8 +9,8 @@ import android.view.View
 import kotlin.math.min
 
 /**
- * Interactive shell prototype. Geometry and key hit areas come from DeviceProfile.
- * The view uses original placeholder artwork and does not execute legacy packages yet.
+ * Interactive phone shell. The Java application library is drawn inside the virtual display.
+ * Runtime execution is delegated through callbacks so the shell does not depend on an engine API.
  */
 class RetroPhoneView(
     context: Context,
@@ -21,6 +21,12 @@ class RetroPhoneView(
     private var selectedItem = 0
     private var activeRuntime = profile.defaultRuntime
     private var detailMessage: String? = null
+    private var showingJavaLibrary = false
+    private var javaLibrarySelection = 0
+    private var javaPackages: List<LegacyPackageRecord> = emptyList()
+
+    var onImportJavaAppRequested: (() -> Unit)? = null
+    var onLaunchJavaApp: ((LegacyPackageRecord) -> Unit)? = null
 
     private val profile: DeviceProfile
         get() = profiles[profileIndex]
@@ -29,8 +35,17 @@ class RetroPhoneView(
 
     init {
         require(profiles.isNotEmpty()) { "At least one device profile is required" }
-        contentDescription = "Retro Mobile World phone shell prototype"
+        contentDescription = "Retro Mobile World virtual phone"
         isFocusable = true
+    }
+
+    fun updateJavaPackages(packages: List<LegacyPackageRecord>) {
+        javaPackages = packages
+        javaLibrarySelection = javaLibrarySelection.coerceIn(
+            0,
+            (javaPackages.size - 1).coerceAtLeast(0)
+        )
+        invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -108,9 +123,15 @@ class RetroPhoneView(
         }
         val runtimeLabel = if (activeRuntime == RuntimeFamily.JAVA_ME) "JAVA" else "SYMBIAN"
         canvas.drawText("$deviceLabel / $runtimeLabel", 7f, 15f, paint)
+
+        if (showingJavaLibrary) {
+            drawJavaLibraryScreen(canvas, logicalHeight)
+            canvas.restore()
+            return
+        }
+
         paint.textAlign = Paint.Align.RIGHT
         canvas.drawText("▮▮  ▰", 233f, 15f, paint)
-
         paint.textAlign = Paint.Align.CENTER
         paint.textSize = 23f
         paint.color = 0xFF1B3022.toInt()
@@ -142,10 +163,53 @@ class RetroPhoneView(
         paint.color = 0xFF1B3022.toInt()
         paint.textSize = 10f
         paint.textAlign = Paint.Align.LEFT
-        canvas.drawText("${profile.keypad.controls.first { it.key == CanonicalKey.SOFT_LEFT }.label}", 6f, logicalHeight - 7f, paint)
+        canvas.drawText("PROFILE", 6f, logicalHeight - 7f, paint)
         paint.textAlign = Paint.Align.RIGHT
-        canvas.drawText("${profile.keypad.controls.first { it.key == CanonicalKey.SOFT_RIGHT }.label}", 234f, logicalHeight - 7f, paint)
+        canvas.drawText("OPEN", 234f, logicalHeight - 7f, paint)
         canvas.restore()
+    }
+
+    private fun drawJavaLibraryScreen(canvas: Canvas, logicalHeight: Float) {
+        paint.color = 0xFF183121.toInt()
+        paint.textAlign = Paint.Align.LEFT
+        paint.textSize = 13f
+        canvas.drawText("Java applications", 9f, 54f, paint)
+
+        if (javaPackages.isEmpty()) {
+            paint.textSize = 11f
+            canvas.drawText("No imported applications", 10f, 112f, paint)
+            canvas.drawText("Choose IMPORT to add a JAR or JAD", 10f, 133f, paint)
+        } else {
+            val firstVisible = (javaLibrarySelection / MAX_VISIBLE_APPS) * MAX_VISIBLE_APPS
+            javaPackages.drop(firstVisible).take(MAX_VISIBLE_APPS).forEachIndexed { row, record ->
+                val absoluteIndex = firstVisible + row
+                val y = 91f + row * 34f
+                if (absoluteIndex == javaLibrarySelection) {
+                    paint.color = 0xFF526C4D.toInt()
+                    canvas.drawRoundRect(RectF(4f, y - 17f, 236f, y + 8f), 4f, 4f, paint)
+                    paint.color = 0xFFF0F4E9.toInt()
+                } else {
+                    paint.color = 0xFF1B3022.toInt()
+                }
+                paint.textAlign = Paint.Align.LEFT
+                paint.textSize = 12f
+                canvas.drawText(record.metadata.title.take(27), 10f, y, paint)
+                paint.textSize = 8f
+                canvas.drawText(
+                    record.metadata.vendor.take(32) + " · " + record.metadata.version,
+                    10f,
+                    y + 11f,
+                    paint
+                )
+            }
+        }
+
+        paint.color = 0xFF1B3022.toInt()
+        paint.textSize = 10f
+        paint.textAlign = Paint.Align.LEFT
+        canvas.drawText("IMPORT", 6f, logicalHeight - 7f, paint)
+        paint.textAlign = Paint.Align.RIGHT
+        canvas.drawText("RUN", 234f, logicalHeight - 7f, paint)
     }
 
     private fun drawNavigationAssembly(canvas: Canvas) {
@@ -207,7 +271,12 @@ class RetroPhoneView(
             paint.color = 0xFFDCE4E6.toInt()
             paint.textAlign = Paint.Align.CENTER
             paint.textSize = if (control.visual == ControlVisual.NUMERIC_KEY) 18f else 11f
-            canvas.drawText(control.label, rect.centerX(), rect.centerY() + 4f, paint)
+            val label = when {
+                showingJavaLibrary && control.key == CanonicalKey.SOFT_LEFT -> "IMPORT"
+                showingJavaLibrary && control.key == CanonicalKey.SOFT_RIGHT -> "RUN"
+                else -> control.label
+            }
+            canvas.drawText(label, rect.centerX(), rect.centerY() + 4f, paint)
         }
     }
 
@@ -240,6 +309,7 @@ class RetroPhoneView(
     }
 
     private fun nextProfile() {
+        showingJavaLibrary = false
         profileIndex = (profileIndex + 1) % profiles.size
         selectedItem = 0
         activeRuntime = profile.defaultRuntime
@@ -247,15 +317,17 @@ class RetroPhoneView(
     }
 
     private fun openSelected() {
-        detailMessage = when (selectedItem) {
+        when (selectedItem) {
             0 -> if (activeRuntime == RuntimeFamily.JAVA_ME) {
-                "JAR/JAD runtime integration pending"
+                showingJavaLibrary = true
+                javaLibrarySelection = 0
+                detailMessage = null
             } else {
-                "SIS/SISX Symbian integration pending"
+                detailMessage = "SIS/SISX Symbian integration pending"
             }
-            1 -> "WAP/catalogue adapter pending"
-            2 -> "No game packages installed"
-            else -> "Profile settings prototype"
+            1 -> detailMessage = "WAP/catalogue adapter pending"
+            2 -> detailMessage = "No game packages installed"
+            else -> detailMessage = "Profile settings prototype"
         }
     }
 
@@ -265,6 +337,7 @@ class RetroPhoneView(
             detailMessage = "Only one runtime is defined for this profile"
             return
         }
+        showingJavaLibrary = false
         val currentIndex = available.indexOf(activeRuntime).coerceAtLeast(0)
         activeRuntime = available[(currentIndex + 1) % available.size]
         detailMessage = runtimeMessage()
@@ -276,17 +349,41 @@ class RetroPhoneView(
     }
 
     private fun onKey(key: CanonicalKey) {
+        if (showingJavaLibrary) {
+            when (key) {
+                CanonicalKey.UP -> javaLibrarySelection =
+                    (javaLibrarySelection - 1).coerceAtLeast(0)
+                CanonicalKey.DOWN -> javaLibrarySelection =
+                    (javaLibrarySelection + 1).coerceAtMost((javaPackages.size - 1).coerceAtLeast(0))
+                CanonicalKey.SELECT, CanonicalKey.SOFT_RIGHT -> {
+                    javaPackages.getOrNull(javaLibrarySelection)?.let { record ->
+                        onLaunchJavaApp?.invoke(record)
+                    }
+                }
+                CanonicalKey.SOFT_LEFT -> onImportJavaAppRequested?.invoke()
+                CanonicalKey.BACK -> showingJavaLibrary = false
+                else -> Unit
+            }
+            invalidate()
+            return
+        }
+
         when (key) {
             CanonicalKey.UP -> selectedItem = (selectedItem - 1).coerceAtLeast(0)
             CanonicalKey.DOWN -> selectedItem = (selectedItem + 1).coerceAtMost(menuItems.lastIndex)
             CanonicalKey.SELECT, CanonicalKey.SOFT_RIGHT -> openSelected()
             CanonicalKey.SOFT_LEFT -> nextProfile()
             CanonicalKey.BACK -> detailMessage = null
-            else -> detailMessage = "Key: ${key.name}"
+            else -> detailMessage = "Key: " + key.name
         }
     }
 
     fun handleBack(): Boolean {
+        if (showingJavaLibrary) {
+            showingJavaLibrary = false
+            invalidate()
+            return true
+        }
         if (detailMessage != null) {
             detailMessage = null
             invalidate()
@@ -310,5 +407,6 @@ class RetroPhoneView(
     companion object {
         private const val DESIGN_WIDTH = 400f
         private const val DESIGN_HEIGHT = 900f
+        private const val MAX_VISIBLE_APPS = 5
     }
 }
