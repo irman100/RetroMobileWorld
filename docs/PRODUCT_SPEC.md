@@ -7,13 +7,13 @@
 
 ## 1. Product vision
 
-Build one application shell that can be configured to resemble several popular feature phones from the Java ME / Symbian era. The user selects a device profile; the application changes the device frame, display resolution, screen proportions, keypad layout, soft-key positions, key mapping, sounds and visual treatment.
+Build one application shell that can be configured to reproduce the experience of several popular feature phones from the Java ME / Symbian era. Nokia 6300 / RM-217 is the first fidelity target. The user selects a device profile; the application changes the device frame, native display resolution and aspect ratio, keypad layout, soft-key positions, key mapping, sounds and visual treatment. The host may fill the modern Android viewport, but the legacy LCD itself must keep the selected model's native geometry.
 
 The shell must not implement every historic phone as an independent emulator. It uses a small number of runtime backends and a larger set of data-driven device profiles.
 
 ## 2. Product principles
 
-1. **Authentic interaction over decorative nostalgia.** Hardware keys, soft keys, menu navigation, backlight, display aspect ratio and installation flow must behave consistently.
+1. **Authentic interaction over decorative nostalgia.** Hardware keys, soft keys, menu navigation, backlight, native display aspect ratio and installation flow must behave consistently. The display grows vertically to use the available host area, but its model-specific pixel ratio is never stretched; symmetrical side margins are acceptable.
 2. **Profiles are data.** New phone models should normally be added by creating a profile and artwork, not by writing a new application branch.
 3. **Device profile and runtime are separate.** A profile describes hardware and appearance, then advertises one or more runtimes. An S60 device such as the N73 can run Java ME MIDlets and native Symbian applications. Selecting a runtime must not change the selected device shell.
 4. **Keep source identity.** Every catalogue entry records the original source, canonical package URL where permitted, source status, checksums and attribution.
@@ -36,7 +36,7 @@ The shell must not implement every historic phone as an independent emulator. It
 - Local library metadata model for JAR/JAD and SIS/SISX packages.
 - A small source registry with explicit `verified_live`, `verified_project`, `archived`, `historical`, `unavailable` and `not_checked` status values.
 - File import through Android's Storage Access Framework.
-- A first Java ME integration proof-of-concept based on J2ME Loader.
+- A Java ME runtime integrated into the virtual phone display. J2ME Loader is the initial technical reference and smoke-test engine, not the intended final companion-app experience. Opera Mini is a priority real-world MIDlet compatibility target.
 - A separate Symbian integration proof-of-concept based on EKA2L1, with a user-provided firmware/ROM setup step.
 
 ### Excluded from MVP
@@ -60,14 +60,14 @@ The shell must not implement every historic phone as an independent emulator. It
 
 ### B. Install a Java ME app
 
-1. Open the virtual phone's browser/catalogue or import a JAR/JAD file.
+1. Open Applications > Java applications or the Web section, then import a JAR/JAD package. Opera Mini is treated as a Java ME MIDlet, not as a native Android browser screen.
 2. If a JAD is supplied, parse the descriptor and resolve `MIDlet-Jar-URL` relative to the descriptor URL when appropriate.
 3. Fetch the JAR only after validating the URL and showing the source to the user.
 4. Compare the actual package size with `MIDlet-Jar-Size` when present; inspect the archive and manifest.
 5. Show name, vendor, version, requested permissions and target profile compatibility.
 6. Ask for explicit confirmation before install.
 7. Install into the Java ME backend and add a local launcher entry.
-8. Launch the MIDlet using the selected device's logical resolution and key mapping.
+8. Launch the MIDlet inside the virtual phone's display using the selected device's logical resolution and key mapping. For Opera Mini, verify that the required legacy network/proxy service and TLS behaviour remain usable; package import alone does not prove that the browser's remote service works.
 
 ### C. Install a Symbian app
 

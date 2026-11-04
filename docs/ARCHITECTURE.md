@@ -21,11 +21,16 @@ RetroMobileWorld Android host
 │   ├── EmulatorBackend contract
 │   ├── Java ME companion bridge (initially J2ME Loader)
 │   └── Symbian adapter (candidate: EKA2L1)
+├── Firmware Reference Workbench (developer-side, optional)
+│   ├── User-provided local RM-217 firmware input
+│   ├── File inventory, checksums and format identification
+│   ├── UI/resource/behaviour research where technically and legally permitted
+│   └── Provenance and rights gate before any asset is packaged
 ├── Application Library
 │   ├── Android document picker
 │   ├── JAR/JAD metadata inspector
 │   ├── SHA-256-addressed private package store
-│   └── Runtime handoff via temporary content URI
+│   └── Install/launch through the embedded Java ME runtime
 ├── Catalogue Layer
 │   ├── Source registry
 │   ├── Live website adapter
@@ -51,7 +56,7 @@ The backend boundary remains deliberately small until the in-process engine surf
 - provide display lifecycle and surface callbacks;
 - expose per-title storage and permission controls.
 
-The current companion bridge is an interim implementation. It shares a read-only URI with J2ME Loader; it does not expose a render surface or send the shell's keypad events yet.
+The current J2ME Loader companion bridge is only a temporary smoke-test path. It shares a read-only URI with a separate Android app; its game display and keypad are outside the virtual phone. The target architecture must host the MIDP/CLDC runtime in-process (or through a tightly integrated render/input bridge) so the MIDlet appears inside the selected phone display and receives canonical key-down/key-up events. Opera Mini is a priority MIDlet test, but its remote proxy/server dependency must be tested separately from local installation.
 
 ## 3. Device profile vs. operating system
 
@@ -68,15 +73,17 @@ An engine owns software behaviour:
 - Java ME: MIDP/CLDC runtime, AMS, MIDlet lifecycle, RMS and Java APIs.
 - Symbian: OS kernel/system services, native package manager, application environment and its system UI.
 
-A device profile is not a firmware image. Nokia S40-style and Sony Ericsson-style profiles are currently compatibility-oriented shells, not full recreations of the original proprietary OS firmware. Java ME programs run in a MIDP/CLDC runtime and do not require us to boot the complete phone firmware. A true Symbian environment is a separate emulation problem.
+A device profile is not a firmware image. For the Nokia 6300 target, an RM-217 firmware image may be used as a local research input to identify resource formats, screen assets, strings, menu structure and behaviour, provided the user has the right to perform the relevant analysis. That does not make the firmware a portable Android OS package. The original S40 system is built around a specific embedded platform, chipset, boot process and device services; making the complete image run on Android would require a compatible hardware/platform emulator or a substantial port of those layers, not merely changing screen sizes or patching a few files.
+
+The intended first implementation is therefore a faithful S40 interface reconstruction backed by documented observations and, where use is authorised, selected reference resources. The application runtime remains separate: MIDP/CLDC Java ME applications such as Opera Mini are installed as JAR/JAD MIDlets and executed by a real Java ME engine. This keeps the system UI and the legacy app runtime as two explicit layers.
 
 ## 4. Display pipeline
 
-1. The shell renderer reads the profile's logical display dimensions.
-2. An integrated backend should render into a frame/surface compatible with that logical resolution.
-3. The shell scales the frame into the profile's display aperture.
-4. The renderer applies an integer/pixel-preserving scale or fit-with-letterboxing policy.
-5. The bezel and keypad skin are drawn around the viewport; the game viewport is never stretched to fill a mismatched aperture.
+1. The shell renderer reads the profile's logical display dimensions and native width/height ratio.
+2. The LCD aperture is sized to preserve that ratio, even when the surrounding host layout uses independent X/Y scaling.
+3. The renderer uses as much available vertical space as possible; remaining horizontal space becomes symmetric side margins instead of stretching the LCD.
+4. The embedded backend renders into a frame/surface compatible with the profile's logical resolution.
+5. The bezel and keypad skin are drawn around the viewport; neither UI pixels nor MIDlet output are distorted to fill a mismatched aperture.
 
 The current external J2ME Loader handoff leaves display rendering to the companion application. An embedded backend must prove a stable surface before this boundary is frozen.
 

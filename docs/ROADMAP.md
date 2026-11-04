@@ -9,9 +9,14 @@
 - [x] Static source registry format drafted.
 - [x] Android CI workflow, Gradle Wrapper, remote build and local Android SDK build established.
 
-## Milestone 1 — phone-shell vertical slice
+## Milestone 1 — Nokia 6300 / Series 40 fidelity
 
-- [x] Basic Android phone-shell prototype with model-specific color display palettes.
+- [x] Expand the host UI to use the Android viewport while respecting system-bar insets.
+- [x] Preserve each profile's native LCD aspect ratio while using the available display height.
+- [ ] Establish the exact RM-217 firmware/software version used as the visual reference.
+- [ ] Build a local-only firmware inventory and resource-analysis workflow for a user-provided image; keep original firmware binaries out of Git and APKs.
+- [ ] Reconstruct standby, status indicators, menu views, category screens, gallery and navigation against the verified RM-217 reference.
+- [ ] Use only resources with a documented right-to-use basis in distributable builds; independently recreate any asset that is not cleared for packaging.
 - [ ] Recreate the Nokia 6300 standby screen, original soft-key layout and Navi-key path into the main menu.
 - [ ] Build the Series 40 main menu grid and navigable category submenus from the 6300 reference manual.
 - [ ] Add consistent Contacts, Messaging, Gallery, Media, Organizer and Settings screen layouts.
@@ -21,7 +26,13 @@
 - [ ] Add profile import/export and profile validation.
 - [ ] Add snapshot/UI tests for the three sample device profiles.
 
-## Milestone 2 — Java ME application execution
+## Milestone 2 — integrated Java ME applications
+
+- [ ] Replace the separate-app J2ME Loader handoff with an in-app MIDP/CLDC runtime surface.
+- [ ] Route virtual Nokia soft keys and D-pad press/release events into the running MIDlet.
+- [ ] Support installation and launch of arbitrary user-selected Java ME JAR/JAD applications from the virtual phone.
+- [ ] Validate Opera Mini as a priority MIDlet: import, install, launch in the phone display, navigation, network/proxy and TLS behaviour.
+- [ ] Keep the separate J2ME Loader handoff only as a temporary compatibility/smoke-test option until the in-app backend is proven.
 
 - [x] Add a local package library for JAR/JAD import, metadata inspection, SHA-256 identity and app-private storage.
 - [x] Add an in-phone Java applications list and explicit RUN handoff to J2ME Loader through a read-only content URI.

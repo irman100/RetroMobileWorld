@@ -90,14 +90,37 @@ class RetroPhoneView(
         // silhouette and leaving unused side margins on modern tall displays.
         val contentWidth = (width - paddingLeft - paddingRight).coerceAtLeast(1)
         val contentHeight = (height - paddingTop - paddingBottom).coerceAtLeast(1)
+        val scaleX = contentWidth / DESIGN_WIDTH
+        val scaleY = contentHeight / DESIGN_HEIGHT
         canvas.save()
         canvas.translate(paddingLeft.toFloat(), paddingTop.toFloat())
-        canvas.scale(contentWidth / DESIGN_WIDTH, contentHeight / DESIGN_HEIGHT)
-        drawPhone(canvas)
+        canvas.scale(scaleX, scaleY)
+        drawPhone(canvas, scaleX, scaleY)
         canvas.restore()
     }
 
-    private fun drawPhone(canvas: Canvas) {
+    /**
+     * Returns the virtual LCD aperture in design coordinates while compensating for
+     * the host canvas' independent X/Y scaling. This keeps the device's native pixel
+     * aspect ratio even when the surrounding shell fills a tall Android viewport.
+     */
+    private fun displayScreenRect(scaleX: Float, scaleY: Float): RectF {
+        val top = 72f
+        val bottom = 539f
+        val screenHeight = bottom - top
+        val logicalHeight = profile.display.height * 240f / profile.display.width
+        val screenWidth = DisplayAspectGeometry.designWidthForNativeAspect(
+            displayWidth = profile.display.width,
+            displayHeight = profile.display.height,
+            designHeight = screenHeight,
+            canvasScaleX = scaleX,
+            canvasScaleY = scaleY
+        )
+        val left = (DESIGN_WIDTH - screenWidth) / 2f
+        return RectF(left, top, left + screenWidth, bottom)
+    }
+
+    private fun drawPhone(canvas: Canvas, scaleX: Float, scaleY: Float) {
         paint.shader = LinearGradient(
             0f, 0f, DESIGN_WIDTH, DESIGN_HEIGHT,
             0xFF111D29.toInt(), 0xFF050B11.toInt(), Shader.TileMode.CLAMP
@@ -106,7 +129,13 @@ class RetroPhoneView(
         paint.shader = null
         drawTopToolbar(canvas)
 
-        val displayFrame = RectF(7f, 70f, 393f, 541f)
+        val screenRect = displayScreenRect(scaleX, scaleY)
+        val displayFrame = RectF(
+            screenRect.left - 2f,
+            70f,
+            screenRect.right + 2f,
+            541f
+        )
         paint.color = 0xFF02070B.toInt()
         canvas.drawRoundRect(displayFrame, 11f, 11f, paint)
         paint.color = 0xFF263744.toInt()
@@ -114,7 +143,7 @@ class RetroPhoneView(
         paint.strokeWidth = 1.1f
         canvas.drawRoundRect(displayFrame, 11f, 11f, paint)
         paint.style = Paint.Style.FILL
-        drawScreen(canvas, RectF(9f, 72f, 391f, 539f))
+        drawScreen(canvas, screenRect)
 
         paint.color = 0xFF0D1721.toInt()
         canvas.drawRect(0f, 548f, DESIGN_WIDTH, DESIGN_HEIGHT, paint)
@@ -739,6 +768,8 @@ class RetroPhoneView(
         val contentWidth = width - paddingLeft - paddingRight
         val contentHeight = height - paddingTop - paddingBottom
         if (event.action != MotionEvent.ACTION_UP || contentWidth <= 0 || contentHeight <= 0) return true
+        val scaleX = contentWidth / DESIGN_WIDTH
+        val scaleY = contentHeight / DESIGN_HEIGHT
         val x = (event.x - paddingLeft) * DESIGN_WIDTH / contentWidth
         val y = (event.y - paddingTop) * DESIGN_HEIGHT / contentHeight
         when {
@@ -748,7 +779,7 @@ class RetroPhoneView(
                 selectedItem = 0
                 detailMessage = null
             }
-            else -> handleTouch(x, y)
+            else -> handleTouch(x, y, displayScreenRect(scaleX, scaleY))
         }
         performClick()
         invalidate()
@@ -760,7 +791,7 @@ class RetroPhoneView(
         return true
     }
 
-    private fun handleTouch(x: Float, y: Float) {
+    private fun handleTouch(x: Float, y: Float, displayRect: RectF) {
         val control = profile.keypad.controls.firstOrNull {
             it.bounds.toControlCanvasRect().contains(x, y)
         }
@@ -768,13 +799,13 @@ class RetroPhoneView(
             onKey(control.key)
             return
         }
-        val displayRect = RectF(9f, 72f, 391f, 539f)
         if (displayRect.contains(x, y)) {
             when (screen) {
                 PhoneScreen.STANDBY -> onKey(CanonicalKey.SELECT)
                 PhoneScreen.MAIN_MENU -> {
+                    val logicalHeight = profile.display.height * 240f / profile.display.width
                     val displayX = (x - displayRect.left) * 240f / displayRect.width()
-                    val displayY = (y - displayRect.top) * 320f / displayRect.height()
+                    val displayY = (y - displayRect.top) * logicalHeight / displayRect.height()
                     val row = ((displayY - 48f) / 59f).toInt()
                     val column = (displayX / 80f).toInt()
                     val tapped = row * 3 + column
