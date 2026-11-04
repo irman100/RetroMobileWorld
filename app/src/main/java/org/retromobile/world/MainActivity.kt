@@ -108,7 +108,7 @@ class MainActivity : Activity() {
         if (record.metadata.kind == LegacyPackageKind.JAD) {
             val jarUri = record.metadata.jarUrl?.let(Uri::parse)
             val scheme = jarUri?.scheme?.lowercase()
-            if (scheme != "https" && scheme != "http") {
+            if (scheme != "https") {
                 showMessage(
                     "JAD needs its JAR file",
                     "This descriptor uses a relative or local MIDlet-Jar-URL. Import the matching .jar file instead."

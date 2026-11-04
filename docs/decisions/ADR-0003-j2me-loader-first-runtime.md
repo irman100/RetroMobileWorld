@@ -20,7 +20,7 @@ For the first working Java ME execution path, Retro Mobile World will:
 5. Share a read-only content URI with the separately installed `ru.playsoftware.j2meloader` app only after the user selects RUN.
 6. Leave installation confirmation, MIDlet lifecycle, rendering and runtime permissions to J2ME Loader during this interim phase.
 
-JAD files with an absolute HTTP(S) `MIDlet-Jar-URL` can be handed to the engine. A JAD that references a relative or local JAR is not launched by this first slice; import the JAR directly.
+JAD files with an absolute HTTPS `MIDlet-Jar-URL` can be handed to the engine. A JAD that references a relative or local JAR is not launched by this first slice; import the JAR directly.
 
 ## Consequences
 

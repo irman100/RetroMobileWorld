@@ -22,7 +22,7 @@ Snapshot: 4 November 2026. This describes the current development branch; physic
 ## Implemented but not yet device-verified
 
 - External J2ME Loader handoff. It requires the separate `ru.playsoftware.j2meloader` package to be installed. The integration uses its documented Android `ACTION_VIEW` file-handling entry point, but this branch still needs an end-to-end test on the target phone.
-- JAD handoff for descriptors with absolute HTTP(S) `MIDlet-Jar-URL`. Relative/local JAD references are intentionally not launched by the current prototype.
+- JAD handoff for descriptors with absolute HTTPS `MIDlet-Jar-URL`. Relative/local JAD references are intentionally not launched by the current prototype.
 
 ## Not implemented
 

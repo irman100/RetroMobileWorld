@@ -110,7 +110,7 @@ Local import / WAP page / catalogue item
           Engine installer / MIDlet
 ```
 
-No package is launched directly from an arbitrary download URL. Current import supports local JAR and JAD documents. It copies the selected file into app-private storage, computes SHA-256, inspects the JAR manifest or JAD descriptor, and only then adds it to the in-phone list. No archive extraction or automatic code execution occurs during import. The importer rejects unsupported extensions, malformed MIDlet metadata and packages above 128 MiB. JAD handoff currently requires an absolute HTTP(S) `MIDlet-Jar-URL`; import the corresponding JAR for local/relative descriptors.
+No package is launched directly from an arbitrary download URL. Current import supports local JAR and JAD documents. It copies the selected file into app-private storage, computes SHA-256, inspects the JAR manifest or JAD descriptor, and only then adds it to the in-phone list. No archive extraction or automatic code execution occurs during import. The importer rejects unsupported extensions, malformed MIDlet metadata and packages above 128 MiB. JAD handoff currently requires an absolute HTTPS `MIDlet-Jar-URL`; import the corresponding JAR for local/relative descriptors.
 
 The FileProvider exposes only the private package directory. A per-launch read grant is given to the explicitly selected J2ME Loader activity.
 

@@ -27,7 +27,7 @@ The profiles are compatibility-oriented starting points, not a claim that every 
 
 The first execution bridge targets [J2ME Loader](https://github.com/nikita36078/J2ME-Loader), an Apache-2.0 Android emulator. Retro Mobile World shares the selected package through a temporary, read-only Android content URI. J2ME Loader handles its own installation and MIDlet execution.
 
-This is an interim companion-runtime integration, not yet the final embedded-phone experience. The shell's rendering surface and canonical keypad are not yet connected directly to the MIDlet runtime. JAD descriptors that reference a remote HTTP(S) JAR can be handed to J2ME Loader; a JAD with a relative/local JAR reference must be imported together with its JAR by importing the JAR itself.
+This is an interim companion-runtime integration, not yet the final embedded-phone experience. The shell's rendering surface and canonical keypad are not yet connected directly to the MIDlet runtime. JAD descriptors that reference a remote HTTPS JAR can be handed to J2ME Loader; a JAD with a relative/local JAR reference must be imported together with its JAR by importing the JAR itself.
 
 ## Repository layout
 
@@ -38,6 +38,7 @@ profiles/              Device profiles, keymaps and profile schema
 docs/                  Product, architecture, legal, engine research and roadmap
 gradle/                Gradle wrapper configuration
 scripts/               Registry validation scripts
+.github/workflows/     Android CI
 ```
 
 ## Validation
@@ -65,7 +66,7 @@ The project uses Android Gradle Plugin 9.5.0, Gradle 9.6.0, JDK 17+ and Android 
 .\gradlew.bat --no-daemon :app:assembleDebug
 ```
 
-GitHub Actions uses the same checked-in wrapper for both tests and APK assembly.
+GitHub Actions uses the same checked-in wrapper for both tests and APK assembly. The initial shell APK and tests passed in CI on 4 November 2026; this Java package-library change has its own pull-request CI run.
 
 ## Symbian runtime
 
@@ -79,3 +80,15 @@ See [engine research](docs/ENGINE_RESEARCH.md), [third-party notices](THIRD_PART
 - A catalogue entry does not imply that a website is online, that its files are safe, or that redistribution is authorised.
 - Imported packages are untrusted. The app validates their container metadata, limits their size and does not auto-run them. Runtime permissions and network access remain controlled by the engine.
 - Third-party engines and dependencies retain their own licences. The original project code is licensed under GPL-3.0-only; see `LICENSE` and `THIRD_PARTY_NOTICES.md`.
+
+
+## Project documentation
+
+- [Product specification](docs/PRODUCT_SPEC.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Engine research](docs/ENGINE_RESEARCH.md)
+- [Catalogue and website strategy](docs/CATALOG_AND_WEBSITE.md)
+- [Legal and safety requirements](docs/LEGAL_AND_SAFETY.md)
+- [Implementation status](docs/IMPLEMENTATION_STATUS.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Architecture decisions](docs/decisions/)
