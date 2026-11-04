@@ -59,7 +59,7 @@ gradle :app:testDebugUnitTest
 gradle :app:assembleDebug
 ```
 
-The actual Android APK build has not yet been verified. Treat the first CI run as the authoritative build check; fix failures before claiming an installable APK.
+The initial Android debug APK was successfully built on 2026-11-04. Unit tests and `:app:assembleDebug` passed in GitHub Actions; the resulting APK is published as the `retro-mobile-world-debug` workflow artifact. This verifies the shell prototype build, not Java ME or Symbian runtime execution.
 
 ## Engine integration strategy
 
