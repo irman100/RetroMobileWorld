@@ -11,3 +11,7 @@ Candidates researched on 2026-11-04:
 - `hex007/freej2me` — GPL-3.0-or-later for FreeJ2ME; the bundled ObjectWeb ASM code has its own licence: https://github.com/hex007/freej2me
 
 This file is an integration checklist, not a substitute for the original licences.
+
+## Gradle Wrapper
+
+The Gradle Wrapper launcher scripts and bootstrap JAR are distributed with Gradle 9.6.0 under the Apache License 2.0. The scripts retain their upstream copyright and licence headers. Upstream source: https://github.com/gradle/gradle/tree/v9.6.0.

@@ -52,12 +52,14 @@ Both validators check the device-profile data, screen geometry, key coverage, ru
 
 ## Android build
 
-The project uses Android Gradle Plugin 9.5.0, Gradle 9.6.0, JDK 17+ and Android SDK platform 36. The initial source archive includes Gradle wrapper properties but not the generated wrapper executable/JAR. GitHub Actions installs Gradle and builds the debug APK. Locally, with Gradle 9.6.0 and Android SDK 36 installed:
+The project uses Android Gradle Plugin 9.5.0, Gradle 9.6.0, JDK 17+ and Android SDK platform 36. The Gradle Wrapper scripts and bootstrap JAR are included, so a separate system-wide Gradle installation is not required. On first launch, the wrapper downloads the pinned Gradle 9.6.0 distribution. Install JDK 17+ and Android SDK platform 36, then run from the repository root in Windows PowerShell:
 
-```bash
-gradle :app:testDebugUnitTest
-gradle :app:assembleDebug
+```powershell
+.\\gradlew.bat --no-daemon :app:testDebugUnitTest
+.\\gradlew.bat --no-daemon :app:assembleDebug
 ```
+
+GitHub Actions uses the same checked-in wrapper for both tests and APK assembly.
 
 The initial Android debug APK was successfully built on 2026-11-04. Unit tests and `:app:assembleDebug` passed in GitHub Actions; the resulting APK is published as the `retro-mobile-world-debug` workflow artifact. This verifies the shell prototype build, not Java ME or Symbian runtime execution.
 
