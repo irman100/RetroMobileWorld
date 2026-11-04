@@ -88,8 +88,11 @@ class RetroPhoneView(
         if (width <= 0 || height <= 0) return
         // Fill the host viewport. Independent axes avoid shrinking the handset
         // silhouette and leaving unused side margins on modern tall displays.
+        val contentWidth = (width - paddingLeft - paddingRight).coerceAtLeast(1)
+        val contentHeight = (height - paddingTop - paddingBottom).coerceAtLeast(1)
         canvas.save()
-        canvas.scale(width / DESIGN_WIDTH, height / DESIGN_HEIGHT)
+        canvas.translate(paddingLeft.toFloat(), paddingTop.toFloat())
+        canvas.scale(contentWidth / DESIGN_WIDTH, contentHeight / DESIGN_HEIGHT)
         drawPhone(canvas)
         canvas.restore()
     }
@@ -733,9 +736,11 @@ class RetroPhoneView(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.action != MotionEvent.ACTION_UP || width <= 0 || height <= 0) return true
-        val x = event.x * DESIGN_WIDTH / width
-        val y = event.y * DESIGN_HEIGHT / height
+        val contentWidth = width - paddingLeft - paddingRight
+        val contentHeight = height - paddingTop - paddingBottom
+        if (event.action != MotionEvent.ACTION_UP || contentWidth <= 0 || contentHeight <= 0) return true
+        val x = (event.x - paddingLeft) * DESIGN_WIDTH / contentWidth
+        val y = (event.y - paddingTop) * DESIGN_HEIGHT / contentHeight
         when {
             y <= 62f && x >= 300f -> nextProfile()
             y <= 62f -> {

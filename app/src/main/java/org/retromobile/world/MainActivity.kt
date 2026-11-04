@@ -11,6 +11,8 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.view.WindowManager
 import androidx.core.content.FileProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
@@ -38,6 +40,12 @@ class MainActivity : Activity() {
             onOpenGalleryItem = { item -> openGalleryItem(item) }
         }
         setContentView(phoneView)
+        ViewCompat.setOnApplyWindowInsetsListener(phoneView) { view, insets ->
+            val safeInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(safeInsets.left, safeInsets.top, safeInsets.right, safeInsets.bottom)
+            insets
+        }
+        ViewCompat.requestApplyInsets(phoneView)
         refreshJavaPackages()
     }
 
@@ -58,8 +66,11 @@ class MainActivity : Activity() {
     @Deprecated("Uses the platform activity-result callback for broad Android compatibility.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_IMPORT_PACKAGE || resultCode != RESULT_OK) return
         if (requestCode == REQUEST_GALLERY_PICKER) {
+            if (resultCode != RESULT_OK) {
+                pendingGalleryFolder = null
+                return
+            }
             val folder = pendingGalleryFolder ?: "Images"
             val selectedUris = mutableListOf<Uri>()
             data?.clipData?.let { clip ->
@@ -83,6 +94,7 @@ class MainActivity : Activity() {
             return
         }
 
+        if (requestCode != REQUEST_IMPORT_PACKAGE || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         val displayName = queryDisplayName(uri)
 

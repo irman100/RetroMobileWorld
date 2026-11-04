@@ -11,12 +11,10 @@
 
 ## Milestone 1 — phone-shell vertical slice
 
-- [x] Replace the fixed miniature handset canvas with a full-viewport layout: top device toolbar, expanded display and compact keypad above system navigation.
-- [x] Rebuild the Nokia 6300 main-menu order from the RM-217 user guide and draw an original vector icon set for its categories.
-- [x] Remove the generic Welcome card from standby; show the network/operator placeholder, clock, date and Series 40 soft-key actions.
-- [x] Add a functional Gallery file-selection flow: choose images, videos, audio and other files, list the selection in the virtual phone and open a selected item.
-- [ ] Compare the screen against verified Nokia 6300 S40 references and refine exact spacing, icon shapes, indicators and screen transitions.
-- [ ] Add an in-shell gallery browser, thumbnails, image/video preview and media playback.
+- [x] Basic Android phone-shell prototype with model-specific color display palettes.
+- [ ] Recreate the Nokia 6300 standby screen, original soft-key layout and Navi-key path into the main menu.
+- [ ] Build the Series 40 main menu grid and navigable category submenus from the 6300 reference manual.
+- [ ] Add consistent Contacts, Messaging, Gallery, Media, Organizer and Settings screen layouts.
 - [x] Install and launch the shell on a physical Android device.
 - [ ] Replace placeholder geometry with original, scalable vector shell artwork.
 - [ ] Verify all soft keys, D-pad, digits, star/hash and back/call/end hit areas on each profile.
