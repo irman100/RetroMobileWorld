@@ -195,12 +195,12 @@ class RetroPhoneView(
         )
     }
 
-    private fun drawScreen(canvas: Canvas, screen: RectF) {
+    private fun drawScreen(canvas: Canvas, screenRect: RectF) {
         canvas.save()
-        canvas.clipRect(screen)
+        canvas.clipRect(screenRect)
         val logicalHeight = profile.display.height * 240f / profile.display.width
-        val scale = screen.width() / 240f
-        canvas.translate(screen.left, screen.top)
+        val scale = screenRect.width() / 240f
+        canvas.translate(screenRect.left, screenRect.top)
         canvas.scale(scale, scale)
 
         val palette = screenPalette()
