@@ -21,7 +21,7 @@ Retro Mobile World recreates the experience of a classic mobile phone: device bo
 - Sony Ericsson K750i style — 176 × 220 display, Java ME target.
 - Nokia N73 / S60 style — 240 × 320 display, Java ME and Symbian runtime targets.
 
-The profiles are compatibility-oriented starting points, not a claim that every original firmware feature is implemented.
+The profiles are compatibility-oriented starting points, not original firmware images. The current release focuses on Java ME; Symbian is deferred.
 
 ## Java ME runtime status
 

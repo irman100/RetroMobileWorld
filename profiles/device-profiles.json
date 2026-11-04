@@ -863,15 +863,9 @@
           "backend": "j2me-loader",
           "systemImageRequired": false,
           "compatibilityHint": "MIDP 2.0 on an S60-sized display"
-        },
-        {
-          "family": "SYMBIAN",
-          "backend": "eka2l1",
-          "systemImageRequired": true,
-          "compatibilityHint": "S60v3; compatible user-supplied firmware required"
         }
       ],
-      "defaultRuntime": "SYMBIAN",
+      "defaultRuntime": "JAVA_ME",
       "assetProvenance": "Original prototype geometry; replace with reviewed original artwork before release."
     }
   ]

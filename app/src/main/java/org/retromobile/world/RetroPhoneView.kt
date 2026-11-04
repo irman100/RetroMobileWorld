@@ -2,10 +2,16 @@ package org.retromobile.world
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Shader
 import android.view.MotionEvent
 import android.view.View
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.min
 
 /**
@@ -88,8 +94,6 @@ class RetroPhoneView(
             canvas.drawCircle(306f, screen.top - 35f, 9f, paint)
         }
 
-        paint.color = 0xFFB9D0B0.toInt()
-        canvas.drawRect(screen, paint)
         drawScreen(canvas, screen)
         drawNavigationAssembly(canvas)
         drawKeyControls(canvas)
@@ -99,8 +103,70 @@ class RetroPhoneView(
         paint.textAlign = Paint.Align.CENTER
         canvas.drawText(profile.displayName, 200f, 844f, paint)
         paint.textSize = 10f
-        val runtimeName = if (activeRuntime == RuntimeFamily.JAVA_ME) "JAVA ME" else "SYMBIAN"
-        canvas.drawText("$runtimeName · TAP TO SWITCH", 200f, 866f, paint)
+        canvas.drawText("JAVA ME · MIDP 2.0", 200f, 866f, paint)
+    }
+
+    private data class ScreenPalette(
+        val top: Int,
+        val bottom: Int,
+        val status: Int,
+        val accent: Int,
+        val text: Int,
+        val muted: Int,
+        val selected: Int,
+        val panel: Int,
+        val iconColors: List<Int>
+    )
+
+    private fun screenPalette(): ScreenPalette = when (profile.osFamily) {
+        DeviceOsFamily.NOKIA_S40 -> ScreenPalette(
+            top = 0xFF1D6C9B.toInt(),
+            bottom = 0xFF06182E.toInt(),
+            status = 0xE610263A.toInt(),
+            accent = 0xFF25A8D7.toInt(),
+            text = 0xFFF5FAFF.toInt(),
+            muted = 0xFFB9D5E7.toInt(),
+            selected = 0xFF087FB7.toInt(),
+            panel = 0x99304F69.toInt(),
+            iconColors = listOf(
+                0xFF1599D0.toInt(),
+                0xFF16A6A0.toInt(),
+                0xFFE29A35.toInt(),
+                0xFF6B80D5.toInt()
+            )
+        )
+        DeviceOsFamily.SONY_ERICSSON_CLASSIC -> ScreenPalette(
+            top = 0xFF762433.toInt(),
+            bottom = 0xFF160D14.toInt(),
+            status = 0xE6120A10.toInt(),
+            accent = 0xFFE0445C.toInt(),
+            text = 0xFFFFF7F7.toInt(),
+            muted = 0xFFE2C4CB.toInt(),
+            selected = 0xFFB5233D.toInt(),
+            panel = 0xA52A111B.toInt(),
+            iconColors = listOf(
+                0xFFCB324A.toInt(),
+                0xFF7A8DA9.toInt(),
+                0xFFB77A35.toInt(),
+                0xFF687DAA.toInt()
+            )
+        )
+        DeviceOsFamily.SYMBIAN_S60 -> ScreenPalette(
+            top = 0xFF3C79B2.toInt(),
+            bottom = 0xFF09264D.toInt(),
+            status = 0xE6102B4B.toInt(),
+            accent = 0xFF3B94D0.toInt(),
+            text = 0xFFF5FAFF.toInt(),
+            muted = 0xFFBED7EB.toInt(),
+            selected = 0xFF267BB8.toInt(),
+            panel = 0x99304D6B.toInt(),
+            iconColors = listOf(
+                0xFF3296C8.toInt(),
+                0xFF42A58E.toInt(),
+                0xFFD59A45.toInt(),
+                0xFF718CD1.toInt()
+            )
+        )
     }
 
     private fun drawScreen(canvas: Canvas, screen: RectF) {
@@ -111,105 +177,227 @@ class RetroPhoneView(
         canvas.translate(screen.left, screen.top)
         canvas.scale(scale, scale)
 
-        paint.color = 0xFF78916F.toInt()
-        canvas.drawRect(0f, 0f, 240f, 22f, paint)
-        paint.color = 0xFF14251B.toInt()
-        paint.textAlign = Paint.Align.LEFT
-        paint.textSize = 10f
-        val deviceLabel = when (profile.osFamily) {
-            DeviceOsFamily.NOKIA_S40 -> "S40"
-            DeviceOsFamily.SONY_ERICSSON_CLASSIC -> "SONY ERICSSON"
-            DeviceOsFamily.SYMBIAN_S60 -> "S60"
-        }
-        val runtimeLabel = if (activeRuntime == RuntimeFamily.JAVA_ME) "JAVA" else "SYMBIAN"
-        canvas.drawText("$deviceLabel / $runtimeLabel", 7f, 15f, paint)
+        val palette = screenPalette()
+        drawWallpaper(canvas, logicalHeight, palette)
+        drawStatusBar(canvas, palette)
 
         if (showingJavaLibrary) {
-            drawJavaLibraryScreen(canvas, logicalHeight)
-            canvas.restore()
-            return
+            drawJavaLibraryScreen(canvas, logicalHeight, palette)
+        } else {
+            drawHomeScreen(canvas, logicalHeight, palette)
         }
-
-        paint.textAlign = Paint.Align.RIGHT
-        canvas.drawText("▮▮  ▰", 233f, 15f, paint)
-        paint.textAlign = Paint.Align.CENTER
-        paint.textSize = 23f
-        paint.color = 0xFF1B3022.toInt()
-        canvas.drawText("15:42", 120f, 68f, paint)
-        paint.textSize = 10f
-        canvas.drawText("WEDNESDAY · 12 AUG", 120f, 85f, paint)
-
-        paint.textAlign = Paint.Align.LEFT
-        paint.textSize = 12f
-        paint.color = 0xFF183121.toInt()
-        canvas.drawText("Main menu", 9f, 115f, paint)
-        menuItems.forEachIndexed { index, item ->
-            val y = 140f + index * 31f
-            if (index == selectedItem) {
-                paint.color = 0xFF526C4D.toInt()
-                canvas.drawRoundRect(RectF(4f, y - 16f, 236f, y + 7f), 4f, 4f, paint)
-                paint.color = 0xFFF0F4E9.toInt()
-            } else {
-                paint.color = 0xFF1B3022.toInt()
-            }
-            canvas.drawText(item, 12f, y, paint)
-        }
-        detailMessage?.let {
-            paint.color = 0xFF1B3022.toInt()
-            paint.textSize = 10f
-            canvas.drawText(it.take(32), 8f, logicalHeight - 24f, paint)
-        }
-
-        paint.color = 0xFF1B3022.toInt()
-        paint.textSize = 10f
-        paint.textAlign = Paint.Align.LEFT
-        canvas.drawText("PROFILE", 6f, logicalHeight - 7f, paint)
-        paint.textAlign = Paint.Align.RIGHT
-        canvas.drawText("OPEN", 234f, logicalHeight - 7f, paint)
         canvas.restore()
     }
 
-    private fun drawJavaLibraryScreen(canvas: Canvas, logicalHeight: Float) {
-        paint.color = 0xFF183121.toInt()
+    private fun drawWallpaper(canvas: Canvas, logicalHeight: Float, palette: ScreenPalette) {
+        paint.shader = LinearGradient(
+            0f, 0f, 0f, logicalHeight,
+            palette.top, palette.bottom, Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(0f, 0f, 240f, logicalHeight, paint)
+        paint.shader = null
+
+        when (profile.osFamily) {
+            DeviceOsFamily.NOKIA_S40 -> {
+                val wave = Path().apply {
+                    moveTo(0f, logicalHeight * 0.46f)
+                    cubicTo(58f, logicalHeight * 0.34f, 142f, logicalHeight * 0.69f, 240f, logicalHeight * 0.43f)
+                    lineTo(240f, logicalHeight * 0.68f)
+                    cubicTo(158f, logicalHeight * 0.86f, 72f, logicalHeight * 0.59f, 0f, logicalHeight * 0.83f)
+                    close()
+                }
+                paint.color = 0x4425B7E8.toInt()
+                canvas.drawPath(wave, paint)
+            }
+            DeviceOsFamily.SONY_ERICSSON_CLASSIC -> {
+                val ribbon = Path().apply {
+                    moveTo(0f, logicalHeight * 0.24f)
+                    lineTo(240f, logicalHeight * 0.06f)
+                    lineTo(240f, logicalHeight * 0.22f)
+                    lineTo(0f, logicalHeight * 0.43f)
+                    close()
+                }
+                paint.color = 0x42F0445C.toInt()
+                canvas.drawPath(ribbon, paint)
+                val secondRibbon = Path().apply {
+                    moveTo(0f, logicalHeight * 0.63f)
+                    lineTo(240f, logicalHeight * 0.39f)
+                    lineTo(240f, logicalHeight * 0.52f)
+                    lineTo(0f, logicalHeight * 0.78f)
+                    close()
+                }
+                paint.color = 0x24FF8795.toInt()
+                canvas.drawPath(secondRibbon, paint)
+            }
+            DeviceOsFamily.SYMBIAN_S60 -> {
+                val wave = Path().apply {
+                    moveTo(0f, logicalHeight * 0.40f)
+                    cubicTo(62f, logicalHeight * 0.22f, 155f, logicalHeight * 0.55f, 240f, logicalHeight * 0.34f)
+                    lineTo(240f, logicalHeight * 0.49f)
+                    cubicTo(152f, logicalHeight * 0.73f, 84f, logicalHeight * 0.42f, 0f, logicalHeight * 0.65f)
+                    close()
+                }
+                paint.color = 0x353FC0F3.toInt()
+                canvas.drawPath(wave, paint)
+            }
+        }
+    }
+
+    private fun drawStatusBar(canvas: Canvas, palette: ScreenPalette) {
+        paint.color = palette.status
+        canvas.drawRect(0f, 0f, 240f, 22f, paint)
+        paint.color = palette.text
+        paint.textAlign = Paint.Align.LEFT
+        paint.textSize = 8f
+        val deviceLabel = when (profile.osFamily) {
+            DeviceOsFamily.NOKIA_S40 -> "NOKIA · JAVA"
+            DeviceOsFamily.SONY_ERICSSON_CLASSIC -> "SONY ERICSSON"
+            DeviceOsFamily.SYMBIAN_S60 -> "S60 · JAVA"
+        }
+        canvas.drawText(deviceLabel, 7f, 14f, paint)
+
+        for (bar in 0 until 4) {
+            val barHeight = 4f + bar * 2.5f
+            val left = 180f + bar * 5f
+            canvas.drawRoundRect(RectF(left, 16f - barHeight, left + 3f, 16f), 1f, 1f, paint)
+        }
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1f
+        canvas.drawRoundRect(RectF(205f, 6f, 226f, 16f), 2f, 2f, paint)
+        paint.style = Paint.Style.FILL
+        canvas.drawRect(227f, 9f, 230f, 13f, paint)
+        paint.color = 0xFF75D28D.toInt()
+        canvas.drawRect(207f, 8f, 222f, 14f, paint)
+    }
+
+    private fun drawHomeScreen(canvas: Canvas, logicalHeight: Float, palette: ScreenPalette) {
+        val now = Date()
+        val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(now)
+        val date = SimpleDateFormat("EEE, d MMM", Locale.getDefault())
+            .format(now)
+            .uppercase(Locale.getDefault())
+
+        paint.color = palette.text
+        paint.textAlign = Paint.Align.CENTER
+        paint.textSize = 29f
+        canvas.drawText(time, 120f, 66f, paint)
+        paint.color = palette.muted
+        paint.textSize = 9f
+        canvas.drawText(date, 120f, 82f, paint)
+
+        paint.color = palette.panel
+        canvas.drawRoundRect(RectF(7f, 99f, 233f, logicalHeight - 23f), 7f, 7f, paint)
+        paint.color = palette.text
+        paint.textAlign = Paint.Align.LEFT
+        paint.textSize = 10f
+        val heading = when (profile.osFamily) {
+            DeviceOsFamily.NOKIA_S40 -> "MAIN MENU"
+            DeviceOsFamily.SONY_ERICSSON_CLASSIC -> "MENU"
+            DeviceOsFamily.SYMBIAN_S60 -> "APPLICATIONS"
+        }
+        canvas.drawText(heading, 14f, 116f, paint)
+
+        val labels = listOf("Java apps", "Browser", "Games", "Settings")
+        val glyphs = listOf("J", "W", "G", "S")
+        menuItems.forEachIndexed { index, item ->
+            val column = index % 2
+            val row = index / 2
+            val left = 14f + column * 112f
+            val top = 130f + row * 67f
+            if (index == selectedItem) {
+                paint.color = palette.selected
+                canvas.drawRoundRect(RectF(left - 3f, top - 3f, left + 101f, top + 56f), 6f, 6f, paint)
+            }
+            paint.color = palette.iconColors[index % palette.iconColors.size]
+            canvas.drawRoundRect(RectF(left + 4f, top + 3f, left + 34f, top + 33f), 7f, 7f, paint)
+            paint.color = 0xFFFFFFFF.toInt()
+            paint.textAlign = Paint.Align.CENTER
+            paint.textSize = 17f
+            canvas.drawText(glyphs[index], left + 19f, top + 24f, paint)
+            paint.textAlign = Paint.Align.LEFT
+            paint.textSize = 9f
+            paint.color = palette.text
+            canvas.drawText(labels[index], left + 40f, top + 21f, paint)
+        }
+
+        detailMessage?.let {
+            paint.color = palette.muted
+            paint.textSize = 8f
+            paint.textAlign = Paint.Align.LEFT
+            canvas.drawText(it.take(34), 12f, logicalHeight - 29f, paint)
+        }
+        drawSoftKeyBar(canvas, logicalHeight, palette, "Profiles", "Open")
+    }
+
+    private fun drawJavaLibraryScreen(canvas: Canvas, logicalHeight: Float, palette: ScreenPalette) {
+        paint.color = palette.text
         paint.textAlign = Paint.Align.LEFT
         paint.textSize = 13f
-        canvas.drawText("Java applications", 9f, 54f, paint)
+        canvas.drawText("Java applications", 10f, 48f, paint)
+        paint.color = palette.muted
+        paint.textSize = 8f
+        canvas.drawText(javaPackages.size.toString() + " APPS INSTALLED", 11f, 62f, paint)
 
         if (javaPackages.isEmpty()) {
-            paint.textSize = 11f
-            canvas.drawText("No imported applications", 10f, 112f, paint)
-            canvas.drawText("Choose IMPORT to add a JAR or JAD", 10f, 133f, paint)
+            paint.color = palette.panel
+            canvas.drawRoundRect(RectF(8f, 82f, 232f, logicalHeight - 29f), 7f, 7f, paint)
+            paint.color = palette.accent
+            canvas.drawCircle(120f, 133f, 18f, paint)
+            paint.color = palette.text
+            paint.textAlign = Paint.Align.CENTER
+            paint.textSize = 25f
+            canvas.drawText("+", 120f, 142f, paint)
+            paint.textSize = 10f
+            canvas.drawText("No Java apps yet", 120f, 174f, paint)
+            paint.color = palette.muted
+            paint.textSize = 8f
+            canvas.drawText("Import a JAR or JAD package", 120f, 190f, paint)
         } else {
             val firstVisible = (javaLibrarySelection / MAX_VISIBLE_APPS) * MAX_VISIBLE_APPS
             javaPackages.drop(firstVisible).take(MAX_VISIBLE_APPS).forEachIndexed { row, record ->
                 val absoluteIndex = firstVisible + row
-                val y = 91f + row * 34f
-                if (absoluteIndex == javaLibrarySelection) {
-                    paint.color = 0xFF526C4D.toInt()
-                    canvas.drawRoundRect(RectF(4f, y - 17f, 236f, y + 8f), 4f, 4f, paint)
-                    paint.color = 0xFFF0F4E9.toInt()
-                } else {
-                    paint.color = 0xFF1B3022.toInt()
-                }
+                val y = 94f + row * 37f
+                val selected = absoluteIndex == javaLibrarySelection
+                paint.color = if (selected) palette.selected else palette.panel
+                canvas.drawRoundRect(RectF(5f, y - 18f, 235f, y + 13f), 5f, 5f, paint)
+                paint.color = palette.iconColors[absoluteIndex % palette.iconColors.size]
+                canvas.drawRoundRect(RectF(10f, y - 12f, 31f, y + 8f), 4f, 4f, paint)
+                paint.color = 0xFFFFFFFF.toInt()
+                paint.textAlign = Paint.Align.CENTER
+                paint.textSize = 9f
+                canvas.drawText("J", 20.5f, y + 2f, paint)
                 paint.textAlign = Paint.Align.LEFT
-                paint.textSize = 12f
-                canvas.drawText(record.metadata.title.take(27), 10f, y, paint)
-                paint.textSize = 8f
+                paint.color = palette.text
+                paint.textSize = 10f
+                canvas.drawText(record.metadata.title.take(27), 37f, y - 2f, paint)
+                paint.color = palette.muted
+                paint.textSize = 7f
                 canvas.drawText(
-                    record.metadata.vendor.take(32) + " · " + record.metadata.version,
-                    10f,
-                    y + 11f,
+                    record.metadata.vendor.take(27) + " · " + record.metadata.version,
+                    37f,
+                    y + 9f,
                     paint
                 )
             }
         }
+        drawSoftKeyBar(canvas, logicalHeight, palette, "Import", "Run")
+    }
 
-        paint.color = 0xFF1B3022.toInt()
-        paint.textSize = 10f
+    private fun drawSoftKeyBar(
+        canvas: Canvas,
+        logicalHeight: Float,
+        palette: ScreenPalette,
+        leftLabel: String,
+        rightLabel: String
+    ) {
+        paint.color = 0xD90A1019.toInt()
+        canvas.drawRect(0f, logicalHeight - 20f, 240f, logicalHeight, paint)
+        paint.color = palette.text
+        paint.textSize = 9f
         paint.textAlign = Paint.Align.LEFT
-        canvas.drawText("IMPORT", 6f, logicalHeight - 7f, paint)
+        canvas.drawText(leftLabel, 8f, logicalHeight - 7f, paint)
         paint.textAlign = Paint.Align.RIGHT
-        canvas.drawText("RUN", 234f, logicalHeight - 7f, paint)
+        canvas.drawText(rightLabel, 232f, logicalHeight - 7f, paint)
     }
 
     private fun drawNavigationAssembly(canvas: Canvas) {
@@ -298,10 +486,6 @@ class RetroPhoneView(
     }
 
     private fun handleTouch(x: Float, y: Float) {
-        if (y in 852f..880f && x in 70f..330f) {
-            switchRuntime()
-            return
-        }
         val normalizedX = x / DESIGN_WIDTH
         val normalizedY = y / DESIGN_HEIGHT
         val control = profile.keypad.controls.firstOrNull { it.bounds.contains(normalizedX, normalizedY) }

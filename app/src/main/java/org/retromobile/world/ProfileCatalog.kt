@@ -114,10 +114,9 @@ object ProfileCatalog {
                 controls = commonControls(0.245f, 0.733f, 0.1875f, 0.0511f, 0.135f, 0.037f, 0.506f, 0.694f)
             ),
             runtimeTargets = listOf(
-                RuntimeTarget(RuntimeFamily.JAVA_ME, "j2me-loader", false, "MIDP 2.0 on an S60-sized display"),
-                RuntimeTarget(RuntimeFamily.SYMBIAN, "eka2l1", true, "S60v3; compatible user-supplied firmware required")
+                RuntimeTarget(RuntimeFamily.JAVA_ME, "j2me-loader", false, "MIDP 2.0 on an S60-sized display")
             ),
-            defaultRuntime = RuntimeFamily.SYMBIAN
+            defaultRuntime = RuntimeFamily.JAVA_ME
         )
     )
 }

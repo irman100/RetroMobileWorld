@@ -4,7 +4,7 @@
 
 - [x] Product direction and modular architecture documented.
 - [x] Engine candidates and headline licences researched.
-- [x] Device profile model and three sample profiles drafted, including dual Java ME + Symbian support on the N73-like S60 profile.
+- [x] Device profile model and three sample profiles drafted, with Java ME as the only active runtime in the current release; Symbian is deferred.
 - [x] JSON profile loader wired into Android startup; per-device display aperture and all 22 canonical keypad controls are profile data.
 - [x] Static source registry format drafted.
 - [x] Android CI workflow, Gradle Wrapper, remote build and local Android SDK build established.
@@ -29,14 +29,9 @@
 - [ ] Add per-title RMS storage, lifecycle handling and user-controlled network access.
 - [ ] Pin the engine source revision and capture its complete licence/NOTICE inventory before vendoring or embedding it.
 
-## Milestone 3 — Symbian runtime
+## Deferred milestone — Symbian runtime (after Java ME)
 
-- [ ] Pin and build EKA2L1 for the chosen Android ABI.
-- [ ] Test boot and firmware setup using user-provided system files.
-- [ ] Test compatible SIS/SISX applications and N-Gage software.
-- [ ] Measure Android performance and document unsupported titles.
-- [ ] Decide whether EKA2L1 should be embedded or run as a companion engine.
-- [ ] Complete GPL/source-distribution and third-party licence review.
+- [ ] Revisit EKA2L1 only after Java ME runtime, display and keypad integration are complete.
 
 ## Milestone 4 — retro mobile internet
 

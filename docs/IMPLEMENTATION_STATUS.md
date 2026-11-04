@@ -7,7 +7,7 @@ Snapshot: 4 November 2026. This describes the current development branch; physic
 - Android application entry point and interactive phone-shell prototype.
 - Three device profiles: Nokia 6300/S40 style, Sony Ericsson K750i style and Nokia N73/S60 style.
 - Versioned JSON device-profile registry with logical display dimensions, display aperture and 22 canonical keypad controls.
-- Runtime capability model: the N73-like profile advertises both Java ME and Symbian.
+- All three active device profiles select Java ME. Symbian is deferred and is not selectable in the current interface.
 - Local Java ME package library:
   - imports `.jar` and `.jad` through Android's document picker;
   - copies packages into app-private storage and identifies them by SHA-256;
@@ -27,9 +27,9 @@ Snapshot: 4 November 2026. This describes the current development branch; physic
 ## Not implemented
 
 - J2ME Loader is not embedded in the Retro Mobile World APK. The game display, canonical keypad events, MIDlet lifecycle and RMS storage are not yet connected to the shell.
-- Symbian/EKA2L1 runtime integration, Android ABI validation, firmware setup and SIS/SISX installation.
+- Symbian/EKA2L1 is deferred; no Symbian firmware or SIS/SISX execution is part of the current milestone.
 - WAP browser, OTA catalogue and website.
-- Manufacturer-specific finished phone artwork and original sound packs; current device shells still use neutral placeholder geometry.
+- Manufacturer-specific finished phone artwork and original sound packs; current color LCD/menu rendering is an original approximation, not original firmware UI.
 - Per-title network permissions and runtime isolation beyond the import library's private storage.
 
 ## Next engineering steps
@@ -38,4 +38,4 @@ Snapshot: 4 November 2026. This describes the current development branch; physic
 2. Validate JAR import, metadata display, J2ME Loader handoff and MIDlet installation on a physical Android phone.
 3. Prove display sizing and canonical key mapping with reference MIDlets; decide whether to embed a maintained J2ME Loader fork or keep a companion process temporarily.
 4. Add per-title settings, RMS persistence and explicit runtime permissions.
-5. Evaluate EKA2L1 on Android separately; require user-provided compatible system files.
+5. Revisit Symbian only after Java ME runtime, display and keypad integration are complete.
