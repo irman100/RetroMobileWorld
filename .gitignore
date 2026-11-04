@@ -1,0 +1,14 @@
+.gradle/
+.idea/
+local.properties
+**/build/
+**/.cxx/
+*.iml
+*.apk
+*.aab
+*.jks
+*.keystore
+.symbian-firmware/
+roms/
+firmware/
+packages-private/
