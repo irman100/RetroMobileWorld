@@ -12,7 +12,6 @@ import android.view.View
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.min
 
 /**
  * Interactive phone shell. The Java application library is drawn inside the virtual display.
@@ -33,29 +32,38 @@ class RetroPhoneView(
     private var quickAccessSelection = 0
     private var javaLibrarySelection = 0
     private var javaPackages: List<LegacyPackageRecord> = emptyList()
+    private var galleryFolder = "Images"
+    private var gallerySelection = 0
+    private var galleryItems: List<GalleryMediaItem> = emptyList()
 
     var onImportJavaAppRequested: (() -> Unit)? = null
     var onLaunchJavaApp: ((LegacyPackageRecord) -> Unit)? = null
+    var onGalleryFolderSelected: ((String) -> Unit)? = null
+    var onOpenGalleryItem: ((GalleryMediaItem) -> Unit)? = null
 
     private val profile: DeviceProfile
         get() = profiles[profileIndex]
 
-    private enum class PhoneScreen { STANDBY, MAIN_MENU, SUBMENU, JAVA_LIBRARY, QUICK_ACCESS, CONTACTS }
+    private enum class PhoneScreen { STANDBY, MAIN_MENU, SUBMENU, JAVA_LIBRARY, QUICK_ACCESS, CONTACTS, GALLERY_ITEMS }
+
+    data class GalleryMediaItem(val name: String, val uri: String, val mimeType: String)
 
     private data class MenuItem(val title: String, val glyph: String)
 
+    // Main-menu sequence follows the Nokia 6300 (RM-217) user guide.
     private val menuItems = listOf(
-        MenuItem("Messaging", "M"),
-        MenuItem("Contacts", "C"),
-        MenuItem("Call log", "↺"),
-        MenuItem("Settings", "S"),
-        MenuItem("Gallery", "G"),
-        MenuItem("Media", "♪"),
-        MenuItem("Organizer", "O"),
-        MenuItem("Applications", "J"),
-        MenuItem("Web", "W"),
-        MenuItem("Bluetooth", "B"),
-        MenuItem("SIM services", "SIM")
+        MenuItem("Messaging", "message"),
+        MenuItem("Contacts", "contacts"),
+        MenuItem("Call log", "calls"),
+        MenuItem("Settings", "settings"),
+        MenuItem("Operator menu", "operator"),
+        MenuItem("Gallery", "gallery"),
+        MenuItem("Media", "media"),
+        MenuItem("Push to talk", "ptt"),
+        MenuItem("Organizer", "organizer"),
+        MenuItem("Applications", "apps"),
+        MenuItem("Web", "web"),
+        MenuItem("SIM services", "sim")
     )
 
     private val quickAccessItems = listOf("Profiles", "Java applications", "Gallery", "Settings")
@@ -77,59 +85,68 @@ class RetroPhoneView(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val scale = min(width / DESIGN_WIDTH, height / DESIGN_HEIGHT)
-        if (scale <= 0f) return
-        val left = (width - DESIGN_WIDTH * scale) / 2f
-        val top = (height - DESIGN_HEIGHT * scale) / 2f
+        if (width <= 0 || height <= 0) return
+        // Fill the host viewport. Independent axes avoid shrinking the handset
+        // silhouette and leaving unused side margins on modern tall displays.
         canvas.save()
-        canvas.translate(left, top)
-        canvas.scale(scale, scale)
+        canvas.scale(width / DESIGN_WIDTH, height / DESIGN_HEIGHT)
         drawPhone(canvas)
         canvas.restore()
     }
 
     private fun drawPhone(canvas: Canvas) {
-        val bodyColor = when (profile.osFamily) {
-            DeviceOsFamily.NOKIA_S40 -> 0xFF66747A.toInt()
-            DeviceOsFamily.SONY_ERICSSON_CLASSIC -> 0xFF778187.toInt()
-            DeviceOsFamily.SYMBIAN_S60 -> 0xFF344B57.toInt()
-        }
-        paint.color = 0xFF101820.toInt()
-        canvas.drawRoundRect(RectF(28f, 20f, 372f, 880f), 42f, 42f, paint)
-        paint.color = bodyColor
-        canvas.drawRoundRect(RectF(38f, 30f, 362f, 870f), 36f, 36f, paint)
-
-        val screen = profile.shell.displayAperture.toCanvasRect()
-        paint.color = 0xFF0B1115.toInt()
-        canvas.drawRoundRect(
-            RectF(screen.left - 12f, screen.top - 12f, screen.right + 12f, screen.bottom + 12f),
-            14f,
-            14f,
-            paint
+        paint.shader = LinearGradient(
+            0f, 0f, DESIGN_WIDTH, DESIGN_HEIGHT,
+            0xFF111D29.toInt(), 0xFF050B11.toInt(), Shader.TileMode.CLAMP
         )
-        paint.color = 0xFF101820.toInt()
-        canvas.drawRoundRect(RectF(164f, screen.top - 39f, 236f, screen.top - 31f), 4f, 4f, paint)
-        canvas.drawCircle(270f, screen.top - 35f, 5f, paint)
-        if (profile.osFamily == DeviceOsFamily.SONY_ERICSSON_CLASSIC) {
-            paint.color = 0xFF17242A.toInt()
-            canvas.drawCircle(306f, screen.top - 35f, 9f, paint)
-        }
+        canvas.drawRect(0f, 0f, DESIGN_WIDTH, DESIGN_HEIGHT, paint)
+        paint.shader = null
+        drawTopToolbar(canvas)
 
-        drawScreen(canvas, screen)
+        val displayFrame = RectF(7f, 70f, 393f, 541f)
+        paint.color = 0xFF02070B.toInt()
+        canvas.drawRoundRect(displayFrame, 11f, 11f, paint)
+        paint.color = 0xFF263744.toInt()
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1.1f
+        canvas.drawRoundRect(displayFrame, 11f, 11f, paint)
+        paint.style = Paint.Style.FILL
+        drawScreen(canvas, RectF(9f, 72f, 391f, 539f))
+
+        paint.color = 0xFF0D1721.toInt()
+        canvas.drawRect(0f, 548f, DESIGN_WIDTH, DESIGN_HEIGHT, paint)
+        paint.color = 0xFF334554.toInt()
+        canvas.drawRect(0f, 548f, DESIGN_WIDTH, 550f, paint)
         drawNavigationAssembly(canvas)
         drawKeyControls(canvas)
+    }
 
-        paint.color = 0xFFCED7D9.toInt()
-        paint.textSize = 16f
-        paint.textAlign = Paint.Align.CENTER
-        canvas.drawText(profile.displayName, 200f, 844f, paint)
-        paint.textSize = 10f
-        val platformLabel = when (profile.osFamily) {
-            DeviceOsFamily.NOKIA_S40 -> "SERIES 40 · JAVA ME"
-            DeviceOsFamily.SONY_ERICSSON_CLASSIC -> "JAVA ME"
-            DeviceOsFamily.SYMBIAN_S60 -> "S60 STYLE · JAVA ME"
+    private fun drawTopToolbar(canvas: Canvas) {
+        paint.color = 0xFF101A24.toInt()
+        canvas.drawRect(0f, 0f, DESIGN_WIDTH, 64f, paint)
+        paint.color = 0xFF263744.toInt()
+        canvas.drawRect(0f, 63f, DESIGN_WIDTH, 65f, paint)
+        paint.color = 0xFFEAF2F7.toInt()
+        paint.textAlign = Paint.Align.LEFT
+        paint.textSize = 15f
+        paint.isFakeBoldText = true
+        canvas.drawText("Retro Mobile World", 16f, 26f, paint)
+        paint.isFakeBoldText = false
+        paint.color = 0xFF9EB1BF.toInt()
+        paint.textSize = 8.5f
+        val family = when (profile.osFamily) {
+            DeviceOsFamily.NOKIA_S40 -> "SERIES 40  ·  JAVA ME"
+            DeviceOsFamily.SONY_ERICSSON_CLASSIC -> "SONY ERICSSON  ·  JAVA ME"
+            DeviceOsFamily.SYMBIAN_S60 -> "SYMBIAN S60  ·  JAVA ME"
         }
-        canvas.drawText(platformLabel, 200f, 866f, paint)
+        canvas.drawText(profile.displayName + "  /  " + family, 16f, 46f, paint)
+        paint.color = 0xFF1B2A37.toInt()
+        canvas.drawRoundRect(RectF(307f, 10f, 390f, 54f), 8f, 8f, paint)
+        paint.color = 0xFFE6EDF2.toInt()
+        paint.textAlign = Paint.Align.CENTER
+        paint.textSize = 8.5f
+        canvas.drawText("DEVICE", 348f, 27f, paint)
+        canvas.drawText("CHANGE  ›", 348f, 42f, paint)
     }
 
     private data class ScreenPalette(
@@ -199,9 +216,10 @@ class RetroPhoneView(
         canvas.save()
         canvas.clipRect(screenRect)
         val logicalHeight = profile.display.height * 240f / profile.display.width
-        val scale = screenRect.width() / 240f
+        val scaleX = screenRect.width() / 240f
+        val scaleY = screenRect.height() / logicalHeight
         canvas.translate(screenRect.left, screenRect.top)
-        canvas.scale(scale, scale)
+        canvas.scale(scaleX, scaleY)
 
         val palette = screenPalette()
         drawWallpaper(canvas, logicalHeight, palette)
@@ -214,6 +232,7 @@ class RetroPhoneView(
             PhoneScreen.JAVA_LIBRARY -> drawJavaLibraryScreen(canvas, logicalHeight, palette)
             PhoneScreen.QUICK_ACCESS -> drawQuickAccessScreen(canvas, logicalHeight, palette)
             PhoneScreen.CONTACTS -> drawContactsScreen(canvas, logicalHeight, palette)
+            PhoneScreen.GALLERY_ITEMS -> drawGalleryItemsScreen(canvas, logicalHeight, palette)
         }
         canvas.restore()
     }
@@ -308,29 +327,18 @@ class RetroPhoneView(
 
         paint.color = palette.text
         paint.textAlign = Paint.Align.CENTER
-        paint.textSize = 13f
-        val brand = when (profile.osFamily) {
-            DeviceOsFamily.NOKIA_S40 -> "NOKIA"
-            DeviceOsFamily.SONY_ERICSSON_CLASSIC -> "Sony Ericsson"
-            DeviceOsFamily.SYMBIAN_S60 -> "Nokia"
+        paint.textSize = 9f
+        val operatorName = when (profile.osFamily) {
+            DeviceOsFamily.NOKIA_S40 -> "Network operator"
+            DeviceOsFamily.SONY_ERICSSON_CLASSIC -> "Network"
+            DeviceOsFamily.SYMBIAN_S60 -> "Operator"
         }
-        canvas.drawText(brand, 120f, 57f, paint)
-
-        paint.textSize = 31f
-        canvas.drawText(time, 120f, 112f, paint)
+        canvas.drawText(operatorName, 120f, 47f, paint)
+        paint.textSize = 34f
+        canvas.drawText(time, 120f, 111f, paint)
         paint.color = palette.muted
         paint.textSize = 9f
-        canvas.drawText(date, 120f, 132f, paint)
-
-        paint.color = palette.panel
-        canvas.drawRoundRect(RectF(24f, 159f, 216f, 226f), 7f, 7f, paint)
-        paint.color = palette.text
-        paint.textSize = 10f
-        canvas.drawText("Welcome", 120f, 183f, paint)
-        paint.color = palette.muted
-        paint.textSize = 8f
-        canvas.drawText("Your phone is ready", 120f, 201f, paint)
-
+        canvas.drawText(date, 120f, 131f, paint)
         detailMessage?.let {
             paint.color = palette.text
             paint.textSize = 8f
@@ -342,47 +350,129 @@ class RetroPhoneView(
     private fun drawMainMenuScreen(canvas: Canvas, logicalHeight: Float, palette: ScreenPalette) {
         paint.color = palette.text
         paint.textAlign = Paint.Align.LEFT
-        paint.textSize = 13f
-        canvas.drawText("Menu", 10f, 45f, paint)
-
-        val columns = 3
-        val cellWidth = 78f
-        val cellHeight = 55f
+        paint.textSize = 12f
+        canvas.drawText("Menu", 9f, 43f, paint)
+        val cellWidth = 80f
+        val cellHeight = 59f
         menuItems.forEachIndexed { index, item ->
-            val column = index % columns
-            val row = index / columns
-            val left = 3f + column * cellWidth
-            val top = 55f + row * cellHeight
+            val column = index % 3
+            val row = index / 3
+            val left = column * cellWidth
+            val top = 48f + row * cellHeight
             val selected = index == selectedItem
-
             if (selected) {
                 paint.color = palette.selected
-                canvas.drawRoundRect(
-                    RectF(left + 2f, top + 1f, left + cellWidth - 2f, top + cellHeight - 2f),
-                    5f,
-                    5f,
-                    paint
-                )
+                canvas.drawRoundRect(RectF(left + 3f, top + 1f, left + cellWidth - 3f, top + cellHeight - 2f), 5f, 5f, paint)
             }
-
             paint.color = palette.iconColors[index % palette.iconColors.size]
-            canvas.drawRoundRect(
-                RectF(left + 25f, top + 3f, left + 51f, top + 29f),
-                6f,
-                6f,
-                paint
-            )
-            paint.color = 0xFFFFFFFF.toInt()
-            paint.textAlign = Paint.Align.CENTER
-            paint.textSize = if (item.glyph == "SIM") 7f else 14f
-            canvas.drawText(item.glyph, left + 38f, top + 21f, paint)
-
+            canvas.drawRoundRect(RectF(left + 28f, top + 3f, left + 52f, top + 27f), 6f, 6f, paint)
+            drawMenuIcon(canvas, index, left + 40f, top + 15f)
             paint.color = if (selected) 0xFFFFFFFF.toInt() else palette.text
-            paint.textSize = 7.5f
-            canvas.drawText(item.title, left + cellWidth / 2f, top + 42f, paint)
+            paint.textAlign = Paint.Align.CENTER
+            paint.textSize = 7.4f
+            canvas.drawText(item.title, left + 40f, top + 43f, paint)
         }
-
         drawSoftKeyBar(canvas, logicalHeight, palette, "Options", "Select")
+    }
+
+    /** Original vector symbols remain crisp at all virtual display sizes. */
+    private fun drawMenuIcon(canvas: Canvas, index: Int, cx: Float, cy: Float) {
+        paint.color = 0xFFFFFFFF.toInt()
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1.5f
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.strokeJoin = Paint.Join.ROUND
+        when (index) {
+            0 -> {
+                val path = Path().apply {
+                    moveTo(cx - 8f, cy - 6f); quadTo(cx - 10f, cy - 8f, cx - 7f, cy - 8f)
+                    lineTo(cx + 7f, cy - 8f); quadTo(cx + 9f, cy - 8f, cx + 9f, cy - 5f)
+                    lineTo(cx + 9f, cy + 4f); quadTo(cx + 9f, cy + 6f, cx + 6f, cy + 6f)
+                    lineTo(cx - 2f, cy + 6f); lineTo(cx - 7f, cy + 10f)
+                    lineTo(cx - 6f, cy + 6f); quadTo(cx - 9f, cy + 5f, cx - 9f, cy + 2f); close()
+                }
+                canvas.drawPath(path, paint)
+                canvas.drawLine(cx - 4f, cy - 2f, cx + 4f, cy - 2f, paint)
+                canvas.drawLine(cx - 4f, cy + 2f, cx + 2f, cy + 2f, paint)
+            }
+            1 -> {
+                canvas.drawCircle(cx, cy - 4f, 4f, paint)
+                canvas.drawRoundRect(RectF(cx - 8f, cy + 2f, cx + 8f, cy + 9f), 5f, 5f, paint)
+            }
+            2 -> {
+                val path = Path().apply {
+                    moveTo(cx - 7f, cy - 8f); quadTo(cx - 10f, cy - 6f, cx - 7f, cy + 1f)
+                    quadTo(cx - 2f, cy + 8f, cx + 6f, cy + 8f)
+                    quadTo(cx + 10f, cy + 7f, cx + 8f, cy + 3f)
+                    lineTo(cx + 4f, cy); lineTo(cx + 1f, cy + 3f)
+                    quadTo(cx - 3f, cy + 1f, cx - 4f, cy - 3f)
+                    lineTo(cx - 1f, cy - 6f); close()
+                }
+                canvas.drawPath(path, paint)
+            }
+            3 -> {
+                canvas.drawCircle(cx, cy, 6.5f, paint)
+                canvas.drawCircle(cx, cy, 2.5f, paint)
+                for (angle in 0 until 8) {
+                    val radians = angle * Math.PI / 4.0
+                    val x1 = cx + kotlin.math.cos(radians).toFloat() * 7f
+                    val y1 = cy + kotlin.math.sin(radians).toFloat() * 7f
+                    val x2 = cx + kotlin.math.cos(radians).toFloat() * 10f
+                    val y2 = cy + kotlin.math.sin(radians).toFloat() * 10f
+                    canvas.drawLine(x1, y1, x2, y2, paint)
+                }
+            }
+            4, 10 -> {
+                canvas.drawCircle(cx, cy, 8f, paint)
+                canvas.drawOval(RectF(cx - 4f, cy - 8f, cx + 4f, cy + 8f), paint)
+                canvas.drawLine(cx - 7f, cy, cx + 7f, cy, paint)
+                canvas.drawLine(cx - 6f, cy - 4f, cx + 6f, cy - 4f, paint)
+                canvas.drawLine(cx - 6f, cy + 4f, cx + 6f, cy + 4f, paint)
+            }
+            5 -> {
+                canvas.drawRoundRect(RectF(cx - 9f, cy - 7f, cx + 9f, cy + 8f), 2f, 2f, paint)
+                val mountain = Path().apply {
+                    moveTo(cx - 7f, cy + 5f); lineTo(cx - 2f, cy - 1f)
+                    lineTo(cx + 2f, cy + 3f); lineTo(cx + 5f, cy); lineTo(cx + 8f, cy + 5f)
+                }
+                canvas.drawPath(mountain, paint)
+                canvas.drawCircle(cx + 5f, cy - 4f, 1.4f, paint)
+            }
+            6 -> {
+                val triangle = Path().apply {
+                    moveTo(cx - 5f, cy - 8f); lineTo(cx + 8f, cy); lineTo(cx - 5f, cy + 8f); close()
+                }
+                canvas.drawPath(triangle, paint)
+            }
+            7 -> {
+                canvas.drawRoundRect(RectF(cx - 6f, cy - 9f, cx + 6f, cy + 9f), 2f, 2f, paint)
+                canvas.drawLine(cx - 3f, cy - 4f, cx + 3f, cy - 4f, paint)
+                canvas.drawLine(cx - 3f, cy, cx + 3f, cy, paint)
+                canvas.drawCircle(cx, cy + 5f, 1f, paint)
+            }
+            8 -> {
+                canvas.drawRoundRect(RectF(cx - 8f, cy - 8f, cx + 8f, cy + 8f), 2f, 2f, paint)
+                canvas.drawLine(cx - 8f, cy - 3f, cx + 8f, cy - 3f, paint)
+                canvas.drawLine(cx - 4f, cy - 10f, cx - 4f, cy - 5f, paint)
+                canvas.drawLine(cx + 4f, cy - 10f, cx + 4f, cy - 5f, paint)
+            }
+            9 -> {
+                canvas.drawRoundRect(RectF(cx - 8f, cy - 7f, cx + 8f, cy + 7f), 2f, 2f, paint)
+                canvas.drawLine(cx - 8f, cy - 2f, cx + 8f, cy - 2f, paint)
+                canvas.drawLine(cx - 3f, cy - 2f, cx - 3f, cy + 7f, paint)
+                canvas.drawLine(cx + 3f, cy - 2f, cx + 3f, cy + 7f, paint)
+            }
+            else -> {
+                val sim = Path().apply {
+                    moveTo(cx - 7f, cy - 8f); lineTo(cx + 3f, cy - 8f); lineTo(cx + 8f, cy - 3f)
+                    lineTo(cx + 8f, cy + 8f); lineTo(cx - 7f, cy + 8f); close()
+                }
+                canvas.drawPath(sim, paint)
+                canvas.drawRect(RectF(cx - 4f, cy - 3f, cx + 5f, cy + 5f), paint)
+            }
+        }
+        paint.style = Paint.Style.FILL
+        paint.strokeCap = Paint.Cap.BUTT
     }
 
     private fun drawSubmenuScreen(canvas: Canvas, logicalHeight: Float, palette: ScreenPalette) {
@@ -450,6 +540,46 @@ class RetroPhoneView(
         paint.textSize = 8f
         canvas.drawText("Names will appear here", 120f, 156f, paint)
         drawSoftKeyBar(canvas, logicalHeight, palette, "Options", "Add")
+    }
+
+    private fun drawGalleryItemsScreen(canvas: Canvas, logicalHeight: Float, palette: ScreenPalette) {
+        paint.color = palette.text
+        paint.textAlign = Paint.Align.LEFT
+        paint.textSize = 12f
+        canvas.drawText("Gallery", 9f, 44f, paint)
+        paint.color = palette.muted
+        paint.textSize = 8f
+        canvas.drawText(galleryFolder.uppercase(Locale.getDefault()), 10f, 59f, paint)
+        if (galleryItems.isEmpty()) {
+            paint.color = palette.panel
+            canvas.drawRoundRect(RectF(8f, 76f, 232f, logicalHeight - 29f), 6f, 6f, paint)
+            paint.color = palette.text
+            paint.textAlign = Paint.Align.CENTER
+            paint.textSize = 10f
+            canvas.drawText("No files selected", 120f, 145f, paint)
+            paint.color = palette.muted
+            paint.textSize = 8f
+            canvas.drawText("Choose files from this device", 120f, 162f, paint)
+        } else {
+            val firstVisible = (gallerySelection / MAX_VISIBLE_GALLERY_ITEMS) * MAX_VISIBLE_GALLERY_ITEMS
+            galleryItems.drop(firstVisible).take(MAX_VISIBLE_GALLERY_ITEMS).forEachIndexed { row, item ->
+                val absoluteIndex = firstVisible + row
+                val y = 84f + row * 29f
+                val selected = absoluteIndex == gallerySelection
+                paint.color = if (selected) palette.selected else palette.panel
+                canvas.drawRoundRect(RectF(5f, y - 17f, 235f, y + 8f), 4f, 4f, paint)
+                paint.color = palette.iconColors[absoluteIndex % palette.iconColors.size]
+                canvas.drawRoundRect(RectF(10f, y - 12f, 27f, y + 4f), 3f, 3f, paint)
+                paint.color = palette.text
+                paint.textAlign = Paint.Align.LEFT
+                paint.textSize = 8f
+                canvas.drawText(item.name.take(30), 34f, y - 2f, paint)
+                paint.color = palette.muted
+                paint.textSize = 6.5f
+                canvas.drawText(item.mimeType.take(30), 34f, y + 7f, paint)
+            }
+        }
+        drawSoftKeyBar(canvas, logicalHeight, palette, "Back", "Open")
     }
 
     private fun drawJavaLibraryScreen(canvas: Canvas, logicalHeight: Float, palette: ScreenPalette) {
@@ -529,7 +659,7 @@ class RetroPhoneView(
     }
 
     private fun drawNavigationAssembly(canvas: Canvas) {
-        val bounds = profile.keypad.navigationBounds.toCanvasRect()
+        val bounds = profile.keypad.navigationBounds.toControlCanvasRect()
         val cx = bounds.centerX()
         val cy = bounds.centerY()
         when (profile.keypad.navigationStyle) {
@@ -564,7 +694,7 @@ class RetroPhoneView(
 
     private fun drawKeyControls(canvas: Canvas) {
         profile.keypad.controls.filter { it.visual != ControlVisual.HIT_AREA }.forEach { control ->
-            val rect = control.bounds.toCanvasRect()
+            val rect = control.bounds.toControlCanvasRect()
             when (control.visual) {
                 ControlVisual.HIT_AREA -> Unit
                 ControlVisual.SOFT_KEY, ControlVisual.NUMERIC_KEY, ControlVisual.BACK_KEY -> {
@@ -592,6 +722,8 @@ class RetroPhoneView(
                 screen == PhoneScreen.JAVA_LIBRARY && control.key == CanonicalKey.SOFT_RIGHT -> "RUN"
                 screen == PhoneScreen.STANDBY && control.key == CanonicalKey.SOFT_LEFT -> "GO TO"
                 screen == PhoneScreen.STANDBY && control.key == CanonicalKey.SOFT_RIGHT -> "NAMES"
+                screen == PhoneScreen.GALLERY_ITEMS && control.key == CanonicalKey.SOFT_LEFT -> "BACK"
+                screen == PhoneScreen.GALLERY_ITEMS && control.key == CanonicalKey.SOFT_RIGHT -> "OPEN"
                 screen != PhoneScreen.STANDBY && control.key == CanonicalKey.SOFT_LEFT -> "OPTIONS"
                 screen != PhoneScreen.STANDBY && control.key == CanonicalKey.SOFT_RIGHT -> "OPEN"
                 else -> control.label
@@ -601,12 +733,18 @@ class RetroPhoneView(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.action != MotionEvent.ACTION_UP) return true
-        val scale = min(width / DESIGN_WIDTH, height / DESIGN_HEIGHT)
-        if (scale <= 0f) return true
-        val x = (event.x - (width - DESIGN_WIDTH * scale) / 2f) / scale
-        val y = (event.y - (height - DESIGN_HEIGHT * scale) / 2f) / scale
-        handleTouch(x, y)
+        if (event.action != MotionEvent.ACTION_UP || width <= 0 || height <= 0) return true
+        val x = event.x * DESIGN_WIDTH / width
+        val y = event.y * DESIGN_HEIGHT / height
+        when {
+            y <= 62f && x >= 300f -> nextProfile()
+            y <= 62f -> {
+                screen = PhoneScreen.MAIN_MENU
+                selectedItem = 0
+                detailMessage = null
+            }
+            else -> handleTouch(x, y)
+        }
         performClick()
         invalidate()
         return true
@@ -618,10 +756,31 @@ class RetroPhoneView(
     }
 
     private fun handleTouch(x: Float, y: Float) {
-        val normalizedX = x / DESIGN_WIDTH
-        val normalizedY = y / DESIGN_HEIGHT
-        val control = profile.keypad.controls.firstOrNull { it.bounds.contains(normalizedX, normalizedY) }
-        if (control != null) onKey(control.key)
+        val control = profile.keypad.controls.firstOrNull {
+            it.bounds.toControlCanvasRect().contains(x, y)
+        }
+        if (control != null) {
+            onKey(control.key)
+            return
+        }
+        val displayRect = RectF(9f, 72f, 391f, 539f)
+        if (displayRect.contains(x, y)) {
+            when (screen) {
+                PhoneScreen.STANDBY -> onKey(CanonicalKey.SELECT)
+                PhoneScreen.MAIN_MENU -> {
+                    val displayX = (x - displayRect.left) * 240f / displayRect.width()
+                    val displayY = (y - displayRect.top) * 320f / displayRect.height()
+                    val row = ((displayY - 48f) / 59f).toInt()
+                    val column = (displayX / 80f).toInt()
+                    val tapped = row * 3 + column
+                    if (tapped in menuItems.indices) {
+                        selectedItem = tapped
+                        openSelected()
+                    }
+                }
+                else -> Unit
+            }
+        }
     }
 
     private fun nextProfile() {
@@ -635,13 +794,14 @@ class RetroPhoneView(
         "Messaging" -> listOf("Create message", "Inbox", "Sent items", "Drafts", "Archive", "Templates")
         "Contacts" -> listOf("Names", "Add new contact", "Search", "Groups", "Speed dials")
         "Call log" -> listOf("Missed calls", "Received calls", "Dialled numbers", "Call duration")
-        "Settings" -> listOf("Profiles", "Tones", "Display", "Themes", "Time and date", "My shortcuts", "Phone settings")
-        "Gallery" -> listOf("Images", "Video clips", "Music files", "Themes", "Memory card")
+        "Settings" -> listOf("Profiles", "Tones", "Display", "Themes", "Time and date", "My shortcuts", "Bluetooth", "Phone settings")
+        "Operator menu" -> listOf("Operator services", "Service messages")
+        "Gallery" -> listOf("Images", "Video clips", "Music files", "Themes", "Graphics", "Tones", "Recordings", "Received files", "Memory card")
         "Media" -> listOf("Camera", "Music player", "Radio", "Voice recorder", "Equalizer")
-        "Organizer" -> listOf("Alarm clock", "Calendar", "To-do list", "Notes", "Calculator", "Stopwatch")
+        "Push to talk" -> listOf("PTT channels", "Switch PTT on or off", "PTT settings")
+        "Organizer" -> listOf("Alarm clock", "Calendar", "To-do list", "Notes", "Calculator", "Timers", "Stopwatch")
         "Applications" -> listOf("Games", "Collection", "Java applications")
         "Web" -> listOf("Home", "Bookmarks", "Go to address", "Last web address", "Settings")
-        "Bluetooth" -> listOf("Bluetooth", "Paired devices", "Active devices", "My phone's visibility")
         else -> listOf("SIM services")
     }
 
@@ -659,11 +819,25 @@ class RetroPhoneView(
             javaLibrarySelection = 0
             screen = PhoneScreen.JAVA_LIBRARY
             detailMessage = null
+        } else if (submenuTitle == "Gallery") {
+            galleryFolder = entry
+            gallerySelection = 0
+            galleryItems = emptyList()
+            screen = PhoneScreen.GALLERY_ITEMS
+            onGalleryFolderSelected?.invoke(entry)
         } else if (submenuTitle == "Settings" && entry == "Profiles") {
             nextProfile()
         } else {
             detailMessage = "$entry selected"
         }
+    }
+
+    fun updateGalleryItems(folder: String, items: List<GalleryMediaItem>) {
+        galleryFolder = folder
+        galleryItems = items
+        gallerySelection = 0
+        screen = PhoneScreen.GALLERY_ITEMS
+        invalidate()
     }
 
     private fun openQuickAccessSelection() {
@@ -753,6 +927,18 @@ class RetroPhoneView(
                 CanonicalKey.SOFT_RIGHT, CanonicalKey.SELECT -> detailMessage = "Add contact"
                 else -> Unit
             }
+            PhoneScreen.GALLERY_ITEMS -> when (key) {
+                CanonicalKey.UP -> gallerySelection = (gallerySelection - 1).coerceAtLeast(0)
+                CanonicalKey.DOWN -> gallerySelection = (gallerySelection + 1).coerceAtMost((galleryItems.size - 1).coerceAtLeast(0))
+                CanonicalKey.SELECT, CanonicalKey.SOFT_RIGHT -> galleryItems.getOrNull(gallerySelection)?.let { onOpenGalleryItem?.invoke(it) }
+                CanonicalKey.BACK, CanonicalKey.SOFT_LEFT -> {
+                    screen = PhoneScreen.SUBMENU
+                    submenuTitle = "Gallery"
+                    submenuEntries = entriesFor("Gallery")
+                    submenuSelection = submenuEntries.indexOf(galleryFolder).coerceAtLeast(0)
+                }
+                else -> Unit
+            }
         }
         invalidate()
     }
@@ -762,7 +948,7 @@ class RetroPhoneView(
             PhoneScreen.STANDBY -> return false
             PhoneScreen.MAIN_MENU, PhoneScreen.QUICK_ACCESS, PhoneScreen.CONTACTS -> screen = PhoneScreen.STANDBY
             PhoneScreen.SUBMENU -> screen = PhoneScreen.MAIN_MENU
-            PhoneScreen.JAVA_LIBRARY -> screen = PhoneScreen.SUBMENU
+            PhoneScreen.JAVA_LIBRARY, PhoneScreen.GALLERY_ITEMS -> screen = PhoneScreen.SUBMENU
         }
         detailMessage = null
         invalidate()
@@ -776,9 +962,17 @@ class RetroPhoneView(
         (y + height) * DESIGN_HEIGHT
     )
 
+    private fun UnitRect.toControlCanvasRect(): RectF {
+        val source = toCanvasRect()
+        val top = 565f + (source.top - 455f) * 0.82f
+        val bottom = 565f + (source.bottom - 455f) * 0.82f
+        return RectF(source.left, top, source.right, bottom)
+    }
+
     companion object {
         private const val DESIGN_WIDTH = 400f
         private const val DESIGN_HEIGHT = 900f
         private const val MAX_VISIBLE_APPS = 5
+        private const val MAX_VISIBLE_GALLERY_ITEMS = 7
     }
 }

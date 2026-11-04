@@ -34,6 +34,8 @@ class MainActivity : Activity() {
         phoneView = RetroPhoneView(this, profiles).apply {
             onImportJavaAppRequested = { requestJavaPackageImport() }
             onLaunchJavaApp = { record -> launchJavaApp(record) }
+            onGalleryFolderSelected = { folder -> requestGalleryFolder(folder) }
+            onOpenGalleryItem = { item -> openGalleryItem(item) }
         }
         setContentView(phoneView)
         refreshJavaPackages()
@@ -57,6 +59,30 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQUEST_IMPORT_PACKAGE || resultCode != RESULT_OK) return
+        if (requestCode == REQUEST_GALLERY_PICKER) {
+            val folder = pendingGalleryFolder ?: "Images"
+            val selectedUris = mutableListOf<Uri>()
+            data?.clipData?.let { clip ->
+                for (index in 0 until clip.itemCount) selectedUris.add(clip.getItemAt(index).uri)
+            }
+            data?.data?.let { uri ->
+                if (selectedUris.none { it == uri }) selectedUris.add(uri)
+            }
+            val items = selectedUris.map { uri ->
+                runCatching {
+                    contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                RetroPhoneView.GalleryMediaItem(
+                    name = queryDisplayName(uri),
+                    uri = uri.toString(),
+                    mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
+                )
+            }
+            pendingGalleryFolder = null
+            phoneView.updateGalleryItems(folder, items)
+            return
+        }
+
         val uri = data?.data ?: return
         val displayName = queryDisplayName(uri)
 
@@ -81,6 +107,43 @@ class MainActivity : Activity() {
                     )
                 }
             }
+        }
+    }
+
+    private var pendingGalleryFolder: String? = null
+
+    private fun requestGalleryFolder(folder: String) {
+        pendingGalleryFolder = folder
+        val mimeType = when (folder) {
+            "Images", "Graphics" -> "image/*"
+            "Video clips" -> "video/*"
+            "Music files", "Tones", "Recordings" -> "audio/*"
+            else -> "*/*"
+        }
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = mimeType
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        }
+        try {
+            startActivityForResult(intent, REQUEST_GALLERY_PICKER)
+        } catch (error: ActivityNotFoundException) {
+            pendingGalleryFolder = null
+            showMessage("Gallery unavailable", "Android did not provide a file picker.")
+        }
+    }
+
+    private fun openGalleryItem(item: RetroPhoneView.GalleryMediaItem) {
+        val uri = Uri.parse(item.uri)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, item.mimeType)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            startActivity(intent)
+        } catch (error: ActivityNotFoundException) {
+            showMessage("Cannot open file", "No compatible viewer is installed for this file.")
         }
     }
 
@@ -200,6 +263,7 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_IMPORT_PACKAGE = 4101
+        private const val REQUEST_GALLERY_PICKER = 4102
         private const val J2ME_LOADER_PACKAGE = "ru.playsoftware.j2meloader"
     }
 }
