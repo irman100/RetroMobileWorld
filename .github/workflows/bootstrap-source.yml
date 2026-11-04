@@ -35,6 +35,9 @@ jobs:
           tar -xJf .bootstrap/source.tar.xz -C .
           rm -rf .bootstrap
           rm -f BOOTSTRAP-NOTES.md BOOTSTRAP-WINDOWS.ps1 RetroMobileWorld-Bootstrap-Windows.ps1
+          # The GitHub Actions token cannot push changes that add another workflow.
+          # Add android-ci.yml later through the repository's authorised GitHub connection.
+          rm -f .github/workflows/android-ci.yml
 
       - name: Set up Python
         uses: actions/setup-python@v5
