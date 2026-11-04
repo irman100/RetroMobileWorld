@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-11-04",
+  "sources": [
+    {
+      "id": "j2me-loader",
+      "name": "J2ME Loader",
+      "kind": "emulator",
+      "url": "https://github.com/nikita36078/J2ME-Loader",
+      "status": "verified_project",
+      "redistribution": "source_license_reviewed",
+      "formats": [
+        "jar",
+        "jad"
+      ],
+      "notes": "Android Java ME emulator candidate; Apache-2.0. Integration still requires a render/input feasibility spike."
+    },
+    {
+      "id": "eka2l1",
+      "name": "EKA2L1",
+      "kind": "emulator",
+      "url": "https://github.com/EKA2L1/EKA2L1",
+      "status": "verified_project",
+      "redistribution": "copyleft_review_required",
+      "formats": [
+        "sis",
+        "sisx",
+        "ngage",
+        "system-image"
+      ],
+      "notes": "Symbian/N-Gage emulator candidate; GPL-3.0. Android support is described upstream as experimental. No firmware is bundled."
+    },
+    {
+      "id": "freej2me",
+      "name": "FreeJ2ME",
+      "kind": "emulator",
+      "url": "https://github.com/hex007/freej2me",
+      "status": "verified_project",
+      "redistribution": "copyleft_review_required",
+      "formats": [
+        "jar"
+      ],
+      "notes": "AWT/SDL2/libretro Java ME alternative, primarily useful for desktop experiments; GPL-3.0-or-later."
+    },
+    {
+      "id": "nokia-ovi-store",
+      "name": "Nokia Ovi Store",
+      "kind": "discontinued-official-store",
+      "url": "https://www.globenewswire.com/news-release/2009/05/26/1858130/0/en/Ovi-Store-opens-for-business.html",
+      "status": "historical",
+      "redistribution": "metadata_only",
+      "formats": [
+        "java-me",
+        "symbian",
+        "other"
+      ],
+      "notes": "Historical official Nokia store, launched in 2009 and later discontinued. The link is a historical launch announcement, not a current download endpoint."
+    },
+    {
+      "id": "opera-mobile-store",
+      "name": "Opera Mobile Store",
+      "kind": "discontinued-mobile-store",
+      "url": "https://wiki.archiveteam.org/index.php/Mobile_Phone_Applications",
+      "status": "historical",
+      "redistribution": "metadata_only",
+      "formats": [
+        "jar",
+        "jad",
+        "other"
+      ],
+      "notes": "Historical mobile store, later discontinued. ArchiveTeam is linked as a preservation reference, not as an original live store endpoint."
+    },
+    {
+      "id": "dedomil",
+      "name": "Dedomil",
+      "kind": "historical-wap-portal",
+      "url": "https://dedomil.net/",
+      "status": "not_checked",
+      "redistribution": "unknown",
+      "formats": [
+        "jar",
+        "jad"
+      ],
+      "notes": "Historical Java mobile game portal candidate. Current catalogue state, delivery behaviour, and package rights have not been verified in this project."
+    },
+    {
+      "id": "archive-team-mobile-apps",
+      "name": "ArchiveTeam Mobile Phone Applications",
+      "kind": "preservation-index",
+      "url": "https://wiki.archiveteam.org/index.php/Mobile_Phone_Applications",
+      "status": "verified_project",
+      "redistribution": "metadata_only",
+      "formats": [
+        "jar",
+        "jad",
+        "various"
+      ],
+      "notes": "Preservation index page verified as a project reference; individual archive availability and package rights must be checked separately.",
+      "lastChecked": "2026-11-04"
+    },
+    {
+      "id": "kahvibreak",
+      "name": "Kahvibreak",
+      "kind": "preservation-project",
+      "url": "https://bluemaxima.org/kahvibreak/",
+      "status": "verified_project",
+      "redistribution": "metadata_only",
+      "formats": [
+        "jar",
+        "jad"
+      ],
+      "notes": "Java ME preservation collection and launcher project. The catalogue being available does not establish redistribution rights for each included title.",
+      "lastChecked": "2026-11-04"
+    },
+    {
+      "id": "getjar",
+      "name": "GetJar",
+      "kind": "historical-store",
+      "url": "https://www.getjar.com/",
+      "status": "not_checked",
+      "redistribution": "unknown",
+      "formats": [
+        "unknown"
+      ],
+      "notes": "Historical candidate. Current availability of original Java ME catalogue material has not been verified."
+    },
+    {
+      "id": "sefan",
+      "name": "Sefan.ru",
+      "kind": "historical-wap-portal",
+      "url": "https://sefan.ru/",
+      "status": "not_checked",
+      "redistribution": "unknown",
+      "formats": [
+        "jar",
+        "jad"
+      ],
+      "notes": "Historical Russian-language WAP portal candidate. Current service status and archive coverage must be checked."
+    },
+    {
+      "id": "spaces",
+      "name": "Spaces.ru",
+      "kind": "historical-mobile-community",
+      "url": "https://spaces.ru/",
+      "status": "not_checked",
+      "redistribution": "unknown",
+      "formats": [
+        "unknown"
+      ],
+      "notes": "Historical mobile community and file exchange candidate. Current service status and content rights must be checked."
+    },
+    {
+      "id": "seclub",
+      "name": "Seclub.org",
+      "kind": "historical-mobile-community",
+      "url": "https://seclub.org/",
+      "status": "not_checked",
+      "redistribution": "unknown",
+      "formats": [
+        "jar",
+        "jad",
+        "various"
+      ],
+      "notes": "Historical Sony Ericsson community candidate. Current service status and content rights must be checked."
+    }
+  ]
+}

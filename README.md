@@ -2,74 +2,89 @@
 
 **A modular retro-phone shell for Java ME and Symbian software.**
 
-Retro Mobile World aims to recreate the experience of using a classic mobile phone: the device body, display geometry, physical keypad, soft keys, launcher, WAP access and application installation flow. The application is an Android-first host with replaceable emulation backends.
+Retro Mobile World recreates the experience of a classic mobile phone: device body, display geometry, physical keypad, soft keys, launcher, WAP access and application installation flow. Android is the first host platform; emulation backends are designed as replaceable modules.
 
-> **Current status: bootstrap / shell prototype.** The first commit contains the product specification, architecture decisions, sample device profiles, a basic interactive phone-shell prototype and a catalogue registry format. It does **not** yet execute JAR/JAD or SIS/SISX files. Engine integration is gated by compatibility, licensing and packaging tests.
+> **Current status: shell prototype / initial scaffold.** This repository contains the Android phone-shell prototype, data-driven device profiles, catalogue registry, architecture and product specifications. It does **not** yet execute JAR/JAD or SIS/SISX files. Runtime integration is a separate milestone gated by compatibility, licensing and packaging tests.
 
-## The central design
+## Core design
 
-- **One shell, multiple device profiles.** A profile describes the phone's display dimensions, screen placement, outer-body artwork, keypad geometry, key mapping, sound set and visual style.
-- **Device profile is not runtime.** One profile defines the device frame, display, keypad, keymap and visual treatment. It can advertise more than one runtime: the N73-like S60 profile supports both Java ME and native Symbian. Java ME and Symbian are actual execution environments, not interchangeable themes.
-- **Engines are replaceable modules.** The shell talks to an `EmulatorBackend` contract; individual engines remain independently versioned and licensed.
-- **Catalogues are data sources, not hard-coded stores.** The first catalogue is a curated registry of historical/live/archive sources. Adapters are added only after each source has been checked.
-- **Preserve the original flow.** Browse a WAP/catalogue page, choose a package, download, review metadata, install and launch it from the virtual phone.
+- **One shell, multiple device profiles.** A profile describes display dimensions and placement, outer-body artwork, keypad geometry, key mapping, sound set and visual style.
+- **A device profile is not an operating system.** One device can expose multiple runtimes. For example, an S60 profile can support Java ME and native Symbian while keeping the same device body and controls.
+- **Replaceable execution backends.** The shell talks to a common `EmulatorBackend` contract. Java ME and Symbian remain independent engines with separate licences and packaging decisions.
+- **Catalogues are data sources.** The initial registry records historical, live and archived sources with explicit status and rights metadata. A listed source is not assumed to be online or authorised to redistribute its files.
+- **Preserve the original installation flow.** The intended experience is to browse a catalogue or WAP page, choose a package, download it, review metadata, install it and launch it from the virtual phone.
 
-## Initial target
+## Initial device profiles
 
-Android is the first host platform. Windows is a planned second host after the runtime adapters and device-profile format are proven. The shell prototype is deliberately independent of any one phone model.
+- Nokia 6300 / Series 40 style — 240 × 320 display, Java ME target.
+- Sony Ericsson K750i style — 176 × 220 display, Java ME target.
+- Nokia N73 / S60 style — 240 × 320 display, Java ME and Symbian runtime targets.
 
-## Repository map
+The profiles are compatibility-oriented starting points, not a claim that every original firmware feature is implemented.
+
+## Repository layout
 
 ```text
-app/                 Android-first phone-shell prototype
-catalog/             Source registry and JSON schema
-profiles/            Example device profiles and profile schema
-docs/                Product, architecture, legal, engine, status and roadmap specifications
-gradle/              Gradle wrapper configuration
-BOOTSTRAP-WINDOWS.ps1  Creates the GitHub repository and pushes this starter project
+app/                  Android-first shell prototype
+catalog/              Source registry and JSON schema
+profiles/              Device profiles, keymaps and profile schema
+docs/                  Product, architecture, legal, engine research and roadmap
+gradle/                Gradle wrapper configuration
+scripts/               Registry validation scripts
+.github/workflows/     Android CI
 ```
 
-## Build
+## Validation
 
-The project uses Android Gradle Plugin 9.5.0 and Gradle 9.6.0 (JDK 17+). Device profiles are loaded from `profiles/device-profiles.json` at startup; their screen apertures, keypad hit areas, navigation style and runtime targets are data-driven. `scripts/validate_registry.py` (CI/Python) and `scripts/validate_registry.ps1` (local Windows PowerShell, no Python required) check profile geometry, key coverage, engine requirements and catalogue status metadata. The exact completed and pending work is listed in [implementation status](docs/IMPLEMENTATION_STATUS.md). This starter archive includes the Gradle wrapper properties but not the generated wrapper executable/JAR. The actual Android build has **not** been executed here because an Android SDK/Gradle installation is not available; do not treat the scaffold as CI-verified.
-
-Run the registry check from the project root:
+On Windows PowerShell (no Python required):
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate_registry.ps1
 ```
 
-With Gradle 9.6.0 installed, generate the wrapper scripts once from the project root:
+In CI / Python environments:
 
-```powershell
-gradle wrapper --gradle-version 9.6.0 --distribution-type bin
+```bash
+python scripts/validate_registry.py
 ```
 
-Then build with:
+Both validators check the device-profile data, screen geometry, key coverage, runtime targets and catalogue metadata.
 
-```powershell
-.\gradlew.bat :app:assembleDebug
+## Android build
+
+The project uses Android Gradle Plugin 9.5.0, Gradle 9.6.0, JDK 17+ and Android SDK platform 36. The initial source archive includes Gradle wrapper properties but not the generated wrapper executable/JAR. GitHub Actions installs Gradle and builds the debug APK. Locally, with Gradle 9.6.0 and Android SDK 36 installed:
+
+```bash
+gradle :app:testDebugUnitTest
+gradle :app:assembleDebug
 ```
 
-## GitHub bootstrap
+The actual Android APK build has not yet been verified. Treat the first CI run as the authoritative build check; fix failures before claiming an installable APK.
 
-The connected GitHub workspace can inspect and update repositories, but it does not expose a repository-creation operation. The included PowerShell script creates a **private** `irman100/RetroMobileWorld` repository using GitHub CLI (`gh`) and pushes this project. Keeping the unfinished starter private is the safer default; visibility can be changed after review. Run it from the extracted project directory after installing Git and GitHub CLI and completing `gh auth login`.
+## Engine integration strategy
 
-```powershell
-.\BOOTSTRAP-WINDOWS.ps1
-```
+The first integration experiment targets J2ME Loader. Symbian support will be evaluated separately using EKA2L1. Neither emulator is vendored in this repository at this stage. No proprietary firmware, Symbian ROM, copyrighted games or paid catalogue content is bundled.
 
-The script stops rather than overwriting an existing target directory or an existing GitHub repository.
+- J2ME Loader: https://github.com/nikita36078/J2ME-Loader
+- EKA2L1: https://github.com/EKA2L1/EKA2L1
+- FreeJ2ME: https://github.com/hex007/freej2me
 
-## Important boundaries
+See [engine research](docs/ENGINE_RESEARCH.md), [third-party notices](THIRD_PARTY_NOTICES.md) and [architecture](docs/ARCHITECTURE.md) before adding or distributing an engine.
 
-- No proprietary phone firmware, Symbian ROM, copyrighted games or paid catalogue content is bundled.
-- Symbian ROM/firmware must be supplied by the user from a lawful source and accepted by the selected backend.
-- A catalogue entry is not an assertion that a source is online, safe, authorised to redistribute files or compatible with every device.
-- Downloaded legacy software is untrusted. Package inspection, user confirmation, per-app storage isolation and network permission controls are required before public release.
+## Legal and security boundaries
 
-See [the product specification](docs/PRODUCT_SPEC.md), [architecture](docs/ARCHITECTURE.md), [engine research](docs/ENGINE_RESEARCH.md), [catalogue strategy](docs/CATALOG_AND_WEBSITE.md), [legal and safety requirements](docs/LEGAL_AND_SAFETY.md) and [roadmap](docs/ROADMAP.md).
+- Symbian system ROM/firmware must be supplied by the user from a lawful source and accepted by the selected backend.
+- A catalogue entry does not imply that a website is online, that its files are safe, or that redistribution is authorised.
+- Downloaded legacy packages are untrusted. Package inspection, explicit installation confirmation, per-app storage isolation and network permission controls are required before public release.
+- Third-party engines and dependencies retain their own licences. The original project code is licensed under GPL-3.0-only; see `LICENSE` and `THIRD_PARTY_NOTICES.md`.
 
-## Licence
+## Roadmap
 
-The original project code is licensed under GPL-3.0-only. Third-party engines and dependencies retain their own licences; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [engine research](docs/ENGINE_RESEARCH.md).
+1. Verify the Android shell build and profile switching.
+2. Validate key input, hit areas, display scaling and device skins on a physical Android device.
+3. Prototype Java ME backend integration without copying engine-specific UI into the shell.
+4. Evaluate Symbian backend integration and lawful firmware provisioning.
+5. Implement package library, download/install workflow and catalogue adapters.
+6. Publish the companion static catalogue website after source status and rights review.
+
+See [product specification](docs/PRODUCT_SPEC.md), [architecture](docs/ARCHITECTURE.md), [catalogue strategy](docs/CATALOG_AND_WEBSITE.md), [legal requirements](docs/LEGAL_AND_SAFETY.md), [implementation status](docs/IMPLEMENTATION_STATUS.md) and [roadmap](docs/ROADMAP.md).

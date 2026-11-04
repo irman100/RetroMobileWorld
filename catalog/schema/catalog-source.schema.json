@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://retromobileworld.example/schemas/catalog-source.schema.json",
+  "title": "Retro Mobile World catalogue source registry",
+  "type": "object",
+  "required": ["schemaVersion", "updatedAt", "sources"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "updatedAt": { "type": "string", "format": "date" },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "kind", "url", "status", "redistribution", "formats", "notes"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]+$" },
+          "name": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string" },
+          "url": { "type": "string", "format": "uri", "pattern": "^https://" },
+          "status": { "enum": ["verified_live", "verified_project", "archived", "historical", "unavailable", "not_checked"] },
+          "redistribution": { "enum": ["metadata_only", "link_only", "redistribution_confirmed", "source_license_reviewed", "copyleft_review_required", "unknown"] },
+          "formats": { "type": "array", "items": { "type": "string" } },
+          "lastChecked": { "type": "string", "format": "date" },
+          "notes": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

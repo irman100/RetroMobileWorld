@@ -1,0 +1,391 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://retromobileworld.example/schemas/device-profile.schema.json",
+  "title": "Retro Mobile World device profile",
+  "type": "object",
+  "required": [
+    "id",
+    "displayName",
+    "compatibilityLabel",
+    "osFamily",
+    "display",
+    "shell",
+    "keypad",
+    "runtimeTargets",
+    "defaultRuntime",
+    "assetProvenance"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]+$"
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "compatibilityLabel": {
+      "type": "string",
+      "minLength": 1
+    },
+    "osFamily": {
+      "enum": [
+        "NOKIA_S40",
+        "SONY_ERICSSON_CLASSIC",
+        "SYMBIAN_S60"
+      ]
+    },
+    "display": {
+      "type": "object",
+      "required": [
+        "width",
+        "height",
+        "scaling"
+      ],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 48,
+          "maximum": 2048
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 48,
+          "maximum": 2048
+        },
+        "colorDepth": {
+          "type": "string"
+        },
+        "scaling": {
+          "enum": [
+            "pixel_preserving_fit",
+            "integer_scale",
+            "fit_letterbox"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "shell": {
+      "type": "object",
+      "required": [
+        "skinAsset",
+        "style",
+        "displayAperture"
+      ],
+      "properties": {
+        "skinAsset": {
+          "type": "string",
+          "minLength": 1
+        },
+        "style": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayAperture": {
+          "type": "object",
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "properties": {
+            "x": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "y": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "width": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
+            },
+            "height": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "keypad": {
+      "type": "object",
+      "required": [
+        "layout",
+        "mapping",
+        "navigation",
+        "controls"
+      ],
+      "properties": {
+        "layout": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mapping": {
+          "type": "string",
+          "minLength": 1
+        },
+        "navigation": {
+          "type": "object",
+          "required": [
+            "style",
+            "bounds"
+          ],
+          "properties": {
+            "style": {
+              "enum": [
+                "cross_dpad",
+                "joystick",
+                "s60_ring"
+              ]
+            },
+            "bounds": {
+              "$ref": "#/$defs/unitRect"
+            }
+          },
+          "additionalProperties": false
+        },
+        "controls": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "key",
+              "bounds",
+              "label",
+              "visual"
+            ],
+            "properties": {
+              "key": {
+                "enum": [
+                  "UP",
+                  "DOWN",
+                  "LEFT",
+                  "RIGHT",
+                  "SELECT",
+                  "SOFT_LEFT",
+                  "SOFT_RIGHT",
+                  "BACK",
+                  "CALL",
+                  "END",
+                  "DIGIT_0",
+                  "DIGIT_1",
+                  "DIGIT_2",
+                  "DIGIT_3",
+                  "DIGIT_4",
+                  "DIGIT_5",
+                  "DIGIT_6",
+                  "DIGIT_7",
+                  "DIGIT_8",
+                  "DIGIT_9",
+                  "STAR",
+                  "HASH"
+                ]
+              },
+              "bounds": {
+                "$ref": "#/$defs/unitRect"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "visual": {
+                "enum": [
+                  "hit_area",
+                  "soft_key",
+                  "numeric_key",
+                  "call_key",
+                  "end_key",
+                  "back_key"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "runtimeTargets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "family",
+          "backend",
+          "systemImageRequired",
+          "compatibilityHint"
+        ],
+        "properties": {
+          "family": {
+            "enum": [
+              "JAVA_ME",
+              "SYMBIAN"
+            ]
+          },
+          "backend": {
+            "type": "string",
+            "minLength": 1
+          },
+          "systemImageRequired": {
+            "type": "boolean"
+          },
+          "compatibilityHint": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "family": {
+                  "const": "SYMBIAN"
+                }
+              },
+              "required": [
+                "family"
+              ]
+            },
+            "then": {
+              "properties": {
+                "systemImageRequired": {
+                  "const": true
+                }
+              }
+            }
+          }
+        ],
+        "additionalProperties": false
+      }
+    },
+    "defaultRuntime": {
+      "enum": [
+        "JAVA_ME",
+        "SYMBIAN"
+      ]
+    },
+    "assetProvenance": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "defaultRuntime": {
+            "const": "JAVA_ME"
+          }
+        },
+        "required": [
+          "defaultRuntime"
+        ]
+      },
+      "then": {
+        "properties": {
+          "runtimeTargets": {
+            "contains": {
+              "properties": {
+                "family": {
+                  "const": "JAVA_ME"
+                }
+              },
+              "required": [
+                "family"
+              ]
+            },
+            "minContains": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "defaultRuntime": {
+            "const": "SYMBIAN"
+          }
+        },
+        "required": [
+          "defaultRuntime"
+        ]
+      },
+      "then": {
+        "properties": {
+          "runtimeTargets": {
+            "contains": {
+              "properties": {
+                "family": {
+                  "const": "SYMBIAN"
+                }
+              },
+              "required": [
+                "family"
+              ]
+            },
+            "minContains": 1
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "unitRect": {
+      "type": "object",
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "x": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        }
+      },
+      "allOf": [
+        {
+          "properties": {
+            "x": {
+              "maximum": 1
+            },
+            "width": {
+              "maximum": 1
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
+}

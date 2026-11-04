@@ -1,0 +1,878 @@
+{
+  "schemaVersion": 1,
+  "profiles": [
+    {
+      "id": "nokia-6300-s40",
+      "displayName": "Nokia 6300 style",
+      "compatibilityLabel": "Nokia 6300 / S40 family",
+      "osFamily": "NOKIA_S40",
+      "display": {
+        "width": 240,
+        "height": 320,
+        "colorDepth": "color",
+        "scaling": "pixel_preserving_fit"
+      },
+      "shell": {
+        "skinAsset": "builtin:neutral-candybar",
+        "style": "classic-candybar",
+        "displayAperture": {
+          "x": 0.22,
+          "y": 0.098,
+          "width": 0.56,
+          "height": 0.3319
+        }
+      },
+      "keypad": {
+        "layout": "classic-numeric",
+        "mapping": "keymaps/s40-classic.json",
+        "navigation": {
+          "style": "cross_dpad",
+          "bounds": {
+            "x": 0.375,
+            "y": 0.565,
+            "width": 0.25,
+            "height": 0.145
+          }
+        },
+        "controls": [
+          {
+            "key": "SOFT_LEFT",
+            "bounds": {
+              "x": 0.21,
+              "y": 0.506,
+              "width": 0.165,
+              "height": 0.043
+            },
+            "label": "PROFILE",
+            "visual": "soft_key"
+          },
+          {
+            "key": "SOFT_RIGHT",
+            "bounds": {
+              "x": 0.625,
+              "y": 0.506,
+              "width": 0.165,
+              "height": 0.043
+            },
+            "label": "OPEN",
+            "visual": "soft_key"
+          },
+          {
+            "key": "UP",
+            "bounds": {
+              "x": 0.4625,
+              "y": 0.565,
+              "width": 0.075,
+              "height": 0.055
+            },
+            "label": "↑",
+            "visual": "hit_area"
+          },
+          {
+            "key": "DOWN",
+            "bounds": {
+              "x": 0.4625,
+              "y": 0.645,
+              "width": 0.075,
+              "height": 0.055
+            },
+            "label": "↓",
+            "visual": "hit_area"
+          },
+          {
+            "key": "LEFT",
+            "bounds": {
+              "x": 0.375,
+              "y": 0.605,
+              "width": 0.0875,
+              "height": 0.045
+            },
+            "label": "←",
+            "visual": "hit_area"
+          },
+          {
+            "key": "RIGHT",
+            "bounds": {
+              "x": 0.5375,
+              "y": 0.605,
+              "width": 0.0875,
+              "height": 0.045
+            },
+            "label": "→",
+            "visual": "hit_area"
+          },
+          {
+            "key": "SELECT",
+            "bounds": {
+              "x": 0.455,
+              "y": 0.605,
+              "width": 0.09,
+              "height": 0.045
+            },
+            "label": "OK",
+            "visual": "hit_area"
+          },
+          {
+            "key": "BACK",
+            "bounds": {
+              "x": 0.205,
+              "y": 0.605,
+              "width": 0.075,
+              "height": 0.045
+            },
+            "label": "C",
+            "visual": "back_key"
+          },
+          {
+            "key": "CALL",
+            "bounds": {
+              "x": 0.23,
+              "y": 0.678,
+              "width": 0.1475,
+              "height": 0.033
+            },
+            "label": "CALL",
+            "visual": "call_key"
+          },
+          {
+            "key": "END",
+            "bounds": {
+              "x": 0.6225,
+              "y": 0.678,
+              "width": 0.1475,
+              "height": 0.033
+            },
+            "label": "END",
+            "visual": "end_key"
+          },
+          {
+            "key": "DIGIT_1",
+            "bounds": {
+              "x": 0.245,
+              "y": 0.733,
+              "width": 0.135,
+              "height": 0.038
+            },
+            "label": "1",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_2",
+            "bounds": {
+              "x": 0.4325,
+              "y": 0.733,
+              "width": 0.135,
+              "height": 0.038
+            },
+            "label": "2",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_3",
+            "bounds": {
+              "x": 0.62,
+              "y": 0.733,
+              "width": 0.135,
+              "height": 0.038
+            },
+            "label": "3",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_4",
+            "bounds": {
+              "x": 0.245,
+              "y": 0.7863,
+              "width": 0.135,
+              "height": 0.038
+            },
+            "label": "4",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_5",
+            "bounds": {
+              "x": 0.4325,
+              "y": 0.7863,
+              "width": 0.135,
+              "height": 0.038
+            },
+            "label": "5",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_6",
+            "bounds": {
+              "x": 0.62,
+              "y": 0.7863,
+              "width": 0.135,
+              "height": 0.038
+            },
+            "label": "6",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_7",
+            "bounds": {
+              "x": 0.245,
+              "y": 0.8396,
+              "width": 0.135,
+              "height": 0.038
+            },
+            "label": "7",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_8",
+            "bounds": {
+              "x": 0.4325,
+              "y": 0.8396,
+              "width": 0.135,
+              "height": 0.038
+            },
+            "label": "8",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_9",
+            "bounds": {
+              "x": 0.62,
+              "y": 0.8396,
+              "width": 0.135,
+              "height": 0.038
+            },
+            "label": "9",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "STAR",
+            "bounds": {
+              "x": 0.245,
+              "y": 0.8929,
+              "width": 0.135,
+              "height": 0.038
+            },
+            "label": "*",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_0",
+            "bounds": {
+              "x": 0.4325,
+              "y": 0.8929,
+              "width": 0.135,
+              "height": 0.038
+            },
+            "label": "0",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "HASH",
+            "bounds": {
+              "x": 0.62,
+              "y": 0.8929,
+              "width": 0.135,
+              "height": 0.038
+            },
+            "label": "#",
+            "visual": "numeric_key"
+          }
+        ]
+      },
+      "runtimeTargets": [
+        {
+          "family": "JAVA_ME",
+          "backend": "j2me-loader",
+          "systemImageRequired": false,
+          "compatibilityHint": "CLDC 1.1 / MIDP 2.0"
+        }
+      ],
+      "defaultRuntime": "JAVA_ME",
+      "assetProvenance": "Original prototype geometry; replace with reviewed original artwork before release."
+    },
+    {
+      "id": "sony-ericsson-k750-style",
+      "displayName": "Sony Ericsson K750i style",
+      "compatibilityLabel": "Sony Ericsson K750i family",
+      "osFamily": "SONY_ERICSSON_CLASSIC",
+      "display": {
+        "width": 176,
+        "height": 220,
+        "colorDepth": "color",
+        "scaling": "pixel_preserving_fit"
+      },
+      "shell": {
+        "skinAsset": "builtin:neutral-candybar",
+        "style": "se-classic-candybar",
+        "displayAperture": {
+          "x": 0.22,
+          "y": 0.098,
+          "width": 0.56,
+          "height": 0.3111
+        }
+      },
+      "keypad": {
+        "layout": "sony-ericsson-classic",
+        "mapping": "keymaps/sony-ericsson-classic.json",
+        "navigation": {
+          "style": "joystick",
+          "bounds": {
+            "x": 0.3675,
+            "y": 0.565,
+            "width": 0.265,
+            "height": 0.125
+          }
+        },
+        "controls": [
+          {
+            "key": "SOFT_LEFT",
+            "bounds": {
+              "x": 0.21,
+              "y": 0.506,
+              "width": 0.165,
+              "height": 0.043
+            },
+            "label": "PROFILE",
+            "visual": "soft_key"
+          },
+          {
+            "key": "SOFT_RIGHT",
+            "bounds": {
+              "x": 0.625,
+              "y": 0.506,
+              "width": 0.165,
+              "height": 0.043
+            },
+            "label": "OPEN",
+            "visual": "soft_key"
+          },
+          {
+            "key": "UP",
+            "bounds": {
+              "x": 0.4625,
+              "y": 0.565,
+              "width": 0.075,
+              "height": 0.055
+            },
+            "label": "↑",
+            "visual": "hit_area"
+          },
+          {
+            "key": "DOWN",
+            "bounds": {
+              "x": 0.4625,
+              "y": 0.645,
+              "width": 0.075,
+              "height": 0.055
+            },
+            "label": "↓",
+            "visual": "hit_area"
+          },
+          {
+            "key": "LEFT",
+            "bounds": {
+              "x": 0.375,
+              "y": 0.605,
+              "width": 0.0875,
+              "height": 0.045
+            },
+            "label": "←",
+            "visual": "hit_area"
+          },
+          {
+            "key": "RIGHT",
+            "bounds": {
+              "x": 0.5375,
+              "y": 0.605,
+              "width": 0.0875,
+              "height": 0.045
+            },
+            "label": "→",
+            "visual": "hit_area"
+          },
+          {
+            "key": "SELECT",
+            "bounds": {
+              "x": 0.455,
+              "y": 0.605,
+              "width": 0.09,
+              "height": 0.045
+            },
+            "label": "OK",
+            "visual": "hit_area"
+          },
+          {
+            "key": "BACK",
+            "bounds": {
+              "x": 0.205,
+              "y": 0.605,
+              "width": 0.075,
+              "height": 0.045
+            },
+            "label": "C",
+            "visual": "back_key"
+          },
+          {
+            "key": "CALL",
+            "bounds": {
+              "x": 0.23,
+              "y": 0.693,
+              "width": 0.1475,
+              "height": 0.033
+            },
+            "label": "CALL",
+            "visual": "call_key"
+          },
+          {
+            "key": "END",
+            "bounds": {
+              "x": 0.6225,
+              "y": 0.693,
+              "width": 0.1475,
+              "height": 0.033
+            },
+            "label": "END",
+            "visual": "end_key"
+          },
+          {
+            "key": "DIGIT_1",
+            "bounds": {
+              "x": 0.2575,
+              "y": 0.737,
+              "width": 0.125,
+              "height": 0.038
+            },
+            "label": "1",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_2",
+            "bounds": {
+              "x": 0.4375,
+              "y": 0.737,
+              "width": 0.125,
+              "height": 0.038
+            },
+            "label": "2",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_3",
+            "bounds": {
+              "x": 0.6175,
+              "y": 0.737,
+              "width": 0.125,
+              "height": 0.038
+            },
+            "label": "3",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_4",
+            "bounds": {
+              "x": 0.2575,
+              "y": 0.7903,
+              "width": 0.125,
+              "height": 0.038
+            },
+            "label": "4",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_5",
+            "bounds": {
+              "x": 0.4375,
+              "y": 0.7903,
+              "width": 0.125,
+              "height": 0.038
+            },
+            "label": "5",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_6",
+            "bounds": {
+              "x": 0.6175,
+              "y": 0.7903,
+              "width": 0.125,
+              "height": 0.038
+            },
+            "label": "6",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_7",
+            "bounds": {
+              "x": 0.2575,
+              "y": 0.8436,
+              "width": 0.125,
+              "height": 0.038
+            },
+            "label": "7",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_8",
+            "bounds": {
+              "x": 0.4375,
+              "y": 0.8436,
+              "width": 0.125,
+              "height": 0.038
+            },
+            "label": "8",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_9",
+            "bounds": {
+              "x": 0.6175,
+              "y": 0.8436,
+              "width": 0.125,
+              "height": 0.038
+            },
+            "label": "9",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "STAR",
+            "bounds": {
+              "x": 0.2575,
+              "y": 0.8969,
+              "width": 0.125,
+              "height": 0.038
+            },
+            "label": "*",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_0",
+            "bounds": {
+              "x": 0.4375,
+              "y": 0.8969,
+              "width": 0.125,
+              "height": 0.038
+            },
+            "label": "0",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "HASH",
+            "bounds": {
+              "x": 0.6175,
+              "y": 0.8969,
+              "width": 0.125,
+              "height": 0.038
+            },
+            "label": "#",
+            "visual": "numeric_key"
+          }
+        ]
+      },
+      "runtimeTargets": [
+        {
+          "family": "JAVA_ME",
+          "backend": "j2me-loader",
+          "systemImageRequired": false,
+          "compatibilityHint": "CLDC 1.1 / MIDP 2.0"
+        }
+      ],
+      "defaultRuntime": "JAVA_ME",
+      "assetProvenance": "Original prototype geometry; replace with reviewed original artwork before release."
+    },
+    {
+      "id": "nokia-n73-s60",
+      "displayName": "Nokia N73 style",
+      "compatibilityLabel": "Nokia N73 / S60 3rd Edition family",
+      "osFamily": "SYMBIAN_S60",
+      "display": {
+        "width": 240,
+        "height": 320,
+        "colorDepth": "color",
+        "scaling": "pixel_preserving_fit"
+      },
+      "shell": {
+        "skinAsset": "builtin:neutral-s60",
+        "style": "s60-smartphone-candybar",
+        "displayAperture": {
+          "x": 0.22,
+          "y": 0.098,
+          "width": 0.56,
+          "height": 0.3319
+        }
+      },
+      "keypad": {
+        "layout": "s60-numeric",
+        "mapping": "keymaps/s60-classic.json",
+        "navigation": {
+          "style": "s60_ring",
+          "bounds": {
+            "x": 0.38,
+            "y": 0.56,
+            "width": 0.24,
+            "height": 0.15
+          }
+        },
+        "controls": [
+          {
+            "key": "SOFT_LEFT",
+            "bounds": {
+              "x": 0.21,
+              "y": 0.506,
+              "width": 0.165,
+              "height": 0.043
+            },
+            "label": "PROFILE",
+            "visual": "soft_key"
+          },
+          {
+            "key": "SOFT_RIGHT",
+            "bounds": {
+              "x": 0.625,
+              "y": 0.506,
+              "width": 0.165,
+              "height": 0.043
+            },
+            "label": "OPEN",
+            "visual": "soft_key"
+          },
+          {
+            "key": "UP",
+            "bounds": {
+              "x": 0.4625,
+              "y": 0.565,
+              "width": 0.075,
+              "height": 0.055
+            },
+            "label": "↑",
+            "visual": "hit_area"
+          },
+          {
+            "key": "DOWN",
+            "bounds": {
+              "x": 0.4625,
+              "y": 0.645,
+              "width": 0.075,
+              "height": 0.055
+            },
+            "label": "↓",
+            "visual": "hit_area"
+          },
+          {
+            "key": "LEFT",
+            "bounds": {
+              "x": 0.375,
+              "y": 0.605,
+              "width": 0.0875,
+              "height": 0.045
+            },
+            "label": "←",
+            "visual": "hit_area"
+          },
+          {
+            "key": "RIGHT",
+            "bounds": {
+              "x": 0.5375,
+              "y": 0.605,
+              "width": 0.0875,
+              "height": 0.045
+            },
+            "label": "→",
+            "visual": "hit_area"
+          },
+          {
+            "key": "SELECT",
+            "bounds": {
+              "x": 0.455,
+              "y": 0.605,
+              "width": 0.09,
+              "height": 0.045
+            },
+            "label": "OK",
+            "visual": "hit_area"
+          },
+          {
+            "key": "BACK",
+            "bounds": {
+              "x": 0.205,
+              "y": 0.605,
+              "width": 0.075,
+              "height": 0.045
+            },
+            "label": "C",
+            "visual": "back_key"
+          },
+          {
+            "key": "CALL",
+            "bounds": {
+              "x": 0.23,
+              "y": 0.694,
+              "width": 0.1475,
+              "height": 0.033
+            },
+            "label": "CALL",
+            "visual": "call_key"
+          },
+          {
+            "key": "END",
+            "bounds": {
+              "x": 0.6225,
+              "y": 0.694,
+              "width": 0.1475,
+              "height": 0.033
+            },
+            "label": "END",
+            "visual": "end_key"
+          },
+          {
+            "key": "DIGIT_1",
+            "bounds": {
+              "x": 0.245,
+              "y": 0.733,
+              "width": 0.135,
+              "height": 0.037
+            },
+            "label": "1",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_2",
+            "bounds": {
+              "x": 0.4325,
+              "y": 0.733,
+              "width": 0.135,
+              "height": 0.037
+            },
+            "label": "2",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_3",
+            "bounds": {
+              "x": 0.62,
+              "y": 0.733,
+              "width": 0.135,
+              "height": 0.037
+            },
+            "label": "3",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_4",
+            "bounds": {
+              "x": 0.245,
+              "y": 0.7841,
+              "width": 0.135,
+              "height": 0.037
+            },
+            "label": "4",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_5",
+            "bounds": {
+              "x": 0.4325,
+              "y": 0.7841,
+              "width": 0.135,
+              "height": 0.037
+            },
+            "label": "5",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_6",
+            "bounds": {
+              "x": 0.62,
+              "y": 0.7841,
+              "width": 0.135,
+              "height": 0.037
+            },
+            "label": "6",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_7",
+            "bounds": {
+              "x": 0.245,
+              "y": 0.8352,
+              "width": 0.135,
+              "height": 0.037
+            },
+            "label": "7",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_8",
+            "bounds": {
+              "x": 0.4325,
+              "y": 0.8352,
+              "width": 0.135,
+              "height": 0.037
+            },
+            "label": "8",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_9",
+            "bounds": {
+              "x": 0.62,
+              "y": 0.8352,
+              "width": 0.135,
+              "height": 0.037
+            },
+            "label": "9",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "STAR",
+            "bounds": {
+              "x": 0.245,
+              "y": 0.8863,
+              "width": 0.135,
+              "height": 0.037
+            },
+            "label": "*",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "DIGIT_0",
+            "bounds": {
+              "x": 0.4325,
+              "y": 0.8863,
+              "width": 0.135,
+              "height": 0.037
+            },
+            "label": "0",
+            "visual": "numeric_key"
+          },
+          {
+            "key": "HASH",
+            "bounds": {
+              "x": 0.62,
+              "y": 0.8863,
+              "width": 0.135,
+              "height": 0.037
+            },
+            "label": "#",
+            "visual": "numeric_key"
+          }
+        ]
+      },
+      "runtimeTargets": [
+        {
+          "family": "JAVA_ME",
+          "backend": "j2me-loader",
+          "systemImageRequired": false,
+          "compatibilityHint": "MIDP 2.0 on an S60-sized display"
+        },
+        {
+          "family": "SYMBIAN",
+          "backend": "eka2l1",
+          "systemImageRequired": true,
+          "compatibilityHint": "S60v3; compatible user-supplied firmware required"
+        }
+      ],
+      "defaultRuntime": "SYMBIAN",
+      "assetProvenance": "Original prototype geometry; replace with reviewed original artwork before release."
+    }
+  ]
+}

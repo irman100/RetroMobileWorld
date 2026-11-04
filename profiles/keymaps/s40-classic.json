@@ -1,0 +1,8 @@
+{
+  "id": "s40-classic",
+  "map": {
+    "dpad_up": "UP", "dpad_down": "DOWN", "dpad_left": "LEFT", "dpad_right": "RIGHT", "dpad_center": "SELECT",
+    "left_soft_key": "SOFT_LEFT", "right_soft_key": "SOFT_RIGHT", "back_key": "BACK", "green_call": "CALL", "red_end": "END",
+    "key_0": "DIGIT_0", "key_1": "DIGIT_1", "key_2": "DIGIT_2", "key_3": "DIGIT_3", "key_4": "DIGIT_4", "key_5": "DIGIT_5", "key_6": "DIGIT_6", "key_7": "DIGIT_7", "key_8": "DIGIT_8", "key_9": "DIGIT_9", "key_star": "STAR", "key_hash": "HASH"
+  }
+}
