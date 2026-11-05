@@ -603,6 +603,8 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         dump_memory_window(cpu, "BSE-descriptor-list", 0x0800_37A0, 0x100);
         dump_memory_window(cpu, "BSE-entry-register-save", 0x0800_3FD8, 0x28);
         dump_memory_window(cpu, "boot-tags", BOOT_TAGS_ADDR, 0x40);
+        dump_memory_window(cpu, "NOLO image-table global", 0x0800_06A0, 0x10);
+        dump_memory_window(cpu, "NOLO image table", IMAGE_TABLE_ADDR, 0x180);
 
         let begin = sp.saturating_sub(0x20);
         for offset in (0..0x70u32).step_by(4) {
@@ -634,13 +636,21 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     let excess = bytes.len() - 512;
                     bytes.drain(0..excess);
                 }
-                let marker = b"Failed assertion @ 0x%08X";
-                let marker_seen = bytes.windows(marker.len()).any(|window| window == marker);
+                let out_of_ram = b"out of RAM: can't allocate";
+                let assertion = b"Failed assertion @ 0x%08X";
+                let reset_call = b"hw_reset_generate(%d)";
+                let out_of_ram_seen = bytes.windows(out_of_ram.len()).any(|window| window == out_of_ram);
+                let assertion_seen = bytes.windows(assertion.len()).any(|window| window == assertion);
+                let reset_seen = bytes.windows(reset_call.len()).any(|window| window == reset_call);
                 drop(bytes);
-                if marker_seen {
+                if out_of_ram_seen {
+                    dump_cpu_context(cpu, "BSE-out-of-RAM-allocation");
+                    log_port_bytes.borrow_mut().clear();
+                } else if assertion_seen {
                     dump_cpu_context(cpu, "assertion-format-output");
-                    // Report once per process; the bounded text buffer is retained for
-                    // reset-path diagnostics without adding per-instruction hooks.
+                    log_port_bytes.borrow_mut().clear();
+                } else if reset_seen {
+                    dump_cpu_context(cpu, "hardware-reset-generator-call");
                     log_port_bytes.borrow_mut().clear();
                 }
                 let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0);
