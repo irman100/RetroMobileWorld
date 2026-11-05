@@ -153,8 +153,10 @@ object FirmwareImageInspector {
         val name = fileName.lowercase()
         return when {
             name.endsWith(".mcusw") -> FirmwareImageKind.CORE
-            Regex("""\\.ppm_[a-z0-9_-]+$""").containsMatchIn(name) -> FirmwareImageKind.LANGUAGE_PACK
-            Regex("""\\.image_[a-z0-9_-]+$""").containsMatchIn(name) -> FirmwareImageKind.CONTENT_PACK
+            name.substringAfterLast('.', "").startsWith("ppm_") &&
+                name.substringAfterLast('.', "").length > "ppm_".length -> FirmwareImageKind.LANGUAGE_PACK
+            name.substringAfterLast('.', "").startsWith("image_") &&
+                name.substringAfterLast('.', "").length > "image_".length -> FirmwareImageKind.CONTENT_PACK
             name.endsWith(".fpsimage") -> FirmwareImageKind.CONTENT_PACK
             else -> throw IllegalArgumentException(
                 "Choose an extracted RM-217 .mcusw, .ppm_* or .image_* firmware component."
