@@ -528,11 +528,13 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     )
     .map_err(|error| std::io::Error::other(format!("log-port watch failed: {error:?}")))?;
 
+    let reset_request = Rc::new(Cell::new(None::<(u32, u32, u32)>));
     for (begin, end) in [
         (0x201F_D800u64, 0x201F_D803u64),
         (0x2003_2D14u64, 0x2003_2D17),
         (0xFFD3_2D14u64, 0xFFD3_2D17),
     ] {
+        let reset_request = Rc::clone(&reset_request);
         uc.add_mem_hook(
             HookType::MEM_WRITE,
             begin,
@@ -543,7 +545,12 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     "  [watched-write] addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
                 );
                 if address == 0x2003_2D14 || address == 0xFFD3_2D14 {
+                    reset_request.set(Some((address as u32, value as u32, pc as u32)));
                     dump_cpu_context(cpu, "hardware-reset-register-write");
+                    // This is a real guest reset request. The diagnostic CPU-only probe
+                    // has no reset controller/boot ROM, so stop at the boundary rather
+                    // than pretending the following spin loop is useful execution.
+                    let _ = cpu.emu_stop();
                 }
                 true
             },
@@ -631,6 +638,12 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             stop = format!("CPU error: {error:?}");
             break;
         }
+        if let Some((address, value, pc)) = reset_request.get() {
+            stop = format!(
+                "guest requested hardware reset: [0x{address:08X}] <- 0x{value:08X} at PC 0x{pc:08X}"
+            );
+            break;
+        }
         if retired == 0 {
             stop = "CPU returned without retiring an instruction".to_string();
             break;
@@ -669,6 +682,11 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         read(RegisterARM::R6)
     );
     println!("Dynamically mapped pages: {}", unknown_count.get());
+    if let Some((address, value, pc)) = reset_request.get() {
+        println!(
+            "Hardware reset boundary captured: register=0x{address:08X}, value=0x{value:08X}, guest PC=0x{pc:08X}. Reset-controller behavior is not yet emulated."
+        );
+    }
     dump_cpu_context(&mut uc, "final-cpu-context");
     Ok(())
 }
