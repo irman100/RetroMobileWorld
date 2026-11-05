@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs::File;
@@ -364,18 +364,121 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     })
     .map_err(|error| std::io::Error::other(format!("unmapped hook failed: {error:?}")))?;
 
+    fn dump_cpu_context(cpu: &mut Uc<'_>, label: &str) {
+        let read_reg = |cpu: &Uc<'_>, reg| cpu.reg_read(reg).unwrap_or(0) as u32;
+        let pc = read_reg(cpu, RegisterARM::PC);
+        let cpsr = read_reg(cpu, RegisterARM::CPSR);
+        let sp = read_reg(cpu, RegisterARM::SP);
+        println!(
+            "  [{label}] PC=0x{pc:08X} CPSR=0x{cpsr:08X} SP=0x{sp:08X} LR=0x{:08X}",
+            read_reg(cpu, RegisterARM::LR)
+        );
+        println!(
+            "    r0=0x{:08X} r1=0x{:08X} r2=0x{:08X} r3=0x{:08X} r4=0x{:08X} r5=0x{:08X} r6=0x{:08X} r7=0x{:08X}",
+            read_reg(cpu, RegisterARM::R0),
+            read_reg(cpu, RegisterARM::R1),
+            read_reg(cpu, RegisterARM::R2),
+            read_reg(cpu, RegisterARM::R3),
+            read_reg(cpu, RegisterARM::R4),
+            read_reg(cpu, RegisterARM::R5),
+            read_reg(cpu, RegisterARM::R6),
+            read_reg(cpu, RegisterARM::R7)
+        );
+        let begin = sp.saturating_sub(0x20);
+        for offset in (0..0x70u32).step_by(4) {
+            let address = begin.saturating_add(offset);
+            let mut word = [0u8; 4];
+            if cpu.mem_read(address as u64, &mut word).is_ok() {
+                println!(
+                    "    stack[0x{address:08X}] = 0x{:08X}",
+                    u32::from_le_bytes(word)
+                );
+            }
+        }
+    }
+
+    let log_port_bytes = Rc::new(RefCell::new(Vec::<u8>::new()));
+    uc.add_mem_hook(
+        HookType::MEM_WRITE,
+        0x201E_F000,
+        0x201E_F003,
+        {
+            let log_port_bytes = Rc::clone(&log_port_bytes);
+            move |cpu, _kind, address, size, value| {
+                let mut bytes = log_port_bytes.borrow_mut();
+                let raw = value as u64;
+                for index in 0..size.min(8) {
+                    bytes.push((raw >> (index * 8)) as u8);
+                }
+                if bytes.len() > 512 {
+                    let excess = bytes.len() - 512;
+                    bytes.drain(0..excess);
+                }
+                let marker = b"Failed assertion @ 0x%08X";
+                let marker_seen = bytes.windows(marker.len()).any(|window| window == marker);
+                drop(bytes);
+                if marker_seen {
+                    dump_cpu_context(cpu, "assertion-format-output");
+                    // Report once per process; the bounded text buffer is retained for
+                    // reset-path diagnostics without adding per-instruction hooks.
+                    log_port_bytes.borrow_mut().clear();
+                }
+                let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0);
+                println!(
+                    "  [log-port] addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
+                );
+                true
+            }
+        },
+    )
+    .map_err(|error| std::io::Error::other(format!("log-port watch failed: {error:?}")))?;
+
     for (begin, end) in [
-        (0x201E_F000u64, 0x201E_F003u64),
         (0x201F_D800u64, 0x201F_D803u64),
+        (0x2003_2D14u64, 0x2003_2D17),
+        (0xFFD3_2D14u64, 0xFFD3_2D17),
     ] {
-        uc.add_mem_hook(HookType::MEM_WRITE, begin, end, move |cpu, _kind, address, size, value| {
-            let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0);
-            println!(
-                "  [write] addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
-            );
-            true
-        })
+        uc.add_mem_hook(
+            HookType::MEM_WRITE,
+            begin,
+            end,
+            move |cpu, _kind, address, size, value| {
+                let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0);
+                println!(
+                    "  [watched-write] addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
+                );
+                if address == 0x2003_2D14 || address == 0xFFD3_2D14 {
+                    dump_cpu_context(cpu, "hardware-reset-register-write");
+                }
+                true
+            },
+        )
         .map_err(|error| std::io::Error::other(format!("write watch failed: {error:?}")))?;
+    }
+
+    let status_read_count = Rc::new(Cell::new(0usize));
+    for (begin, end) in [
+        (0x2005_0014u64, 0x2005_0017u64),
+        (0xFFD5_0014u64, 0xFFD5_0017u64),
+    ] {
+        let status_read_count = Rc::clone(&status_read_count);
+        uc.add_mem_hook(
+            HookType::MEM_READ,
+            begin,
+            end,
+            move |cpu, _kind, address, size, value| {
+                let count = status_read_count.get();
+                if count < 24 {
+                    status_read_count.set(count + 1);
+                    let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0);
+                    println!(
+                        "  [status-read {count:02}] addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
+                    );
+                }
+                true
+            },
+        )
+        .map_err(|error| std::io::Error::other(format!("status read watch failed: {error:?}")))?;
     }
 
     println!(
@@ -471,6 +574,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         read(RegisterARM::R6)
     );
     println!("Dynamically mapped pages: {}", unknown_count.get());
+    dump_cpu_context(&mut uc, "final-cpu-context");
     Ok(())
 }
 
