@@ -917,6 +917,11 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             // pointer from SP+0x44. Observe the list pages independently.
             ("BSE-tag-list-read", HookType::MEM_READ, 0x1009_0000, 0x1009_3FFF),
             ("BSE-tag-list-write", HookType::MEM_WRITE, 0x1009_0000, 0x1009_3FFF),
+            // This pointer is consumed as the root of the boot-configuration
+            // descriptor tree. Trace it separately to establish where type 0
+            // should originate; do not infer its contents from the pointer alone.
+            ("BSE-boot-config-read", HookType::MEM_READ, 0x10FF_FF80, 0x10FF_FFCF),
+            ("BSE-boot-config-write", HookType::MEM_WRITE, 0x10FF_FF80, 0x10FF_FFCF),
             ("BSE-descriptors-read", HookType::MEM_READ, 0x0800_37A0, 0x0800_389F),
             ("BSE-descriptors-write", HookType::MEM_WRITE, 0x0800_37A0, 0x0800_389F),
             ("BSE-targets-read", HookType::MEM_READ, 0x0800_3FA0, 0x0800_411F),
@@ -926,7 +931,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             let count = Rc::new(Cell::new(0usize));
             // The focused descriptor/map windows must outlive their initial clear
             // pass; keep enough events to catch the subsequent record construction.
-            let event_limit = if label.contains("map-entry") || label.contains("descriptors") || label.contains("tag-list") {
+            let event_limit = if label.contains("map-entry") || label.contains("descriptors") || label.contains("tag-list") || label.contains("boot-config") {
                 256usize
             } else {
                 64usize
@@ -1005,6 +1010,10 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                 let pointer = read(RegisterARM::R0);
                 if pointer != 0 && pointer <= 0x0FFF_FFFF {
                     dump_memory_window(cpu, "watch-pc r0 target", pointer, 0x100);
+                }
+                let pointer_r1 = read(RegisterARM::R1);
+                if (0x0800_0000..=0x1FFF_FFFF).contains(&pointer_r1) {
+                    dump_memory_window(cpu, "watch-pc r1 source", pointer_r1.saturating_sub(0x10), 0x100);
                 }
                 let pointer_r2 = read(RegisterARM::R2);
                 if pointer_r2 != 0 && pointer_r2 <= 0x0FFF_FFFF {
