@@ -924,17 +924,24 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         ];
         for (label, hook_type, begin, end) in watches {
             let count = Rc::new(Cell::new(0usize));
+            // The focused descriptor/map windows must outlive their initial clear
+            // pass; keep enough events to catch the subsequent record construction.
+            let event_limit = if label.contains("map-entry") || label.contains("descriptors") || label.contains("tag-list") {
+                256usize
+            } else {
+                64usize
+            };
             uc.add_mem_hook(hook_type, begin, end, {
                 let count = Rc::clone(&count);
                 move |cpu, _kind, address, size, value| {
                     let index = count.get();
                     count.set(index + 1);
-                    if index < 64 {
+                    if index < event_limit {
                         let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0) as u32;
                         println!(
-                            "  [BSE-memory-trace {label} {index:02}] addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
+                            "  [BSE-memory-trace {label} {index:03}] addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
                         );
-                    } else if index == 64 {
+                    } else if index == event_limit {
                         println!("  [BSE-memory-trace {label}] further events suppressed");
                     }
                     true
@@ -1008,7 +1015,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                 if cpu.mem_read(sp as u64 + 0x44, &mut stack_argument).is_ok() {
                     let pointer = u32::from_le_bytes(stack_argument);
                     println!("  [watch-pc stack+0x44] = 0x{pointer:08X}");
-                    if (0x1000_0000..=0x1FFF_FFFF).contains(&pointer) {
+                    if (0x0800_0000..=0x1FFF_FFFF).contains(&pointer) {
                         dump_memory_window(cpu, "watch-pc stack+0x44 target", pointer, 0x100);
                     }
                 }
