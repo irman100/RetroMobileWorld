@@ -955,6 +955,28 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         .map_err(|error| std::io::Error::other(format!("watch-pc hook failed at 0x{address:08X}: {error:?}")))?;
     }
 
+    let asic_register_access_count = Rc::new(Cell::new(0usize));
+    for (begin, end) in [
+        (0x2003_2C00u64, 0x2003_2DFFu64),
+        (0xFFD3_2C00u64, 0xFFD3_2DFFu64),
+    ] {
+        let asic_register_access_count = Rc::clone(&asic_register_access_count);
+        uc.add_mem_hook(HookType::MEM_WRITE, begin, end, {
+            let asic_register_access_count = Rc::clone(&asic_register_access_count);
+            move |cpu, _kind, address, size, value| {
+                let count = asic_register_access_count.get();
+                if count < 160 {
+                    asic_register_access_count.set(count + 1);
+                    let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0);
+                    println!(
+                        "  [ASIC-write {count:03}] addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
+                    );
+                }
+                true
+            }
+        }).map_err(|error| std::io::Error::other(format!("ASIC write watch failed: {error:?}")))?;
+    }
+
     let status_read_count = Rc::new(Cell::new(0usize));
     // NOLO currently polls this candidate ASIC status register while bringing
     // up the SUBC path. Keep both the 0x200... view and observed 0xFFD... alias
