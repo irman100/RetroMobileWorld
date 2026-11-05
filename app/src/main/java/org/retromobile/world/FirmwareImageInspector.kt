@@ -119,7 +119,12 @@ object FirmwareImageInspector {
                     require(dataOffset + dataLength <= fileLength) {
                         "FPSX data block extends beyond the file."
                     }
-                    require(flashAddress + dataLength <= 0x1_0000_0000L) {
+                    // BB5 uses 0xFFFFFFFF for special unmapped blocks such as PAPUBKEYS.
+                    // That sentinel is not a normal flash address and must not be range-checked.
+                    require(
+                        flashAddress == UNMAPPED_FLASH_ADDRESS ||
+                            flashAddress + dataLength <= 0x1_0000_0000L
+                    ) {
                         "FPSX flash address range overflows 32 bits."
                     }
 
@@ -166,4 +171,6 @@ object FirmwareImageInspector {
 
     private fun readUInt32(input: RandomAccessFile): Long =
         input.readInt().toLong() and 0xFFFF_FFFFL
+
+    private const val UNMAPPED_FLASH_ADDRESS = 0xFFFF_FFFFL
 }
