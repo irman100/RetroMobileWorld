@@ -929,6 +929,12 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             ("NOR-candidate-low-write", HookType::MEM_WRITE, 0xF000_0000, 0xF00F_FFFF),
             ("NOR-candidate-high-read", HookType::MEM_READ, 0xF110_0000, 0xF1FF_FFFF),
             ("NOR-candidate-high-write", HookType::MEM_WRITE, 0xF110_0000, 0xF1FF_FFFF),
+            // The firmware's failed NOR discovery also touches these candidate
+            // controller/status windows immediately before reporting "not found".
+            ("NOR-controller-read", HookType::MEM_READ, 0x2003_6900, 0x2003_693F),
+            ("NOR-controller-write", HookType::MEM_WRITE, 0x2003_6900, 0x2003_693F),
+            ("NOR-interface-read", HookType::MEM_READ, 0x1000_4000, 0x1000_403F),
+            ("NOR-interface-write", HookType::MEM_WRITE, 0x1000_4000, 0x1000_403F),
             ("BSE-descriptors-read", HookType::MEM_READ, 0x0800_37A0, 0x0800_389F),
             ("BSE-descriptors-write", HookType::MEM_WRITE, 0x0800_37A0, 0x0800_389F),
             ("BSE-targets-read", HookType::MEM_READ, 0x0800_3FA0, 0x0800_411F),
@@ -938,7 +944,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             let count = Rc::new(Cell::new(0usize));
             // The focused descriptor/map windows must outlive their initial clear
             // pass; keep enough events to catch the subsequent record construction.
-            let event_limit = if label.contains("map-entry") || label.contains("descriptors") || label.contains("tag-list") || label.contains("boot-config") || label.contains("NOR-candidate") {
+            let event_limit = if label.contains("map-entry") || label.contains("descriptors") || label.contains("tag-list") || label.contains("boot-config") || label.contains("NOR-candidate") || label.contains("NOR-controller") || label.contains("NOR-interface") {
                 256usize
             } else {
                 64usize
