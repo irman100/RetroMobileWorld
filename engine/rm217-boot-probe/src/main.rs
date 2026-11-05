@@ -33,7 +33,7 @@ struct Options {
     instructions: u64,
     trace: u64,
     initial_registers: [u32; 4],
-    ready_on_read: Option<(u32, u8)>,
+    ready_on_read: Vec<(u32, u8)>,
     no_handoff: bool,
     pokes: Vec<(u32, u32)>,
     memory_tag0: Option<(u32, u32)>,
@@ -111,7 +111,7 @@ fn parse_options() -> Result<Options, String> {
     let mut instructions = DEFAULT_INSTRUCTIONS;
     let mut trace = DEFAULT_TRACE;
     let mut initial_registers = [0u32; 4];
-    let mut ready_on_read = None;
+    let mut ready_on_read = Vec::new();
     let mut no_handoff = false;
     let mut pokes = Vec::new();
     let mut memory_tag0 = None;
@@ -126,7 +126,7 @@ fn parse_options() -> Result<Options, String> {
         } else if let Some(value) = arg.strip_prefix("--trace=") {
             trace = parse_u64(value)?;
         } else if let Some(value) = arg.strip_prefix("--ready-bit=") {
-            ready_on_read = Some(parse_ready_bit(value)?);
+            ready_on_read.push(parse_ready_bit(value)?);
         } else if let Some(value) = arg.strip_prefix("--r0=") {
             initial_registers[0] = parse_u64(value)? as u32;
         } else if let Some(value) = arg.strip_prefix("--r1=") {
@@ -155,7 +155,7 @@ fn parse_options() -> Result<Options, String> {
     }
 
     let archive = archive.ok_or_else(|| {
-        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
+        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
     })?;
     Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
 }
@@ -683,7 +683,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         .map_err(|error| std::io::Error::other(format!("write watch failed: {error:?}")))?;
     }
 
-    if let Some((address, bit)) = options.ready_on_read {
+    for (address, bit) in options.ready_on_read.iter().copied() {
         let ready_applied = Rc::new(Cell::new(false));
         uc.add_mem_hook(
             HookType::MEM_READ,
@@ -707,7 +707,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                 }
             },
         )
-        .map_err(|error| std::io::Error::other(format!("ready-bit hook failed: {error:?}")))?;
+        .map_err(|error| std::io::Error::other(format!("ready-bit hook failed at 0x{address:08X}: {error:?}")))?;
     }
 
     let status_read_count = Rc::new(Cell::new(0usize));
@@ -885,9 +885,13 @@ mod tests {
     }
 
     #[test]
-    fn parses_ready_bit_specification() {
-        assert_eq!(parse_ready_bit("0x20032D80:0").unwrap(), (0x2003_2D80, 0));
-        assert_eq!(parse_ready_bit("536884608:31").unwrap(), (0x2003_2D80, 31));
+    fn parses_multiple_ready_bit_specifications() {
+        let ready = [
+            parse_ready_bit("0x20032D20:0").unwrap(),
+            parse_ready_bit("0x20032D40:0").unwrap(),
+            parse_ready_bit("0x20032D80:0").unwrap(),
+        ];
+        assert_eq!(ready, [(0x2003_2D20, 0), (0x2003_2D40, 0), (0x2003_2D80, 0)]);
         assert!(parse_ready_bit("0x20032D81:0").is_err());
         assert!(parse_ready_bit("0x100000000:0").is_err());
         assert!(parse_ready_bit("0x20032D80:32").is_err());
