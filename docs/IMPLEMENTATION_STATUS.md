@@ -1,6 +1,6 @@
 # Implementation status
 
-Snapshot: 4 November 2026. This describes the current development branch; physical-device engine validation is still pending.
+Snapshot: 5 November 2026. The RM-217 07.30 firmware archive has been inspected locally; no RM-217 boot has been achieved yet.
 
 ## Implemented
 
@@ -16,10 +16,12 @@ Snapshot: 4 November 2026. This describes the current development branch; physic
   - presents imported MIDlets inside the virtual phone's Java applications screen.
 - Read-only FileProvider handoff to the separate J2ME Loader Android app when the user selects RUN.
 - Local-only RM-217 firmware intake:
-  - accepts extracted BB5 FPSX `.mcusw`, `.ppm_*` and `.image_*` components;
-  - validates FPSX record and data-block boundaries and checks that MCU files contain the named MCUSW region;
-  - stores components under app-private storage using SHA-256-addressed names;
-  - never uploads firmware, adds it to APK assets or executes it during import.
+  - accepts an RM-217 Phoenix ZIP or individual BB5 FPSX `.mcusw`, `.ppm_*` and `.image_*` components;
+  - for ZIP archives, selects the version-matched MCU, PPM and canonical `image_c_tr` components and ignores installer executables and alternate colour images;
+  - validates FPSX record/data-block boundaries and checks MCU image naming;
+  - stores selected components under app-private storage using SHA-256-addressed names;
+  - never uploads firmware, adds it to APK assets, or executes installer files during import.
+- A read-only Python firmware inspection tool and CI tests for FPSX named regions, continuation blocks, BB5 special addresses and VPL metadata.
 - A separate PhoneSystemEngine contract for CPU/SoC/firmware emulation, video frames, PCM audio and key-down/key-up events. No RM-217 engine implementation is registered yet.
 - Unit tests for JAR/JAD parsing and the BB5 FPSX firmware inspector.
 - Versioned catalogue source registry, registry validators and Android CI workflow.
@@ -37,16 +39,25 @@ Snapshot: 4 November 2026. This describes the current development branch; physic
 - WAP browser, OTA catalogue and website.
 - Manufacturer-specific finished phone artwork and original sound packs; current color LCD/menu rendering is an original approximation, not original firmware UI.
 - The RM-217 hardware model and native Android engine are not implemented. c3emu is a feasibility/reference project for RM-614 (C3-00), not a drop-in RM-217 emulator.
-- Firmware import currently accepts individual extracted FPSX components; it does not unpack Phoenix/firmware installer executables or prove that a set is mutually compatible.
+- The current RM-217 ZIP import validates the file containers but does not yet enforce VPL CRC equality in the Android app. The supplied 07.30 package has a PPM CRC mismatch against its VPL and must not be treated as a verified boot set.
+- The current app importer does not execute Phoenix installer executables or flash a physical handset.
 - Historically faithful Nokia 6300 standby/menu/submenu screen flow remains available as a temporary fallback, not the main long-term emulation target.
 - Per-title network permissions and runtime isolation beyond the import library's private storage.
 
+## RM-217 firmware findings
+
+- VPL selected: `RM217_0537625_07.30_018.vpl`, product code 0537625, described as RM-217 6300 EURO-C TR Turkey / Latin / black-silver.
+- MCU and canonical IMAGE CRC-32 values match the selected VPL. The included PPM CRC-32 is `613D565F`, while the VPL requires `C585B71C`; this remains an unresolved integrity discrepancy.
+- The MCU contains two named `MCUSW` regions at flash address `0x00320000`: a 1,024-byte header segment and a 13,656,960-byte main segment. Both BB5 headers point to offset `0x3D0`; the first ARM word there is `0xE24F4008` (not the LDR reset-vector instruction expected by c3emu's RM-614 loader).
+- PPM data begins at flash address `0x01080000`; the canonical IMAGE data begins at `0x01600000`.
+- The factory IMAGE contains Opera Mini 4.0.9 MIDlet metadata (MIDP 2.0 / CLDC 1.0; JAR size 207,413 bytes) and matching 8.3 directory entries. The application has not yet been installed or launched.
+
 ## Next engineering steps
 
-1. Complete the Nokia 6300 standby, main menu, soft-key, Navi-key and submenu experience against the original user guide.
-2. Add the remaining visible Series 40 screens: Messaging, Contacts, Gallery, Media, Organizer and Settings.
-3. Validate color rendering, screen geometry and keypad navigation on the physical test phone.
-4. Complete the RM-217 hardware research and add a minimal CPU/SoC boot probe behind PhoneSystemEngine.
-5. Port the validated emulator core to Android through Rust JNI; retain a desktop test harness for repeatable boot diagnostics.
+1. Resolve the PPM/VPL CRC discrepancy or obtain a matching PPM component before treating this as a bootable firmware set.
+2. Build a dedicated RM-217 boot probe: choose the large MCUSW segment, reconstruct its XIP mapping and entry semantics, and record every missing MMIO access.
+3. Compare the RM-217 memory map, display controller, keypad, timer/interrupt model, PMIC and flash map with c3emu's RM-614-specific implementation.
+4. Bring the RM-217 firmware to its first stable LCD frame on a desktop diagnostic harness.
+5. Port only the validated machine core to Android through Rust JNI.
 6. Integrate the emulated LCD frame, keypad press/release, PCM audio and persistent flash into the phone shell.
-7. Test the original Series 40 Java ME environment and Opera Mini only after the OS reaches a stable user interface.
+7. After the OS reaches standby, validate its bundled Java ME manager and Opera Mini; then address the network bridge.
