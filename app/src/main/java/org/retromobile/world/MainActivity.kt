@@ -89,24 +89,34 @@ class MainActivity : Activity() {
             val displayName = queryDisplayName(uri)
             importExecutor.execute {
                 val result = runCatching {
-                    firmwareLibrary.importFromUri(uri, displayName)
+                    if (displayName.substringAfterLast('.').equals("zip", ignoreCase = true)) {
+                        val imported = firmwareLibrary.importArchiveFromUri(uri, displayName)
+                        "RM-217 software ${imported.version}\n" +
+                            imported.records.joinToString("\n") { record ->
+                                "${record.metadata.originalFileName} · ${record.metadata.blockCount} blocks"
+                            } +
+                            "\n\nOnly MCU, PPM and canonical IMAGE components were stored. " +
+                            "Other archive entries were not extracted or executed."
+                    } else {
+                        val record = firmwareLibrary.importFromUri(uri, displayName)
+                        "${record.metadata.originalFileName}\n" +
+                            "${record.metadata.kind.displayName}\n" +
+                            "${record.metadata.blockCount} blocks · " +
+                            "${record.metadata.namedRegions.size} named regions"
+                    }
                 }
                 runOnUiThread {
                     if (isFinishing || isDestroyed || !::phoneView.isInitialized) return@runOnUiThread
-                    result.onSuccess { record ->
+                    result.onSuccess { summary ->
                         refreshFirmwareImages()
                         showMessage(
-                            "Firmware component added",
-                            "${record.metadata.originalFileName}\n" +
-                                "${record.metadata.kind.displayName}\n" +
-                                "${record.metadata.blockCount} blocks · " +
-                                "${record.metadata.namedRegions.size} named regions\n\n" +
-                                "Stored only in this device's private app storage."
+                            "Firmware added to private storage",
+                            summary + "\n\nOriginal files remain only on this device."
                         )
                     }.onFailure { error ->
                         showMessage(
-                            "Firmware component rejected",
-                            error.message ?: "The selected file is not a supported RM-217 firmware component."
+                            "Firmware import rejected",
+                            error.message ?: "The selected file is not a supported RM-217 firmware component or complete archive."
                         )
                     }
                 }

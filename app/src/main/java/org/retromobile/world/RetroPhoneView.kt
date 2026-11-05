@@ -640,7 +640,7 @@ class RetroPhoneView(
             canvas.drawText("No firmware files imported", 120f, 169f, paint)
             paint.color = palette.muted
             paint.textSize = 7.5f
-            canvas.drawText("Import extracted MCUSW / PPM / IMAGE", 120f, 185f, paint)
+            canvas.drawText("Import RM-217 ZIP or MCU / PPM / IMAGE", 120f, 185f, paint)
             canvas.drawText("Original files stay on this device", 120f, 198f, paint)
         } else {
             val visible = 6

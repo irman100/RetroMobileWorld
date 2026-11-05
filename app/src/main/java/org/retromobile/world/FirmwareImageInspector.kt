@@ -29,7 +29,8 @@ object FirmwareImageInspector {
     const val MAX_FILE_BYTES = 256L * 1024L * 1024L
     private const val MAX_TLV_COUNT = 4096
     private const val MAX_BLOCK_COUNT = 32768
-    
+    private const val MAX_NAMED_REGION_BYTES = 64L * 1024L * 1024L
+
     fun inspect(file: File, originalFileName: String = file.name): FirmwareImageMetadata {
         require(file.isFile) { "The selected firmware component is not a file." }
         require(file.length() in 9L..MAX_FILE_BYTES) {
@@ -78,12 +79,14 @@ object FirmwareImageInspector {
                     require(blockCount <= MAX_BLOCK_COUNT) { "FPSX has too many data blocks." }
 
                     val lengthOffset: Long
+                    val addressOffset: Long
                     val dataOffset: Long
 
                     when (type) {
                         0x54 -> {
                             // Raw/continuation block: 4-byte prefix, flags, CRC, unknown byte.
                             lengthOffset = cursor + 10L
+                            addressOffset = cursor + 14L
                             dataOffset = cursor + 19L
                         }
                         0x5D -> {
@@ -100,6 +103,7 @@ object FirmwareImageInspector {
                             if (name.isNotEmpty()) names += name
 
                             lengthOffset = cursor + 41L
+                            addressOffset = cursor + 45L
                             dataOffset = cursor + 50L
                         }
                         else -> throw IllegalArgumentException(
@@ -149,8 +153,8 @@ object FirmwareImageInspector {
         val name = fileName.lowercase()
         return when {
             name.endsWith(".mcusw") -> FirmwareImageKind.CORE
-            Regex("""\.ppm_[a-z0-9_-]+$""").containsMatchIn(name) -> FirmwareImageKind.LANGUAGE_PACK
-            Regex("""\.image_[a-z0-9_-]+$""").containsMatchIn(name) -> FirmwareImageKind.CONTENT_PACK
+            Regex("""\\.ppm_[a-z0-9_-]+$""").containsMatchIn(name) -> FirmwareImageKind.LANGUAGE_PACK
+            Regex("""\\.image_[a-z0-9_-]+$""").containsMatchIn(name) -> FirmwareImageKind.CONTENT_PACK
             name.endsWith(".fpsimage") -> FirmwareImageKind.CONTENT_PACK
             else -> throw IllegalArgumentException(
                 "Choose an extracted RM-217 .mcusw, .ppm_* or .image_* firmware component."
