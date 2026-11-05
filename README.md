@@ -1,94 +1,63 @@
 # Retro Mobile World
 
-**A modular retro-phone shell and legacy mobile application host for Java ME and Symbian software.**
+**An Android firmware-intake shell and future emulator for the Nokia 6300 / RM-217.**
 
-Retro Mobile World recreates the experience of a classic mobile phone: device body, display geometry, physical keypad, soft keys, launcher and application library. Android is the first host platform; emulation backends are designed as replaceable modules.
+The current app opens directly into an RM-217 firmware screen. The phone display aperture, navigation assembly and physical keypad remain; the temporary hand-drawn standby screen, launcher grid and placeholder category menus are no longer the app's main interface.
 
-> **Current status: Android shell + Java package-library prototype.** The app can import and inspect local Java ME JAR/JAD packages, keep them in private storage and hand them to the J2ME Loader Android runtime when that separate app is installed. The Java ME engine is not yet embedded in this APK, and Symbian/SIS/SISX execution is not implemented.
+> **Current status:** the app can import a user-provided Nokia Phoenix ZIP, select the version-matched MCU, PPM and canonical IMAGE components, inspect their BB5 FPSX structure, and compare their CRC-32 values with the matching VPL manifest. Imported files stay in app-private storage. The supplied 07.30 package has a known PPM/VPL CRC mismatch, which is shown as a warning rather than hidden or silently treated as verified. The app does not yet boot the original firmware.
 
 ## Core design
 
-- **One shell, multiple device profiles.** A profile describes display dimensions and placement, outer-body artwork, keypad geometry, key mapping, sound set and visual style.
-- **A device profile is not an operating system.** One device can expose multiple runtimes. For example, an S60 profile can support Java ME and native Symbian while keeping the same device body and controls.
-- **Replaceable execution backends.** The shell talks to a common `EmulatorBackend` contract. Java ME and Symbian remain independent engines with separate licences and packaging decisions.
-- **A local application library.** Imported JAR/JAD files are inspected, identified by SHA-256 and copied to app-private storage. Packages are never executed automatically on import.
-- **Catalogues are data sources.** A listed source is not assumed to be online, safe or authorised to redistribute its files.
-- **Preserve the original installation flow.** The intended experience is to browse a catalogue or WAP page, choose a package, download it, review metadata, install it and launch it from the virtual phone.
+- **The original firmware must own the operating-system interface.** The Android shell provides the device frame, display surface and physical controls; it must not grow a parallel hand-drawn Series 40 menu system.
+- **A device profile is not an operating system.** RM-217 is the first hardware target. Other feature-phone profiles remain future work.
+- **Firmware is user supplied.** The app reads the Phoenix archive locally, stores only the selected RM-217 components and never runs installer executables or flashes a physical handset.
+- **Integrity is explicit.** Structural FPSX checks and VPL CRC checks are separate. A structurally readable component is not automatically a verified firmware set.
+- **Replaceable execution backends.** The PhoneSystemEngine contract separates the full phone OS machine from Java ME application runtimes.
 
-## Initial device profiles
+## RM-217 firmware intake
 
-- Nokia 6300 / Series 40 style — 240 × 320 display, Java ME target.
-- Sony Ericsson K750i style — 176 × 220 display, Java ME target.
-- Nokia N73 / S60 style — 240 × 320 display, Java ME and Symbian runtime targets.
+Use the on-screen ЗАГРУЗИТЬ ПРОШИВКУ control or the phone's left soft key. Select the Phoenix ZIP archive containing the RM-217 software set. The importer:
 
-The profiles are compatibility-oriented starting points, not original firmware images. The current release focuses on Java ME; Symbian is deferred.
+1. Finds the version-matched .mcusw, .ppm_c and canonical .image_c_tr components.
+2. Reads the matching VPL manifest and checks its component CRC-32 values.
+3. Validates each selected BB5 FPSX container.
+4. Stores the three components in app-private storage using SHA-256-addressed file names.
+5. Shows checksum mismatches in the phone display and an information dialog.
 
-## Java ME runtime status
+The archive's other files, including Windows installer executables and alternate colour IMAGE files, are not extracted or executed. Firmware is not copied into the Git repository or APK.
 
-The first execution bridge targets [J2ME Loader](https://github.com/nikita36078/J2ME-Loader), an Apache-2.0 Android emulator. Retro Mobile World shares the selected package through a temporary, read-only Android content URI. J2ME Loader handles its own installation and MIDlet execution.
+## Known 07.30 archive result
 
-This is an interim companion-runtime integration, not yet the final embedded-phone experience. The shell's rendering surface and canonical keypad are not yet connected directly to the MIDlet runtime. JAD descriptors that reference a remote HTTPS JAR can be handed to J2ME Loader; a JAD with a relative/local JAR reference must be imported together with its JAR by importing the JAR itself.
+The supplied package identifies product code 0537625, software version 07.30, variant RM-217 6300 EURO-C TR TURKEY, Latin, blksilver.
 
-## Repository layout
+- MCU CRC-32: expected 01C45DB7, actual 01C45DB7 — match.
+- PPM CRC-32: expected C585B71C, actual 613D565F — mismatch.
+- IMAGE CRC-32: expected 5008F91F, actual 5008F91F — match.
 
-```text
-app/                  Android phone shell and Java package library
-catalog/              Source registry and JSON schema
-profiles/              Device profiles, keymaps and profile schema
-docs/                  Product, architecture, legal, engine research and roadmap
-gradle/                Gradle wrapper configuration
-scripts/               Registry validation scripts
-.github/workflows/     Android CI
-```
+The app imports this structurally valid set but labels it unverified. Do not treat the current archive as a confirmed boot set until the PPM discrepancy is resolved.
 
-## Validation
+## Not implemented
 
-On Windows PowerShell (no Python required):
+- RM-217 CPU/SoC, memory map and hardware device model.
+- Booting the original RM-217 firmware to a stable LCD frame.
+- Rendering the actual Series 40 screen inside the phone aperture.
+- Routing physical key press/release events into the emulated keypad.
+- Flashing or modifying a physical Nokia handset.
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate_registry.ps1
-```
-
-In CI / Python environments:
-
-```bash
-python scripts/validate_registry.py
-```
-
-Both validators check the device-profile data, screen geometry, key coverage, runtime targets and catalogue metadata. Android CI runs unit tests and assembles the debug APK.
+The desktop boot probe under engine/rm217-boot-probe is diagnostic research, not an Android firmware emulator. Its c3emu reference machine targets RM-614 / Nokia C3-00 and is not a drop-in RM-217 implementation.
 
 ## Android build
 
-The project uses Android Gradle Plugin 9.5.0, Gradle 9.6.0, JDK 17+ and Android SDK platform 36. The Gradle Wrapper scripts and bootstrap JAR are included, so a separate system-wide Gradle installation is not required. On first launch, the wrapper downloads the pinned Gradle 9.6.0 distribution. Install JDK 17+ and Android SDK platform 36, then run from the repository root in Windows PowerShell:
+The project uses Android Gradle Plugin 9.5.0, Gradle 9.6.0, JDK 17+ and Android SDK platform 36. From Windows PowerShell at the repository root, run the Gradle wrapper with the testDebugUnitTest and assembleDebug tasks. The debug APK is written to app/build/outputs/apk/debug/app-debug.apk.
 
-```powershell
-.\gradlew.bat --no-daemon :app:testDebugUnitTest
-.\gradlew.bat --no-daemon :app:assembleDebug
-```
+## Repository layout
 
-GitHub Actions uses the same checked-in wrapper for both tests and APK assembly. The initial shell APK and tests passed in CI on 4 November 2026; this Java package-library change has its own pull-request CI run.
+- app: Android RM-217 shell and firmware intake
+- catalog: source registry and JSON schema
+- profiles: device profiles, keymaps and profile schema
+- docs: product, architecture, legal, engine research and roadmap
+- engine: desktop RM-217 boot-probe experiment
+- scripts: registry and firmware inspection tools
+- .github/workflows: Android CI and desktop boot-probe CI
 
-## Symbian runtime
-
-The separate Symbian candidate is [EKA2L1](https://github.com/EKA2L1/EKA2L1). It emulates Symbian OS kernel behaviour and reimplements critical app servers. Android support is experimental and requires compatible user-supplied ROM/RPKG or firmware files for the selected device generation. It is not bundled in this APK.
-
-See [engine research](docs/ENGINE_RESEARCH.md), [third-party notices](THIRD_PARTY_NOTICES.md), [architecture](docs/ARCHITECTURE.md) and [ADR-0003](docs/decisions/ADR-0003-j2me-loader-first-runtime.md).
-
-## Legal and security boundaries
-
-- Symbian system ROM/firmware must be supplied by the user from a lawful source and accepted by the selected backend.
-- A catalogue entry does not imply that a website is online, that its files are safe, or that redistribution is authorised.
-- Imported packages are untrusted. The app validates their container metadata, limits their size and does not auto-run them. Runtime permissions and network access remain controlled by the engine.
-- Third-party engines and dependencies retain their own licences. The original project code is licensed under GPL-3.0-only; see `LICENSE` and `THIRD_PARTY_NOTICES.md`.
-
-
-## Project documentation
-
-- [Product specification](docs/PRODUCT_SPEC.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Engine research](docs/ENGINE_RESEARCH.md)
-- [Catalogue and website strategy](docs/CATALOG_AND_WEBSITE.md)
-- [Legal and safety requirements](docs/LEGAL_AND_SAFETY.md)
-- [Implementation status](docs/IMPLEMENTATION_STATUS.md)
-- [Roadmap](docs/ROADMAP.md)
-- [Architecture decisions](docs/decisions/)
+The application code is licensed under GPL-3.0-only; see LICENSE and THIRD_PARTY_NOTICES.md. User-supplied firmware retains its own rights and is not bundled.
