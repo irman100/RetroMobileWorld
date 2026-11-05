@@ -940,6 +940,9 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             // writes and ID reads at the physical low-memory window directly.
             ("NOR-command-read", HookType::MEM_READ, 0x0000_0000, 0x0000_000F),
             ("NOR-command-write", HookType::MEM_WRITE, 0x0000_0000, 0x0000_000F),
+            // The NOR-identification routine itself resides in a low-memory
+            // helper area; watch for NOLO copying/installing it before the call.
+            ("NOR-helper-code-write", HookType::MEM_WRITE, 0x0800_0860, 0x0800_09FF),
             ("BSE-descriptors-read", HookType::MEM_READ, 0x0800_37A0, 0x0800_389F),
             ("BSE-descriptors-write", HookType::MEM_WRITE, 0x0800_37A0, 0x0800_389F),
             ("BSE-targets-read", HookType::MEM_READ, 0x0800_3FA0, 0x0800_411F),
@@ -949,7 +952,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             let count = Rc::new(Cell::new(0usize));
             // The focused descriptor/map windows must outlive their initial clear
             // pass; keep enough events to catch the subsequent record construction.
-            let event_limit = if label.contains("map-entry") || label.contains("descriptors") || label.contains("tag-list") || label.contains("boot-config") || label.contains("NOR-candidate") || label.contains("NOR-controller") || label.contains("NOR-interface") || label.contains("NOR-command") {
+            let event_limit = if label.contains("map-entry") || label.contains("descriptors") || label.contains("tag-list") || label.contains("boot-config") || label.contains("NOR-candidate") || label.contains("NOR-controller") || label.contains("NOR-interface") || label.contains("NOR-command") || label.contains("NOR-helper-code") {
                 256usize
             } else {
                 64usize
@@ -1106,6 +1109,10 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             },
         )
         .map_err(|error| std::io::Error::other(format!("status read watch failed: {error:?}")))?;
+    }
+
+    if options.start_image == StartImage::Nolo {
+        dump_memory_window(&uc, "NOR helper bytes before first CPU instruction", 0x0800_0860, 0xA0);
     }
 
     println!(
