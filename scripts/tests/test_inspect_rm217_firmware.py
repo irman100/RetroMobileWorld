@@ -1,6 +1,9 @@
 import struct
+import sys
 import unittest
+from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from inspect_rm217_firmware import parse_fpsx, parse_vpl
 
 
