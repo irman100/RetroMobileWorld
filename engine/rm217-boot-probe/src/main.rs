@@ -42,6 +42,7 @@ struct Options {
     initial_registers: [u32; 4],
     ready_on_read: Vec<(u32, u8)>,
     watch_pc: Vec<u32>,
+    trace_bse_memory: bool,
     hle_secure_service6: bool,
     hle_secure_service6_launch: bool,
     no_handoff: bool,
@@ -181,6 +182,7 @@ fn parse_options() -> Result<Options, String> {
     let mut initial_registers = [0u32; 4];
     let mut ready_on_read = Vec::new();
     let mut watch_pc = Vec::new();
+    let mut trace_bse_memory = false;
     let mut hle_secure_service6 = false;
     let mut hle_secure_service6_launch = false;
     let mut no_handoff = false;
@@ -200,6 +202,8 @@ fn parse_options() -> Result<Options, String> {
             ready_on_read.push(parse_ready_bit(value)?);
         } else if let Some(value) = arg.strip_prefix("--watch-pc=") {
             watch_pc.push(parse_watch_pc(value)?);
+        } else if arg == "--trace-bse-memory" {
+            trace_bse_memory = true;
         } else if arg == "--hle-secure-service6" {
             hle_secure_service6 = true;
         } else if arg == "--hle-secure-service6-launch" {
@@ -232,9 +236,9 @@ fn parse_options() -> Result<Options, String> {
     }
 
     let archive = archive.ok_or_else(|| {
-        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--watch-pc=ADDRESS ...] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
+        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--watch-pc=ADDRESS ...] [--trace-bse-memory] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
     })?;
-    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, watch_pc, hle_secure_service6, hle_secure_service6_launch, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
+    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, watch_pc, trace_bse_memory, hle_secure_service6, hle_secure_service6_launch, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
 }
 
 fn read_mcusw_from_archive(path: &PathBuf) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -895,6 +899,43 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         .map_err(|error| std::io::Error::other(format!("write watch failed: {error:?}")))?;
     }
 
+    if options.trace_bse_memory {
+        // Trace the data flow that feeds BSE's early memory-region setup. These
+        // ranges are diagnostic workspaces observed in the firmware, not asserted
+        // to be a validated RM-217 physical memory map.
+        let watches = [
+            ("boot-tags-read", HookType::MEM_READ, 0x0800_6000u64, 0x0800_607Fu64),
+            ("BSE-records-read", HookType::MEM_READ, 0x0800_2F60, 0x0800_301F),
+            ("BSE-records-write", HookType::MEM_WRITE, 0x0800_2F60, 0x0800_301F),
+            ("BSE-map-read", HookType::MEM_READ, 0x0800_32A0, 0x0800_331F),
+            ("BSE-map-write", HookType::MEM_WRITE, 0x0800_32A0, 0x0800_331F),
+            ("BSE-descriptors-read", HookType::MEM_READ, 0x0800_37A0, 0x0800_389F),
+            ("BSE-descriptors-write", HookType::MEM_WRITE, 0x0800_37A0, 0x0800_389F),
+            ("BSE-targets-read", HookType::MEM_READ, 0x0800_3FA0, 0x0800_411F),
+            ("BSE-targets-write", HookType::MEM_WRITE, 0x0800_3FA0, 0x0800_411F),
+        ];
+        for (label, hook_type, begin, end) in watches {
+            let count = Rc::new(Cell::new(0usize));
+            uc.add_mem_hook(hook_type, begin, end, {
+                let count = Rc::clone(&count);
+                move |cpu, _kind, address, size, value| {
+                    let index = count.get();
+                    count.set(index + 1);
+                    if index < 64 {
+                        let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0) as u32;
+                        println!(
+                            "  [BSE-memory-trace {label} {index:02}] addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
+                        );
+                    } else if index == 64 {
+                        println!("  [BSE-memory-trace {label}] further events suppressed");
+                    }
+                    true
+                }
+            })
+            .map_err(|error| std::io::Error::other(format!("BSE memory trace hook failed for {label}: {error:?}")))?;
+        }
+    }
+
     for (address, bit) in options.ready_on_read.iter().copied() {
         let ready_applied = Rc::new(Cell::new(false));
         uc.add_mem_hook(
@@ -945,9 +986,14 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     read(RegisterARM::SP),
                     read(RegisterARM::LR)
                 );
+                dump_memory_window(cpu, "watch-pc code bytes", (pc as u32).saturating_sub(0x10), 0x50);
                 let pointer = read(RegisterARM::R0);
                 if pointer != 0 && pointer <= 0x0FFF_FFFF {
                     dump_memory_window(cpu, "watch-pc r0 target", pointer, 0x100);
+                }
+                let pointer_r2 = read(RegisterARM::R2);
+                if pointer_r2 != 0 && pointer_r2 <= 0x0FFF_FFFF {
+                    dump_memory_window(cpu, "watch-pc r2 target", pointer_r2, 0x100);
                 }
                 let sp = read(RegisterARM::SP);
                 if sp != 0 && sp <= 0x0FFF_FFFF {
@@ -1145,7 +1191,7 @@ fn main() {
             }
         }
         Err(message) if message.is_empty() => {
-            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--watch-pc=ADDRESS ...] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
+            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--watch-pc=ADDRESS ...] [--trace-bse-memory] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
         }
         Err(message) => {
             eprintln!("{message}");
