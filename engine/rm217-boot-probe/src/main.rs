@@ -28,6 +28,7 @@ struct Options {
     initial_registers: [u32; 4],
     no_handoff: bool,
     pokes: Vec<(u32, u32)>,
+    memory_tag0: Option<(u32, u32)>,
     ram_tag4: Option<(u32, u32)>,
     ram_tag5: Option<(u32, u32)>,
 }
@@ -80,6 +81,7 @@ fn parse_options() -> Result<Options, String> {
     let mut initial_registers = [0u32; 4];
     let mut no_handoff = false;
     let mut pokes = Vec::new();
+    let mut memory_tag0 = None;
     let mut ram_tag4 = None;
     let mut ram_tag5 = None;
 
@@ -100,6 +102,8 @@ fn parse_options() -> Result<Options, String> {
             pokes.push(parse_poke(value)?);
         } else if let Some(value) = arg.strip_prefix("--ram-tag5=") {
             ram_tag5 = Some(parse_ram_range(value)?);
+        } else if let Some(value) = arg.strip_prefix("--memory-tag0=") {
+            memory_tag0 = Some(parse_ram_range(value)?);
         } else if let Some(value) = arg.strip_prefix("--ram-tag4=") {
             ram_tag4 = Some(parse_ram_range(value)?);
         } else if arg == "--no-handoff" {
@@ -114,9 +118,9 @@ fn parse_options() -> Result<Options, String> {
     }
 
     let archive = archive.ok_or_else(|| {
-        "usage: rm217-boot-probe <RM-217.zip> [--instructions=1000000] [--trace=96] [--poke=ADDRESS:VALUE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
+        "usage: rm217-boot-probe <RM-217.zip> [--instructions=1000000] [--trace=96] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
     })?;
-    Ok(Options { archive, instructions, trace, initial_registers, no_handoff, pokes, ram_tag4, ram_tag5 })
+    Ok(Options { archive, instructions, trace, initial_registers, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
 }
 
 fn read_mcusw_from_archive(path: &PathBuf) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -185,12 +189,18 @@ fn append_tag(out: &mut Vec<u8>, tag_type: u32, payload: &[u32]) {
 
 fn build_boot_tag_list(
     image_table: u32,
+    memory_tag0: Option<(u32, u32)>,
     ram_tag4: Option<(u32, u32)>,
     ram_tag5: Option<(u32, u32)>,
 ) -> Vec<u8> {
     let mut tags = Vec::new();
     append_tag(&mut tags, 0x0D, &[1]); // power-on by key
     append_tag(&mut tags, 0x0A, &[image_table]); // image table pointer
+    if let Some((base, size)) = memory_tag0 {
+        // Experimental type 0: candidate 32 MiB NOR window for 256-Mbit flash.
+        // The physical base/alias still needs confirmation from RM-217 documentation.
+        append_tag(&mut tags, 0, &[size, base]);
+    }
     if let Some((base, size)) = ram_tag4 {
         // BSE pre-init requires one tag 4; payload is [size, base].
         // The range is an experimental candidate, not a confirmed device map.
@@ -268,11 +278,17 @@ fn install_rm217_handoff(
     firmware: &Fpsx,
     main_mcusw: &Region,
     xip_base: u32,
+    memory_tag0: Option<(u32, u32)>,
     ram_tag4: Option<(u32, u32)>,
     ram_tag5: Option<(u32, u32)>,
 ) -> Result<(), Box<dyn Error>> {
     println!("Installing provisional RM-217 boot hand-off (C3-00 tag ABI reference):");
     let image_count = write_image_table(uc, firmware, main_mcusw, xip_base)?;
+    if let Some((base, size)) = memory_tag0 {
+        println!(
+            "  [experimental tag 0] candidate NOR window base=0x{base:08X} size=0x{size:08X}; inferred from 256-Mbit capacity, not yet hardware-validated"
+        );
+    }
     if let Some((base, size)) = ram_tag4 {
         println!(
             "  [experimental tag 4] primary RAM range base=0x{base:08X} size=0x{size:08X}; candidate only, not yet validated against RM-217 hardware documentation"
@@ -283,7 +299,7 @@ fn install_rm217_handoff(
             "  [experimental tag 5] stack RAM range base=0x{base:08X} size=0x{size:08X}; not yet validated against RM-217 hardware documentation"
         );
     }
-    let tags = build_boot_tag_list(IMAGE_TABLE_ADDR, ram_tag4, ram_tag5);
+    let tags = build_boot_tag_list(IMAGE_TABLE_ADDR, memory_tag0, ram_tag4, ram_tag5);
     uc.mem_write(BOOT_TAGS_ADDR as u64, &tags)
         .map_err(|error| std::io::Error::other(format!("boot-tag write failed: {error:?}")))?;
     println!(
@@ -369,7 +385,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     }
 
     if !options.no_handoff {
-        install_rm217_handoff(&mut uc, &firmware, main, xip_base, options.ram_tag4, options.ram_tag5)?;
+        install_rm217_handoff(&mut uc, &firmware, main, xip_base, options.memory_tag0, options.ram_tag4, options.ram_tag5)?;
     } else {
         println!("Boot hand-off disabled; r0-r3 start from supplied values.");
     }
@@ -666,7 +682,7 @@ fn main() {
             }
         }
         Err(message) if message.is_empty() => {
-            println!("Usage: rm217-boot-probe <RM-217.zip> [--instructions=1000000] [--trace=96] [--poke=ADDRESS:VALUE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
+            println!("Usage: rm217-boot-probe <RM-217.zip> [--instructions=1000000] [--trace=96] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
         }
         Err(message) => {
             eprintln!("{message}");
@@ -724,25 +740,29 @@ mod tests {
     fn builds_optional_tag5_with_size_then_base_payload() {
         let tags = build_boot_tag_list(
             IMAGE_TABLE_ADDR,
-            Some((0x0800_0000, 0x0100_0000)),
+            Some((0xF000_0000, 0x0200_0000)),
+            Some((0x4000_0000, 0x0100_0000)),
             Some((0x0800_0000, 0x0001_0000)),
         );
-        // Tag D: 12 bytes, A: 12 bytes, tag 4: 16, tag 5: 16, end: 8.
+        // Tag D: 12 bytes, A: 12 bytes, tag 0: 16, tag 4: 16, tag 5: 16, end: 8.
         assert_eq!(u32::from_le_bytes(tags[0..4].try_into().unwrap()), 0x0D);
         assert_eq!(u32::from_le_bytes(tags[12..16].try_into().unwrap()), 0x0A);
-        assert_eq!(u32::from_le_bytes(tags[24..28].try_into().unwrap()), 4);
+        assert_eq!(u32::from_le_bytes(tags[24..28].try_into().unwrap()), 0);
         assert_eq!(u32::from_le_bytes(tags[28..32].try_into().unwrap()), 16);
-        assert_eq!(u32::from_le_bytes(tags[32..36].try_into().unwrap()), 0x0100_0000);
-        assert_eq!(u32::from_le_bytes(tags[36..40].try_into().unwrap()), 0x0800_0000);
-        assert_eq!(u32::from_le_bytes(tags[40..44].try_into().unwrap()), 5);
-        assert_eq!(u32::from_le_bytes(tags[48..52].try_into().unwrap()), 0x0001_0000);
-        assert_eq!(u32::from_le_bytes(tags[52..56].try_into().unwrap()), 0x0800_0000);
-        assert_eq!(u32::from_le_bytes(tags[56..60].try_into().unwrap()), 2);
+        assert_eq!(u32::from_le_bytes(tags[32..36].try_into().unwrap()), 0x0200_0000);
+        assert_eq!(u32::from_le_bytes(tags[36..40].try_into().unwrap()), 0xF000_0000);
+        assert_eq!(u32::from_le_bytes(tags[40..44].try_into().unwrap()), 4);
+        assert_eq!(u32::from_le_bytes(tags[48..52].try_into().unwrap()), 0x0100_0000);
+        assert_eq!(u32::from_le_bytes(tags[52..56].try_into().unwrap()), 0x4000_0000);
+        assert_eq!(u32::from_le_bytes(tags[56..60].try_into().unwrap()), 5);
+        assert_eq!(u32::from_le_bytes(tags[64..68].try_into().unwrap()), 0x0001_0000);
+        assert_eq!(u32::from_le_bytes(tags[68..72].try_into().unwrap()), 0x0800_0000);
+        assert_eq!(u32::from_le_bytes(tags[72..76].try_into().unwrap()), 2);
     }
 
     #[test]
     fn builds_boot_info_with_power_on_and_image_table_tags() {
-        let tags = build_boot_tag_list(IMAGE_TABLE_ADDR, None, None);
+        let tags = build_boot_tag_list(IMAGE_TABLE_ADDR, None, None, None);
         assert_eq!(u32::from_le_bytes(tags[0..4].try_into().unwrap()), 0x0D);
         assert_eq!(u32::from_le_bytes(tags[8..12].try_into().unwrap()), 1);
         assert_eq!(u32::from_le_bytes(tags[12..16].try_into().unwrap()), 0x0A);
