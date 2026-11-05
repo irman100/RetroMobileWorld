@@ -35,6 +35,23 @@ class FirmwareImageInspectorTest {
     }
 
     @Test
+    fun acceptsBb5SpecialUnmappedAddress() {
+        val file = fixtureFile(".ppm_c", fpsx("PAPUBKEYS", 0xFFFF_FFFFL))
+        val metadata = FirmwareImageInspector.inspect(file)
+
+        assertTrue("PAPUBKEYS" in metadata.namedRegions)
+        assertEquals(1, metadata.blockCount)
+        file.delete()
+    }
+
+    @Test
+    fun stillRejectsOverflowForMappedFlashAddresses() {
+        val file = fixtureFile(".ppm_c", fpsx("PPM", 0xFFFF_FFFEL))
+        assertFalse(runCatching { FirmwareImageInspector.inspect(file) }.isSuccess)
+        file.delete()
+    }
+
+    @Test
     fun rejectsMcuswWithoutOperatingSystemRegion() {
         val file = fixtureFile(".mcusw", fpsx("OTHER"))
         val error = runCatching { FirmwareImageInspector.inspect(file) }.exceptionOrNull()
@@ -62,7 +79,7 @@ class FirmwareImageInspectorTest {
             deleteOnExit()
         }
 
-    private fun fpsx(regionName: String): ByteArray {
+    private fun fpsx(regionName: String, address: Long = 0x8000_0000L): ByteArray {
         val out = ByteArrayOutputStream()
         // FPSX header: B2, header length (4 bytes), TLV count (4 bytes = zero).
         out.write(byteArrayOf(0xB2.toByte(), 0, 0, 0, 4, 0, 0, 0, 0))
@@ -77,7 +94,7 @@ class FirmwareImageInspectorTest {
         out.write(ByteArray(12 - name.size))
         out.write(ByteArray(5)) // flags and CRC
         out.write(u32(4))
-        out.write(u32(0x8000_0000L))
+        out.write(u32(address))
         out.write(0) // block checksum placeholder
         out.write(byteArrayOf(1, 2, 3, 4))
         return out.toByteArray()
