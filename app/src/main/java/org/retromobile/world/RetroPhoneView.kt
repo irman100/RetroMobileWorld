@@ -35,7 +35,10 @@ class RetroPhoneView(
     private var galleryFolder = "Images"
     private var gallerySelection = 0
     private var galleryItems: List<GalleryMediaItem> = emptyList()
+    private var firmwareImages: List<FirmwareImageRecord> = emptyList()
+    private var firmwareSelection = 0
 
+    var onImportFirmwareRequested: (() -> Unit)? = null
     var onImportJavaAppRequested: (() -> Unit)? = null
     var onLaunchJavaApp: ((LegacyPackageRecord) -> Unit)? = null
     var onGalleryFolderSelected: ((String) -> Unit)? = null
@@ -44,7 +47,7 @@ class RetroPhoneView(
     private val profile: DeviceProfile
         get() = profiles[profileIndex]
 
-    private enum class PhoneScreen { STANDBY, MAIN_MENU, SUBMENU, JAVA_LIBRARY, QUICK_ACCESS, CONTACTS, GALLERY_ITEMS }
+    private enum class PhoneScreen { STANDBY, MAIN_MENU, SUBMENU, JAVA_LIBRARY, QUICK_ACCESS, CONTACTS, GALLERY_ITEMS, FIRMWARE_LIBRARY }
 
     data class GalleryMediaItem(val name: String, val uri: String, val mimeType: String)
 
@@ -265,6 +268,7 @@ class RetroPhoneView(
             PhoneScreen.QUICK_ACCESS -> drawQuickAccessScreen(canvas, logicalHeight, palette)
             PhoneScreen.CONTACTS -> drawContactsScreen(canvas, logicalHeight, palette)
             PhoneScreen.GALLERY_ITEMS -> drawGalleryItemsScreen(canvas, logicalHeight, palette)
+            PhoneScreen.FIRMWARE_LIBRARY -> drawFirmwareLibraryScreen(canvas, logicalHeight, palette)
         }
         canvas.restore()
     }
@@ -614,6 +618,61 @@ class RetroPhoneView(
         drawSoftKeyBar(canvas, logicalHeight, palette, "Back", "Open")
     }
 
+    private fun drawFirmwareLibraryScreen(canvas: Canvas, logicalHeight: Float, palette: ScreenPalette) {
+        paint.color = palette.text
+        paint.textAlign = Paint.Align.LEFT
+        paint.textSize = 12f
+        canvas.drawText("System firmware", 9f, 44f, paint)
+        paint.color = palette.muted
+        paint.textSize = 7.5f
+        canvas.drawText("NOKIA 6300 / RM-217 · LOCAL ONLY", 10f, 59f, paint)
+
+        if (firmwareImages.isEmpty()) {
+            paint.color = palette.panel
+            canvas.drawRoundRect(RectF(8f, 76f, 232f, logicalHeight - 29f), 6f, 6f, paint)
+            paint.color = palette.accent
+            canvas.drawCircle(120f, 132f, 16f, paint)
+            paint.color = palette.text
+            paint.textAlign = Paint.Align.CENTER
+            paint.textSize = 22f
+            canvas.drawText("+", 120f, 140f, paint)
+            paint.textSize = 9f
+            canvas.drawText("No firmware files imported", 120f, 169f, paint)
+            paint.color = palette.muted
+            paint.textSize = 7.5f
+            canvas.drawText("Import extracted MCUSW / PPM / IMAGE", 120f, 185f, paint)
+            canvas.drawText("Original files stay on this device", 120f, 198f, paint)
+        } else {
+            val visible = 6
+            val firstVisible = (firmwareSelection / visible) * visible
+            firmwareImages.drop(firstVisible).take(visible).forEachIndexed { row, record ->
+                val index = firstVisible + row
+                val y = 83f + row * 34f
+                paint.color = if (index == firmwareSelection) palette.selected else palette.panel
+                canvas.drawRoundRect(RectF(5f, y - 17f, 235f, y + 13f), 4f, 4f, paint)
+                paint.color = palette.iconColors[index % palette.iconColors.size]
+                canvas.drawRoundRect(RectF(10f, y - 11f, 29f, y + 7f), 3f, 3f, paint)
+                paint.color = palette.text
+                paint.textAlign = Paint.Align.CENTER
+                paint.textSize = 6f
+                val tag = when (record.metadata.kind) {
+                    FirmwareImageKind.CORE -> "OS"
+                    FirmwareImageKind.LANGUAGE_PACK -> "PPM"
+                    FirmwareImageKind.CONTENT_PACK -> "CNT"
+                }
+                canvas.drawText(tag, 19.5f, y + 1f, paint)
+                paint.textAlign = Paint.Align.LEFT
+                paint.textSize = 7.5f
+                canvas.drawText(record.metadata.originalFileName.take(30), 34f, y - 2f, paint)
+                paint.color = palette.muted
+                paint.textSize = 6.5f
+                val detail = "${record.metadata.blockCount} blocks · ${record.metadata.namedRegions.size} regions · ${record.metadata.payloadBytes / 1024} KB"
+                canvas.drawText(detail, 34f, y + 8f, paint)
+            }
+        }
+        drawSoftKeyBar(canvas, logicalHeight, palette, "Import", "Back")
+    }
+
     private fun drawJavaLibraryScreen(canvas: Canvas, logicalHeight: Float, palette: ScreenPalette) {
         paint.color = palette.text
         paint.textAlign = Paint.Align.LEFT
@@ -756,6 +815,8 @@ class RetroPhoneView(
                 screen == PhoneScreen.STANDBY && control.key == CanonicalKey.SOFT_RIGHT -> "NAMES"
                 screen == PhoneScreen.GALLERY_ITEMS && control.key == CanonicalKey.SOFT_LEFT -> "BACK"
                 screen == PhoneScreen.GALLERY_ITEMS && control.key == CanonicalKey.SOFT_RIGHT -> "OPEN"
+                screen == PhoneScreen.FIRMWARE_LIBRARY && control.key == CanonicalKey.SOFT_LEFT -> "IMPORT"
+                screen == PhoneScreen.FIRMWARE_LIBRARY && control.key == CanonicalKey.SOFT_RIGHT -> "BACK"
                 screen != PhoneScreen.STANDBY && control.key == CanonicalKey.SOFT_LEFT -> "OPTIONS"
                 screen != PhoneScreen.STANDBY && control.key == CanonicalKey.SOFT_RIGHT -> "OPEN"
                 else -> control.label
@@ -830,7 +891,7 @@ class RetroPhoneView(
         "Messaging" -> listOf("Create message", "Inbox", "Sent items", "Drafts", "Archive", "Templates")
         "Contacts" -> listOf("Names", "Add new contact", "Search", "Groups", "Speed dials")
         "Call log" -> listOf("Missed calls", "Received calls", "Dialled numbers", "Call duration")
-        "Settings" -> listOf("Profiles", "Tones", "Display", "Themes", "Time and date", "My shortcuts", "Bluetooth", "Phone settings")
+        "Settings" -> listOf("Profiles", "System firmware", "Tones", "Display", "Themes", "Time and date", "My shortcuts", "Bluetooth", "Phone settings")
         "Operator menu" -> listOf("Operator services", "Service messages")
         "Gallery" -> listOf("Images", "Video clips", "Music files", "Themes", "Graphics", "Tones", "Recordings", "Received files", "Memory card")
         "Media" -> listOf("Camera", "Music player", "Radio", "Voice recorder", "Equalizer")
@@ -863,6 +924,10 @@ class RetroPhoneView(
             onGalleryFolderSelected?.invoke(entry)
         } else if (submenuTitle == "Settings" && entry == "Profiles") {
             nextProfile()
+        } else if (submenuTitle == "Settings" && entry == "System firmware") {
+            firmwareSelection = 0
+            screen = PhoneScreen.FIRMWARE_LIBRARY
+            detailMessage = null
         } else {
             detailMessage = "$entry selected"
         }
@@ -873,6 +938,12 @@ class RetroPhoneView(
         galleryItems = items
         gallerySelection = 0
         screen = PhoneScreen.GALLERY_ITEMS
+        invalidate()
+    }
+
+    fun updateFirmwareImages(images: List<FirmwareImageRecord>) {
+        firmwareImages = images
+        firmwareSelection = firmwareSelection.coerceIn(0, (firmwareImages.size - 1).coerceAtLeast(0))
         invalidate()
     }
 
@@ -975,6 +1046,17 @@ class RetroPhoneView(
                 }
                 else -> Unit
             }
+            PhoneScreen.FIRMWARE_LIBRARY -> when (key) {
+                CanonicalKey.UP -> firmwareSelection = (firmwareSelection - 1).coerceAtLeast(0)
+                CanonicalKey.DOWN -> firmwareSelection = (firmwareSelection + 1).coerceAtMost((firmwareImages.size - 1).coerceAtLeast(0))
+                CanonicalKey.SOFT_LEFT -> onImportFirmwareRequested?.invoke()
+                CanonicalKey.BACK, CanonicalKey.SOFT_RIGHT -> screen = PhoneScreen.SUBMENU
+                CanonicalKey.SELECT -> {
+                    val selected = firmwareImages.getOrNull(firmwareSelection)
+                    detailMessage = selected?.metadata?.originalFileName ?: "No firmware component selected"
+                }
+                else -> Unit
+            }
         }
         invalidate()
     }
@@ -984,7 +1066,7 @@ class RetroPhoneView(
             PhoneScreen.STANDBY -> return false
             PhoneScreen.MAIN_MENU, PhoneScreen.QUICK_ACCESS, PhoneScreen.CONTACTS -> screen = PhoneScreen.STANDBY
             PhoneScreen.SUBMENU -> screen = PhoneScreen.MAIN_MENU
-            PhoneScreen.JAVA_LIBRARY, PhoneScreen.GALLERY_ITEMS -> screen = PhoneScreen.SUBMENU
+            PhoneScreen.JAVA_LIBRARY, PhoneScreen.GALLERY_ITEMS, PhoneScreen.FIRMWARE_LIBRARY -> screen = PhoneScreen.SUBMENU
         }
         detailMessage = null
         invalidate()

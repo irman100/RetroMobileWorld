@@ -13,8 +13,10 @@
 
 - [x] Expand the host UI to use the Android viewport while respecting system-bar insets.
 - [x] Preserve each profile's native LCD aspect ratio while using the available display height.
-- [ ] Establish the exact RM-217 firmware/software version used as the visual reference.
-- [ ] Build a local-only firmware inventory and resource-analysis workflow for a user-provided image; keep original firmware binaries out of Git and APKs.
+- [x] Add a local-only firmware intake and FPSX inspector for user-provided `.mcusw`, `.ppm_*` and `.image_*` components; originals remain in app-private storage.
+- [ ] Establish the exact RM-217 firmware/software version used as the boot reference.
+- [ ] Analyse a compatible firmware set and record its component names, version strings, addresses, image regions and hashes.
+- [ ] Compare the RM-217 hardware map against the existing C3-00 c3emu implementation before adapting any SoC model.
 - [ ] Reconstruct standby, status indicators, menu views, category screens, gallery and navigation against the verified RM-217 reference.
 - [ ] Use only resources with a documented right-to-use basis in distributable builds; independently recreate any asset that is not cleared for packaging.
 - [ ] Recreate the Nokia 6300 standby screen, original soft-key layout and Navi-key path into the main menu.
@@ -25,6 +27,16 @@
 - [ ] Verify all soft keys, D-pad, digits, star/hash and back/call/end hit areas on each profile.
 - [ ] Add profile import/export and profile validation.
 - [ ] Add snapshot/UI tests for the three sample device profiles.
+
+## Milestone 1.5 — RM-217 firmware emulator spike
+
+- [x] Research c3emu as a working reference that boots original Series 40 firmware for Nokia C3-00 / RM-614.
+- [x] Separate the firmware/CPU-machine contract from the Java ME application-runtime contract in Android code.
+- [ ] Pin and review c3emu source and all notices before importing code; do not vendor its RM-614 machine as if it were RM-217-compatible.
+- [ ] Determine the RM-217 CPU core, memory map, LCD controller, keypad scanner, timer/interrupt controller, PMIC, storage and DSP requirements from service documentation and firmware traces.
+- [ ] Build a desktop RM-217 boot probe first, with deterministic logging and no UI dependency.
+- [ ] Make the first success criterion a repeatable boot to a stable LCD frame; absent GSM/SIM/radio functions may be stubbed only after proving they are not required for that boot path.
+- [ ] Port the proven core to Android ARM64 via Rust JNI and a bounded render/input loop.
 
 ## Milestone 2 — integrated Java ME applications
 

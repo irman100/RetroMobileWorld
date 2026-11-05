@@ -18,6 +18,7 @@ import java.util.concurrent.Executors
 class MainActivity : Activity() {
     private lateinit var phoneView: RetroPhoneView
     private lateinit var packageLibrary: LegacyPackageLibrary
+    private lateinit var firmwareLibrary: FirmwareImageLibrary
     private val importExecutor = Executors.newSingleThreadExecutor()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -33,7 +34,9 @@ class MainActivity : Activity() {
         }.getOrElse { ProfileCatalog.builtIn }
 
         packageLibrary = LegacyPackageLibrary(this)
+        firmwareLibrary = FirmwareImageLibrary(this)
         phoneView = RetroPhoneView(this, profiles).apply {
+            onImportFirmwareRequested = { requestFirmwareImport() }
             onImportJavaAppRequested = { requestJavaPackageImport() }
             onLaunchJavaApp = { record -> launchJavaApp(record) }
             onGalleryFolderSelected = { folder -> requestGalleryFolder(folder) }
@@ -47,6 +50,20 @@ class MainActivity : Activity() {
         }
         ViewCompat.requestApplyInsets(phoneView)
         refreshJavaPackages()
+        refreshFirmwareImages()
+    }
+
+    private fun requestFirmwareImport() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            startActivityForResult(intent, REQUEST_IMPORT_FIRMWARE)
+        } catch (error: ActivityNotFoundException) {
+            showMessage("Firmware import unavailable", "Android did not provide a document picker.")
+        }
     }
 
     private fun requestJavaPackageImport() {
@@ -66,6 +83,37 @@ class MainActivity : Activity() {
     @Deprecated("Uses the platform activity-result callback for broad Android compatibility.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_IMPORT_FIRMWARE) {
+            if (resultCode != RESULT_OK) return
+            val uri = data?.data ?: return
+            val displayName = queryDisplayName(uri)
+            importExecutor.execute {
+                val result = runCatching {
+                    firmwareLibrary.importFromUri(uri, displayName)
+                }
+                runOnUiThread {
+                    if (isFinishing || isDestroyed || !::phoneView.isInitialized) return@runOnUiThread
+                    result.onSuccess { record ->
+                        refreshFirmwareImages()
+                        showMessage(
+                            "Firmware component added",
+                            "${record.metadata.originalFileName}\n" +
+                                "${record.metadata.kind.displayName}\n" +
+                                "${record.metadata.blockCount} blocks · " +
+                                "${record.metadata.namedRegions.size} named regions\n\n" +
+                                "Stored only in this device's private app storage."
+                        )
+                    }.onFailure { error ->
+                        showMessage(
+                            "Firmware component rejected",
+                            error.message ?: "The selected file is not a supported RM-217 firmware component."
+                        )
+                    }
+                }
+            }
+            return
+        }
+
         if (requestCode == REQUEST_GALLERY_PICKER) {
             if (resultCode != RESULT_OK) {
                 pendingGalleryFolder = null
@@ -247,6 +295,17 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun refreshFirmwareImages() {
+        importExecutor.execute {
+            val images = firmwareLibrary.listImages()
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed && ::phoneView.isInitialized) {
+                    phoneView.updateFirmwareImages(images)
+                }
+            }
+        }
+    }
+
     private fun showMessage(title: String, message: String) {
         AlertDialog.Builder(this)
             .setTitle(title)
@@ -259,6 +318,7 @@ class MainActivity : Activity() {
         super.onResume()
         if (::phoneView.isInitialized && ::packageLibrary.isInitialized) {
             refreshJavaPackages()
+            refreshFirmwareImages()
         }
     }
 
@@ -276,6 +336,7 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_IMPORT_PACKAGE = 4101
         private const val REQUEST_GALLERY_PICKER = 4102
+        private const val REQUEST_IMPORT_FIRMWARE = 4103
         private const val J2ME_LOADER_PACKAGE = "ru.playsoftware.j2meloader"
     }
 }

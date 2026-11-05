@@ -15,3 +15,11 @@ This file is an integration checklist, not a substitute for the original licence
 ## Gradle Wrapper
 
 The Gradle Wrapper launcher scripts and bootstrap JAR are distributed with Gradle 9.6.0 under the Apache License 2.0. The scripts retain their upstream copyright and licence headers. Upstream source: https://github.com/gradle/gradle/tree/v9.6.0.
+
+
+## Evaluated emulator reference (not yet bundled)
+
+- `androettop/c3emu` — GPL-3.0-or-later, upstream snapshot reviewed at `9b0d3ae2da326e109428f64d8760ea823ee1b648`: https://github.com/androettop/c3emu
+- c3emu is a working Nokia C3-00 / RM-614 Series 40 firmware emulator. Its ARM interpreter, FPSX parser and host-frame/key/audio boundary are useful research references.
+- Its RM-614 address map, LCD, keypad, storage hooks, PMIC/I2C and DSP models are device-specific and must not be represented as an RM-217 implementation.
+- No c3emu source files or binary have been copied into this repository yet. Before incorporation, preserve the exact GPL text, copyright/attribution notices, source revision and notices for all dependencies. The application's existing GPL-3.0-only project licence is compatible with GPL-3.0 code, but every third-party notice remains in force.
