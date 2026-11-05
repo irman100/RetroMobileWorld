@@ -48,7 +48,8 @@ Snapshot: 5 November 2026. The RM-217 07.30 firmware archive has been inspected 
 
 - VPL selected: `RM217_0537625_07.30_018.vpl`, product code 0537625, described as RM-217 6300 EURO-C TR Turkey / Latin / black-silver.
 - MCU and canonical IMAGE CRC-32 values match the selected VPL. The included PPM CRC-32 is `613D565F`, while the VPL requires `C585B71C`; this remains an unresolved integrity discrepancy.
-- The MCU contains two named `MCUSW` regions at flash address `0x00320000`: a 1,024-byte header segment and a 13,656,960-byte main segment. Both BB5 headers point to offset `0x3D0`; the first ARM word there is `0xE24F4008` (not the LDR reset-vector instruction expected by c3emu's RM-614 loader).
+- The MCU contains two named `MCUSW` regions at flash address `0x00320000`: a 1,024-byte header segment and a 13,656,960-byte main segment. The read-only boot probe now selects the larger segment. Its BB5 header points to offset `0x3D0`; the first ARM word is `0xE24F4008`, not the LDR reset-vector instruction expected by c3emu's RM-614 loader.
+- Static disassembly of the first-stage stub suggests an XIP base of `0xF0100000`, candidate ARM entry `0xF01003D0`, and Thumb continuation `0xF0100410`. The early stub loads SP=`0x08004000`, reserves `0x1800` bytes and writes marker `0x067308CA` at `0x08002800`. These are candidate boot-state values, not yet verified by execution.
 - PPM data begins at flash address `0x01080000`; the canonical IMAGE data begins at `0x01600000`.
 - The factory IMAGE contains Opera Mini 4.0.9 MIDlet metadata (MIDP 2.0 / CLDC 1.0; JAR size 207,413 bytes) and matching 8.3 directory entries. The application has not yet been installed or launched.
 

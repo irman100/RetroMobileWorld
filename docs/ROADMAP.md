@@ -37,7 +37,9 @@
 - [ ] Pin and review c3emu source and all notices before importing code; do not vendor its RM-614 machine as if it were RM-217-compatible.
 - [ ] Determine the RM-217 CPU core, memory map, LCD controller, keypad scanner, timer/interrupt controller, PMIC, storage and DSP requirements from service documentation and firmware traces.
 - [ ] Build a desktop RM-217 boot probe first, with deterministic logging and no UI dependency.
-- [ ] Select the large MCUSW named region (13,656,960 bytes), not the 1,024-byte duplicate header segment; investigate the 0x3D0 entry and 0xF0100000 flash alias.
+- [x] Select the large MCUSW named region (13,656,960 bytes), not the 1,024-byte duplicate header segment.
+- [x] Decode the static first-stage entry sequence: candidate XIP base 0xF0100000, ARM entry 0xF01003D0, Thumb continuation 0xF0100410, initial SP 0x08004000.
+- [ ] Validate the candidate XIP mapping, entry registers and early RAM aliases by executing a bounded RM-217 boot probe.
 - [ ] Reconstruct the RM-217 IMAGE flash mapping rather than using c3emu's RM-614-only custom content-image parser.
 - [ ] Make the first success criterion a repeatable boot to a stable LCD frame; absent GSM/SIM/radio functions may be stubbed only after proving they are not required for that boot path.
 - [ ] Port the proven core to Android ARM64 via Rust JNI and a bounded render/input loop.

@@ -59,6 +59,23 @@ Both carry a BB5 header with `+0x1C = 0x3D0` and `+0x148 = 0x3D0`. At the pointe
 
 The two MCUSW regions share a name. c3emu's current `Fpsx::image("MCUSW")` returns the first matching region, which is the 1,024-byte segment. A direct call to the existing RM-614 loader would therefore select the wrong segment even before the reset-entry mismatch is reached.
 
+### RM-217 first-stage boot stub (static disassembly)
+
+The larger MCUSW segment was mapped in a temporary ELF at the candidate XIP base inferred from its own literals and disassembled as ARMv5/Thumb. This is static analysis of the supplied image; no firmware was executed.
+
+At the BB5 header entry offset +0x3D0:
+- ARM word 0xE24F4008 is SUB r4, pc, #8, which computes the current entry address. It is not a conventional vector-table LDR pc,[pc,#imm].
+- The entry stub switches to System mode, loads literals identifying 0xF01003D0 and 0xF0100000, then checks an early global at image offset 0x164 (observed value zero in this image).
+- At entry offset +0x38, it executes ADD r4, pc, #1 followed by BX r4, transitioning to Thumb code at candidate address 0xF0100410.
+- The Thumb continuation loads SP from a literal 0x08004000, subtracts 0x1800, and stores marker 0x067308CA at 0x08002800. It preserves incoming r0-r3 and calls an early pre-initialisation routine at 0xF0104A28.
+- The routine at 0xF0104A28 contains the log strings "BSE: bse_pre_init(...)" and "BSE: MMU switched on, R/O offset ...". Memory/MMU setup is therefore part of the early boot path; this is not merely a display entry point.
+- Interworking helpers around 0xF0104EC0 and 0xF0104ED0 issue CP15 reads in loops after cache-related operations. Their exact platform effect still needs confirmation.
+
+The reproducible inspector now selects the largest duplicate-named MCUSW region and reports these candidate addresses and stack values. Unit tests cover duplicate-region selection and entry-literal calculations. The candidate XIP mapping and entry state must still be verified in an executing machine.
+
+**Consequence for c3emu:** its loader's fixed RM-614 reset-vector decoding and image mapping are not reusable unchanged. The ARM interpreter remains a promising candidate, but an RM-217-specific loader must map the firmware at the observed alias, supply the correct handoff registers, and model early memory/CP15 operations before later peripherals can be assessed.
+
+
 ### Factory Java content
 
 The IMAGE contains directory entries `OPERA_~1JAD` and `OPERA_~1JAR`, and a MIDlet manifest record for:
