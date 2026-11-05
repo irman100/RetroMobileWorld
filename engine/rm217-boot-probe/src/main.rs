@@ -601,13 +601,13 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     let page = address & !0xFFF;
                     if cpu.mem_map(page, 0x1000, Prot::ALL).is_err() {
                         println!("  [NOLO ROM HLE] failed to map ROM page 0x{page:08X}");
-                        unhandled_rom_fetch.set(Some((address as u32, pc, service.unwrap())));
+                        unhandled_rom_fetch.set(Some((address as u32, pc, service.unwrap() as u32)));
                         let _ = cpu.emu_stop();
                         return false;
                     }
                     if cpu.mem_write(address, &SEC_SERVICE6_THUMB_STUB).is_err() {
                         println!("  [NOLO ROM HLE] failed to install service-6 Thumb return stub");
-                        unhandled_rom_fetch.set(Some((address as u32, pc, service.unwrap())));
+                        unhandled_rom_fetch.set(Some((address as u32, pc, service.unwrap() as u32)));
                         let _ = cpu.emu_stop();
                         return false;
                     }
@@ -621,7 +621,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                 println!(
                     "  [NOLO ROM] unhandled fetch 0x{address:08X} from PC 0x{pc:08X}: desc=0x{descriptor_ptr:08X}, secure_service={service:?}, r1=0x{r1:08X}, r2=0x{r2:08X}, r3=0x{r3:08X}, HLE-enabled={allow_secure_service6}"
                 );
-                unhandled_rom_fetch.set(Some((address as u32, pc, service.unwrap_or(0xFFFF))));
+                unhandled_rom_fetch.set(Some((address as u32, pc, service.unwrap_or(0xFFFF) as u32)));
                 let _ = cpu.emu_stop();
                 return false;
             }
