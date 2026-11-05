@@ -2,11 +2,14 @@ package org.retromobile.world
 
 import android.content.Context
 import android.net.Uri
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.Locale
 import java.util.UUID
+import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 
@@ -17,17 +20,24 @@ data class FirmwareImageRecord(
 )
 
 data class FirmwareArchiveImportResult(
-    val version: String,
+    val summary: FirmwareImportSummary,
     val records: List<FirmwareImageRecord>
-)
+) {
+    val version: String
+        get() = summary.version
+}
 
 /**
  * Local-only store for firmware components supplied by the user.
- * No firmware data is uploaded, added to APK assets or written into repository files.
+ * Firmware never leaves this device and is never copied into the APK or repository.
  */
 class FirmwareImageLibrary(context: Context) {
     private val appContext = context.applicationContext
     private val directory = File(appContext.filesDir, "system-images/nokia-rm-217")
+    private val statusPreferences = appContext.getSharedPreferences(
+        "rm217_firmware_import_status",
+        Context.MODE_PRIVATE
+    )
 
     fun listImages(): List<FirmwareImageRecord> =
         directory.listFiles().orEmpty()
@@ -44,9 +54,38 @@ class FirmwareImageLibrary(context: Context) {
                     )
                 }.getOrNull()
             }
-            .sortedWith(compareBy<FirmwareImageRecord> { it.metadata.kind.ordinal }
-                .thenBy { it.metadata.originalFileName.lowercase() })
+            .sortedWith(
+                compareBy<FirmwareImageRecord> { it.metadata.kind.ordinal }
+                    .thenBy { it.metadata.originalFileName.lowercase(Locale.ROOT) }
+            )
             .toList()
+
+    fun lastImportSummary(): FirmwareImportSummary? {
+        val version = statusPreferences.getString("version", null) ?: return null
+        val encodedChecks = statusPreferences.getStringSet("checks", emptySet()).orEmpty()
+        val checks = encodedChecks.mapNotNull { encoded ->
+            val parts = encoded.split('|')
+            if (parts.size != 4) return@mapNotNull null
+            FirmwareComponentChecksum(
+                fileName = parts[0],
+                expectedCrc32 = parts[1].takeIf { it != "-" },
+                actualCrc32 = parts[2],
+                matches = when (parts[3]) {
+                    "true" -> true
+                    "false" -> false
+                    else -> null
+                }
+            )
+        }.sortedBy { it.fileName.lowercase(Locale.ROOT) }
+
+        return FirmwareImportSummary(
+            version = version,
+            productCode = statusPreferences.getString("productCode", null),
+            description = statusPreferences.getString("description", null),
+            manifestFound = statusPreferences.getBoolean("manifestFound", false),
+            checks = checks
+        )
+    }
 
     @Throws(IOException::class, IllegalArgumentException::class)
     fun importFromUri(uri: Uri, displayName: String): FirmwareImageRecord {
@@ -80,7 +119,9 @@ class FirmwareImageLibrary(context: Context) {
 
             require(totalBytes >= 9L) { "The selected firmware file is empty or truncated." }
             val metadata = FirmwareImageInspector.inspect(staging, safeName)
-            return commitStaged(staging, safeName, digest.digest(), metadata)
+            val record = commitStaged(staging, safeName, digest.digest(), metadata)
+            statusPreferences.edit().clear().apply()
+            return record
         } catch (error: Exception) {
             staging.delete()
             throw error
@@ -88,18 +129,20 @@ class FirmwareImageLibrary(context: Context) {
     }
 
     /**
-     * Imports only the RM-217 MCU, PPM and canonical IMAGE components from a Phoenix ZIP.
-     * Installer executables and alternate colour IMAGE variants are streamed past,
-     * never extracted or executed.
+     * Imports only the version-matched RM-217 MCU, PPM and canonical IMAGE files.
+     * VPL CRC mismatches are reported but do not discard structurally valid files:
+     * this lets the user load the real archive while keeping an unverified set explicit.
+     * Installer executables and unrelated archive entries are streamed past, never executed.
      */
     @Throws(IOException::class, IllegalArgumentException::class)
     fun importArchiveFromUri(uri: Uri, archiveName: String): FirmwareArchiveImportResult {
         require(archiveName.substringAfterLast('.').equals("zip", ignoreCase = true)) {
-            "Choose the RM-217 firmware ZIP archive."
+            "Choose the RM-217 Phoenix ZIP archive."
         }
         ensureDirectory()
 
         val staged = mutableListOf<StagedComponent>()
+        val stagedManifests = mutableListOf<ByteArray>()
         val createdFiles = mutableListOf<File>()
         var expandedBytes = 0L
         var entryCount = 0
@@ -124,6 +167,13 @@ class FirmwareImageLibrary(context: Context) {
                         val safeName = if (selected) sanitizeFileName(baseName) else null
                         val temp = if (selected) File(directory, ".${UUID.randomUUID()}.part") else null
                         val digest = if (selected) MessageDigest.getInstance("SHA-256") else null
+                        val crc = if (selected) CRC32() else null
+                        val manifestOutput = if (
+                            !entry.isDirectory &&
+                            baseName.endsWith(".vpl", ignoreCase = true) &&
+                            stagedManifests.size < MAX_VPL_MANIFESTS
+                        ) ByteArrayOutputStream() else null
+                        var manifestTooLarge = false
                         var entryBytes = 0L
 
                         try {
@@ -141,7 +191,17 @@ class FirmwareImageLibrary(context: Context) {
                                         throw IOException("Firmware component $baseName exceeds the 256 MiB import limit.")
                                     }
                                     digest?.update(buffer, 0, count)
+                                    crc?.update(buffer, 0, count)
                                     output?.write(buffer, 0, count)
+
+                                    if (manifestOutput != null && !manifestTooLarge) {
+                                        if (manifestOutput.size().toLong() + count <= FirmwareManifestInspector.MAX_MANIFEST_BYTES) {
+                                            manifestOutput.write(buffer, 0, count)
+                                        } else {
+                                            manifestTooLarge = true
+                                            manifestOutput.reset()
+                                        }
+                                    }
                                 }
                                 output?.fd?.sync()
                             } finally {
@@ -155,8 +215,12 @@ class FirmwareImageLibrary(context: Context) {
                                     originalName = safeName,
                                     file = temp,
                                     digest = digest!!.digest(),
+                                    crc32 = crc!!.value.toHex8(),
                                     metadata = metadata
                                 )
+                            }
+                            if (manifestOutput != null && !manifestTooLarge) {
+                                stagedManifests += manifestOutput.toByteArray()
                             }
                         } catch (error: Exception) {
                             temp?.delete()
@@ -169,9 +233,34 @@ class FirmwareImageLibrary(context: Context) {
             }
 
             val selectedNames = FirmwareArchiveSelection.selectRequired(staged.map { it.originalName })
+            val version = FirmwareArchiveSelection.versionFrom(selectedNames)
             val selected = selectedNames.map { name ->
                 staged.single { it.originalName.equals(name, ignoreCase = true) }
             }
+            val requiredLowerNames = selectedNames.map { it.lowercase(Locale.ROOT) }.toSet()
+
+            val matchingManifests = stagedManifests.mapNotNull { bytes ->
+                runCatching { FirmwareManifestInspector.parse(bytes) }.getOrNull()
+            }.filter { manifest ->
+                manifest.softwareVersion == version &&
+                    manifest.crc32ByFileName.keys.containsAll(requiredLowerNames)
+            }
+            val manifest = matchingManifests.singleOrNull()
+
+            val checks = selected.map { component ->
+                FirmwareManifestInspector.check(
+                    fileName = component.originalName,
+                    actualCrc32 = component.crc32,
+                    expectedByName = manifest?.crc32ByFileName.orEmpty()
+                )
+            }
+            val summary = FirmwareImportSummary(
+                version = version,
+                productCode = manifest?.productCode,
+                description = manifest?.description,
+                manifestFound = manifest != null,
+                checks = checks
+            )
 
             val records = mutableListOf<FirmwareImageRecord>()
             selected.forEach { component ->
@@ -190,15 +279,31 @@ class FirmwareImageLibrary(context: Context) {
             }
 
             staged.filterNot { it in selected }.forEach { it.file.delete() }
-            return FirmwareArchiveImportResult(
-                version = FirmwareArchiveSelection.versionFrom(selectedNames),
-                records = records
-            )
+            persistSummary(summary)
+            return FirmwareArchiveImportResult(summary = summary, records = records)
         } catch (error: Exception) {
             staged.forEach { it.file.delete() }
             createdFiles.forEach { it.delete() }
             throw error
         }
+    }
+
+    private fun persistSummary(summary: FirmwareImportSummary) {
+        val encodedChecks = summary.checks.map { check ->
+            listOf(
+                check.fileName,
+                check.expectedCrc32 ?: "-",
+                check.actualCrc32,
+                check.matches?.toString() ?: "unknown"
+            ).joinToString("|")
+        }.toSet()
+        statusPreferences.edit()
+            .putString("version", summary.version)
+            .putString("productCode", summary.productCode)
+            .putString("description", summary.description)
+            .putBoolean("manifestFound", summary.manifestFound)
+            .putStringSet("checks", encodedChecks)
+            .apply()
     }
 
     private fun commitStaged(
@@ -234,14 +339,19 @@ class FirmwareImageLibrary(context: Context) {
         val originalName: String,
         val file: File,
         val digest: ByteArray,
+        val crc32: String,
         val metadata: FirmwareImageMetadata
     )
 
     private fun ByteArray.toHex(): String =
         joinToString("") { byte -> (byte.toInt() and 0xFF).toString(16).padStart(2, '0') }
 
+    private fun Long.toHex8(): String =
+        String.format(Locale.ROOT, "%08X", this)
+
     companion object {
         private const val MAX_ARCHIVE_ENTRIES = 1024
         private const val MAX_ARCHIVE_EXPANDED_BYTES = 512L * 1024L * 1024L
+        private const val MAX_VPL_MANIFESTS = 16
     }
 }
