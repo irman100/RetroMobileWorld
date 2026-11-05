@@ -18,6 +18,8 @@ const XIP_MINIMUM_MAP: u64 = 0x0100_0000;
 
 const BOOT_TAGS_ADDR: u32 = 0x0800_6000;
 const IMAGE_TABLE_ADDR: u32 = 0x0800_6400;
+/// NOLO's own image lookup reads this base from its global at 0x080006A0.
+const NOLO_TOC_ADDR: u32 = 0x0000_0400;
 const PAPUBKEYS_RAM_ADDR: u32 = 0x0801_0000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -290,11 +292,16 @@ fn build_boot_tag_list(
     tags
 }
 
+fn image_table_relative_offset(load_address: u32, table_base: u32) -> u32 {
+    load_address.wrapping_sub(table_base)
+}
+
 fn write_image_table(
     uc: &mut Uc<'_>,
     firmware: &Fpsx,
     main_mcusw: &Region,
     xip_base: u32,
+    table_base: u32,
 ) -> Result<usize, Box<dyn Error>> {
     let mut named: BTreeMap<String, (&Region, u32)> = BTreeMap::new();
     for region in &firmware.regions {
@@ -328,7 +335,7 @@ fn write_image_table(
         }
 
         let mut entry = [0u8; 0x20];
-        let relative = destination.wrapping_sub(IMAGE_TABLE_ADDR);
+        let relative = image_table_relative_offset(destination, table_base);
         entry[0..4].copy_from_slice(&relative.to_le_bytes());
         entry[4..8].copy_from_slice(&(region.data.len() as u32).to_le_bytes());
         let name_bytes = name.as_bytes();
@@ -344,8 +351,11 @@ fn write_image_table(
     let mut end = [0u8; 0x20];
     end[0x14] = 0xFF;
     entries.extend_from_slice(&end);
-    uc.mem_write(IMAGE_TABLE_ADDR as u64, &entries)
-        .map_err(|error| std::io::Error::other(format!("image table write failed: {error:?}")))?;
+    uc.mem_write(table_base as u64, &entries)
+        .map_err(|error| std::io::Error::other(format!("image table write failed at 0x{table_base:08X}: {error:?}")))?;
+    println!(
+        "  image table written at 0x{table_base:08X}; all entry offsets are relative to this base"
+    );
     Ok(entries.len() / 0x20 - 1)
 }
 
@@ -359,7 +369,7 @@ fn install_rm217_handoff(
     ram_tag5: Option<(u32, u32)>,
 ) -> Result<(), Box<dyn Error>> {
     println!("Installing provisional RM-217 boot hand-off (C3-00 tag ABI reference):");
-    let image_count = write_image_table(uc, firmware, main_mcusw, xip_base)?;
+    let image_count = write_image_table(uc, firmware, main_mcusw, xip_base, IMAGE_TABLE_ADDR)?;
     if let Some((base, size)) = memory_tag0 {
         println!(
             "  [experimental tag 0] candidate NOR window base=0x{base:08X} size=0x{size:08X}; inferred from 256-Mbit capacity, not yet hardware-validated"
@@ -487,10 +497,19 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     uc.mem_write(xip_base as u64, &main.data)
         .map_err(|error| std::io::Error::other(format!("MCUSW load failed: {error:?}")))?;
 
-    // The same image table used by NOLO is staged in RAM for either entry experiment.
-    // MCUSW mode additionally supplies the provisional tag hand-off; NOLO starts with
-    // the incoming r0-r3 values supplied by its caller/boot ROM.
-    write_image_table(&mut uc, &firmware, main, xip_base)?;
+    // MCUSW's provisional hand-off points to IMAGE_TABLE_ADDR. NOLO does not consume
+    // that tag list: its own lookup routine reads the TOC base from 0x080006A0, whose
+    // startup value is 0x00000400. Build the same record format at the address the
+    // actual NOLO lookup code scans, with offsets relative to that exact base.
+    let image_table_base = match options.start_image {
+        StartImage::Mcusw => IMAGE_TABLE_ADDR,
+        StartImage::Nolo => NOLO_TOC_ADDR,
+    };
+    write_image_table(&mut uc, &firmware, main, xip_base, image_table_base)?;
+    println!(
+        "Selected image table base for {:?}: 0x{image_table_base:08X}",
+        options.start_image
+    );
 
     // Optional diagnostic initial values for RAM/MMIO-like locations. These are
     // explicitly experimental overrides; they are not asserted to be real device state.
@@ -604,7 +623,8 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         dump_memory_window(cpu, "BSE-entry-register-save", 0x0800_3FD8, 0x28);
         dump_memory_window(cpu, "boot-tags", BOOT_TAGS_ADDR, 0x40);
         dump_memory_window(cpu, "NOLO image-table global", 0x0800_06A0, 0x10);
-        dump_memory_window(cpu, "NOLO image table", IMAGE_TABLE_ADDR, 0x180);
+        dump_memory_window(cpu, "NOLO TOC at firmware-selected base", NOLO_TOC_ADDR, 0x180);
+        dump_memory_window(cpu, "MCUSW boot-info image table", IMAGE_TABLE_ADDR, 0x180);
 
         let begin = sp.saturating_sub(0x20);
         for offset in (0..0x70u32).step_by(4) {
@@ -906,6 +926,23 @@ mod tests {
         assert!(parse_ready_bit("0x100000000:0").is_err());
         assert!(parse_ready_bit("0x20032D80:32").is_err());
         assert!(parse_ready_bit("0x20032D80").is_err());
+    }
+
+    #[test]
+    fn resolves_nolo_toc_relative_image_addresses() {
+        let destinations = [
+            0x0020_0000,
+            0x0002_5300,
+            0xF010_0000,
+            0x0002_0300,
+            0x0801_0000,
+            0x0002_9300,
+        ];
+        for destination in destinations {
+            let relative = image_table_relative_offset(destination, NOLO_TOC_ADDR);
+            assert_eq!(NOLO_TOC_ADDR.wrapping_add(relative), destination);
+        }
+        assert_eq!(NOLO_TOC_ADDR, 0x0000_0400);
     }
 
     #[test]
