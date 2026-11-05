@@ -909,6 +909,14 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             ("BSE-records-write", HookType::MEM_WRITE, 0x0800_2F60, 0x0800_301F),
             ("BSE-map-read", HookType::MEM_READ, 0x0800_32A0, 0x0800_331F),
             ("BSE-map-write", HookType::MEM_WRITE, 0x0800_32A0, 0x0800_331F),
+            // Focused windows avoid losing later non-zero writes after the broad
+            // map-clear loop fills the first 64 events with zeros.
+            ("BSE-map-entry-read", HookType::MEM_READ, 0x0800_32B0, 0x0800_32EF),
+            ("BSE-map-entry-write", HookType::MEM_WRITE, 0x0800_32B0, 0x0800_32EF),
+            // The first missing tag-list lookup observed at F0104172 used this
+            // pointer from SP+0x44. Observe the list pages independently.
+            ("BSE-tag-list-read", HookType::MEM_READ, 0x1009_0000, 0x1009_3FFF),
+            ("BSE-tag-list-write", HookType::MEM_WRITE, 0x1009_0000, 0x1009_3FFF),
             ("BSE-descriptors-read", HookType::MEM_READ, 0x0800_37A0, 0x0800_389F),
             ("BSE-descriptors-write", HookType::MEM_WRITE, 0x0800_37A0, 0x0800_389F),
             ("BSE-targets-read", HookType::MEM_READ, 0x0800_3FA0, 0x0800_411F),
@@ -996,6 +1004,17 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     dump_memory_window(cpu, "watch-pc r2 target", pointer_r2, 0x100);
                 }
                 let sp = read(RegisterARM::SP);
+                if let Ok(mut arg_bytes) = cpu.mem_read(sp as u64 + 0x44, &mut [0u8; 4]) {
+                    let _ = &mut arg_bytes;
+                }
+                let mut stack_argument = [0u8; 4];
+                if cpu.mem_read(sp as u64 + 0x44, &mut stack_argument).is_ok() {
+                    let pointer = u32::from_le_bytes(stack_argument);
+                    println!("  [watch-pc stack+0x44] = 0x{pointer:08X}");
+                    if (0x1000_0000..=0x1FFF_FFFF).contains(&pointer) {
+                        dump_memory_window(cpu, "watch-pc stack+0x44 target", pointer, 0x100);
+                    }
+                }
                 if sp != 0 && sp <= 0x0FFF_FFFF {
                     dump_memory_window(cpu, "watch-pc stack", sp.saturating_sub(0x10), 0x70);
                 }
