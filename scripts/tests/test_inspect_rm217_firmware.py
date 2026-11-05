@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from inspect_rm217_firmware import parse_fpsx, parse_vpl
+from inspect_rm217_firmware import (\n    Region,\n    inspect_rm217_boot_entry,\n    parse_fpsx,\n    parse_vpl,\n    select_main_mcusw,\n)
 
 
 def raw_block(address: int, payload: bytes) -> bytes:
@@ -78,6 +78,34 @@ class Rm217FirmwareInspectionTests(unittest.TestCase):
         xml = b"<!DOCTYPE x [<!ENTITY y 'z'>]><x/>"
         with self.assertRaises(ValueError):
             parse_vpl(xml)
+
+
+    def test_selects_largest_mcusw_region_when_duplicate_names_exist(self):
+        header = Region("MCUSW", 0x00320000, bytes(1024), 1)
+        main = Region("MCUSW", 0x00320000, bytes(4096), 835)
+        self.assertIs(select_main_mcusw([header, main]), main)
+
+    def test_decodes_rm217_xip_entry_and_early_stack_literals(self):
+        image = bytearray(0x2000)
+        struct.pack_into("<I", image, 0, 0x809795A3)
+        struct.pack_into("<I", image, 0x1C, 0x3D0)
+        struct.pack_into("<I", image, 0x148, 0x3D0)
+        struct.pack_into("<I", image, 0x164, 0)
+        struct.pack_into("<I", image, 0x3D0, 0xE24F4008)
+        struct.pack_into("<I", image, 0x3D0 + 0x68, 0x067308CA)
+        struct.pack_into("<I", image, 0x3D0 + 0x6C, 0x1800)
+        struct.pack_into("<I", image, 0x3D0 + 0x70, 0x08004000)
+        struct.pack_into("<I", image, 0x3D0 + 0x74, 0xF01003D0)
+        struct.pack_into("<I", image, 0x3D0 + 0x78, 0xF0100000)
+
+        boot = inspect_rm217_boot_entry(image)
+        self.assertIsNotNone(boot)
+        assert boot is not None
+        self.assertEqual(boot["candidate_entry"], 0xF01003D0)
+        self.assertEqual(boot["thumb_entry"], 0xF0100410)
+        self.assertEqual(boot["stack_pointer"], 0x08004000)
+        self.assertEqual(boot["stack_cookie_address"], 0x08002800)
+        self.assertEqual(boot["stack_cookie"], 0x067308CA)
 
 
 if __name__ == "__main__":

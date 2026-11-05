@@ -110,6 +110,46 @@ def parse_fpsx(data: bytes) -> tuple[int, int, list[Region]]:
     return header_length, tlv_count, regions
 
 
+def select_main_mcusw(regions: list[Region]) -> Region:
+    """Choose the main executable MCUSW when BB5 stores a duplicate header region."""
+    candidates = [region for region in regions if region.name == "MCUSW"]
+    if not candidates:
+        raise ValueError("MCU contains no named MCUSW region")
+    return max(candidates, key=lambda region: len(region.payload))
+
+
+def inspect_rm217_boot_entry(payload: bytes) -> dict[str, int] | None:
+    """Read RM-217 first-stage entry literals; static analysis, not a boot."""
+    if len(payload) < 0x14C or u32le(payload, 0) != 0x809795A3:
+        return None
+    entry_offset = u32le(payload, 0x1C)
+    header_hint = u32le(payload, 0x148)
+    if entry_offset + 0x7C > len(payload):
+        return None
+    first_word = u32le(payload, entry_offset)
+    xip_entry = u32le(payload, entry_offset + 0x74)
+    xip_base = u32le(payload, entry_offset + 0x78)
+    stack_pointer = u32le(payload, entry_offset + 0x70)
+    stack_cookie = u32le(payload, entry_offset + 0x68)
+    stack_reserve = u32le(payload, entry_offset + 0x6C)
+    early_global = u32le(payload, 0x164) if len(payload) >= 0x168 else 0xFFFFFFFF
+    thumb_offset = entry_offset + 0x40
+    return {
+        "entry_offset": entry_offset,
+        "header_hint": header_hint,
+        "first_word": first_word,
+        "xip_entry_literal": xip_entry,
+        "xip_base": xip_base,
+        "candidate_entry": xip_base + entry_offset,
+        "thumb_entry": xip_base + thumb_offset,
+        "stack_pointer": stack_pointer,
+        "stack_cookie": stack_cookie,
+        "stack_reserve": stack_reserve,
+        "stack_cookie_address": (stack_pointer - stack_reserve) & 0xFFFFFFFF,
+        "early_global_0x164": early_global,
+    }
+
+
 def parse_vpl(data: bytes) -> dict:
     if len(data) > 1024 * 1024:
         raise ValueError("VPL manifest exceeds 1 MiB")
@@ -237,29 +277,40 @@ def inspect_archive(path: str, product_code: str) -> int:
                         f"    {label}: flash=0x{region.address:08X}; "
                         f"size={len(region.payload):,}; blocks={region.blocks}"
                     )
-                    if name.lower().endswith(".mcusw") and region.name == "MCUSW":
-                        payload = region.payload
-                        if len(payload) >= 0x14C and u32le(payload, 0) == 0x809795A3:
-                            entry_offset = u32le(payload, 0x1C)
-                            header_hint = u32le(payload, 0x148)
-                            entry = payload[entry_offset:entry_offset + 16]
-                            print(
-                                f"      BB5 header: +0x1C={entry_offset:#x}; "
-                                f"+0x148={header_hint:#x}"
-                            )
-                            if len(entry) == 16:
-                                first_instruction = struct.unpack_from("<I", entry)[0]
-                                print(
-                                    f"      first entry bytes: {entry.hex()} "
-                                    f"(first ARM word 0x{first_instruction:08X})"
-                                )
-                            if len(payload) >= entry_offset + 0x7C:
-                                first_literal = u32le(payload, entry_offset + 0x74)
-                                second_literal = u32le(payload, entry_offset + 0x78)
-                                print(
-                                    f"      entry literals: +0x74={first_literal:#010x}; "
-                                    f"+0x78={second_literal:#010x}"
-                                )
+            if name.lower().endswith(".mcusw"):
+                main_region = select_main_mcusw(regions)
+                print(
+                    f"  selected MCUSW: flash=0x{main_region.address:08X}; "
+                    f"size={len(main_region.payload):,}; blocks={main_region.blocks}"
+                )
+                boot = inspect_rm217_boot_entry(main_region.payload)
+                if boot is None:
+                    print("  RM-217 boot probe: BB5 entry header could not be decoded")
+                else:
+                    print(
+                        f"  RM-217 boot probe: file offset=0x{boot['entry_offset']:X}; "
+                        f"header hint=0x{boot['header_hint']:08X}"
+                    )
+                    print(
+                        f"    first ARM word=0x{boot['first_word']:08X}; "
+                        f"candidate XIP base=0x{boot['xip_base']:08X}"
+                    )
+                    print(
+                        f"    candidate ARM entry=0x{boot['candidate_entry']:08X}; "
+                        f"candidate Thumb continuation=0x{boot['thumb_entry']:08X}"
+                    )
+                    print(
+                        f"    early stack=0x{boot['stack_pointer']:08X}; "
+                        f"reserved scratch=0x{boot['stack_cookie_address']:08X}; "
+                        f"scratch marker=0x{boot['stack_cookie']:08X}"
+                    )
+                    print(
+                        f"    early global [image+0x164]=0x{boot['early_global_0x164']:08X}"
+                    )
+                    print(
+                        "    NOTE: candidate mapping/entry only; this does not prove "
+                        "that the machine can boot."
+                    )
             except ValueError as error:
                 print(f"  FPSX parse error: {error}")
                 failures += 1
