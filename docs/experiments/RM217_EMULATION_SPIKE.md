@@ -210,3 +210,51 @@ The operating-system machine and a MIDP/CLDC Java ME app runtime are distinct la
 The c3emu reference is GPL-3.0-or-later. Its source has not been copied into this project yet. Any later incorporation must pin a revision, keep the complete licence and notices, include corresponding source where required and preserve dependency attributions.
 
 The firmware importer stores user-provided components locally and verifies structure only. The current 07.30 archive's PPM CRC discrepancy is recorded in this spike report; the Android import flow currently does not block storage of that component, but no boot path uses it yet. A user-selected image is not automatically cleared for copying assets into a public APK. Firmware and extracted assets remain outside source control and build artefacts unless a separate documented permission basis exists.
+
+## BSE region-map failure and follow-up trace (2026-11-05)
+
+The current NOLO-to-MCUSW probe reaches MCUSW BSE and then reports an assertion at
+`0xF010431A`. At the failure snapshot, the region-map workspace around
+`0x080032B0` is zero-filled. This is an observed symptom, not yet a proven
+root cause: the snapshot alone does not tell us whether BSE never received its
+input, rejected it, skipped the builder, or cleared the result.
+
+A source review of the probe found two different hand-off paths:
+
+- Direct `--entry=mcusw` invokes `install_rm217_handoff`, writes the probe's
+  boot-tag list, and puts its address in `r2`. Tag types `0`, `4` and `5`
+  remain experimental candidates; their RM-217 physical meaning is unverified.
+- `--entry=nolo --hle-secure-service6-launch` does not inject that MCUSW tag
+  list. At Secure Service `0x06`, the diagnostic trampoline restores
+  `r0-r3` from the NOLO service-call stack and branches to the validated BB5
+  entry. Therefore the actual saved register values—especially `r2`—must be
+  captured before changing the hand-off.
+
+The pinned c3emu reference implementation (`bootinfo.rs`, revision
+`9b0d3ae2da326e109428f64d8760ea823ee1b648`) creates only power-on tag
+`0x0D`, image-table tag `0x0A`, and the end marker for its RM-614 OS setup.
+It does **not** validate RM-217 tags `0`, `4` or `5`; those tags must not be
+treated as a confirmed contract merely because c3emu supplies the CPU core.
+
+The probe now has opt-in `--trace-bse-memory` instrumentation. It records reads
+of the boot-tag area and reads/writes in the BSE region-record, region-map,
+descriptor and target workspaces. Pair it with
+`--watch-pc=0xF010431A` to capture the assertion-site registers, code bytes,
+`r0`, `r2` and stack. The trace is observational only: it does not fabricate
+region IDs, RAM bases or sizes.
+
+Interpretation gates for the next run:
+
+1. No boot-tag reads, or an invalid `r2` at the hand-off, points to the NOLO
+   service-6 register/stack contract.
+2. Boot tags are read but no BSE records are written: inspect the tag parser,
+   expected tag types and allocator prerequisites.
+3. BSE records are written but the map window is never written: inspect the
+   region-selection/build routine and its validation branches.
+4. The map window is written and later zeroed: trace the clearing write's PC
+   before considering a memory-model change.
+
+The PPM CRC discrepancy remains a separate archive-integrity warning. This
+CPU probe selects and executes the MCU component; the PPM is not used by this
+specific BSE memory-map experiment, so the PPM mismatch does not explain the
+observed zero-filled map table.
