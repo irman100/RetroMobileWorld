@@ -21,6 +21,10 @@ const IMAGE_TABLE_ADDR: u32 = 0x0800_6400;
 /// NOLO's own image lookup reads this base from its global at 0x080006A0.
 const NOLO_TOC_ADDR: u32 = 0x0000_0400;
 const PAPUBKEYS_RAM_ADDR: u32 = 0x0801_0000;
+const NOLO_ROM_SEC_SERVICE: u32 = 0xFFFF_0808;
+const SEC_SERVICE_ID: [u8; 12] =
+    [0xAB, 0x0F, 0xBD, 0x96, 0xAF, 0x2A, 0xC2, 0x71, 0xD2, 0x62, 0x64, 0xAF];
+const SEC_SERVICE6_THUMB_STUB: [u8; 4] = [0x00, 0x20, 0x70, 0x47]; // movs r0,#0; bx lr
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StartImage {
@@ -36,6 +40,7 @@ struct Options {
     trace: u64,
     initial_registers: [u32; 4],
     ready_on_read: Vec<(u32, u8)>,
+    hle_secure_service6: bool,
     no_handoff: bool,
     pokes: Vec<(u32, u32)>,
     memory_tag0: Option<(u32, u32)>,
@@ -67,6 +72,13 @@ fn parse_ram_range(value: &str) -> Result<(u32, u32), String> {
         return Err("RAM tag range exceeds the 32-bit address space".to_string());
     }
     Ok((base as u32, size as u32))
+}
+
+fn decode_secure_service(descriptor: &[u8]) -> Option<u16> {
+    if descriptor.len() < 16 || descriptor.get(..12)? != SEC_SERVICE_ID {
+        return None;
+    }
+    Some(u16::from_le_bytes([descriptor[14], descriptor[15]]))
 }
 
 fn parse_ready_bit(value: &str) -> Result<(u32, u8), String> {
@@ -114,6 +126,7 @@ fn parse_options() -> Result<Options, String> {
     let mut trace = DEFAULT_TRACE;
     let mut initial_registers = [0u32; 4];
     let mut ready_on_read = Vec::new();
+    let mut hle_secure_service6 = false;
     let mut no_handoff = false;
     let mut pokes = Vec::new();
     let mut memory_tag0 = None;
@@ -129,6 +142,8 @@ fn parse_options() -> Result<Options, String> {
             trace = parse_u64(value)?;
         } else if let Some(value) = arg.strip_prefix("--ready-bit=") {
             ready_on_read.push(parse_ready_bit(value)?);
+        } else if arg == "--hle-secure-service6" {
+            hle_secure_service6 = true;
         } else if let Some(value) = arg.strip_prefix("--r0=") {
             initial_registers[0] = parse_u64(value)? as u32;
         } else if let Some(value) = arg.strip_prefix("--r1=") {
@@ -157,9 +172,9 @@ fn parse_options() -> Result<Options, String> {
     }
 
     let archive = archive.ok_or_else(|| {
-        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
+        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--hle-secure-service6] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
     })?;
-    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
+    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, hle_secure_service6, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
 }
 
 fn read_mcusw_from_archive(path: &PathBuf) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -551,10 +566,15 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     }
 
     let unknown_count = Rc::new(Cell::new(0usize));
+    let secure_service6_calls = Rc::new(Cell::new(0usize));
+    let unhandled_rom_fetch = Rc::new(Cell::new(None::<(u32, u32, u32)>));
     uc.add_mem_hook(HookType::MEM_UNMAPPED, 1, 0, {
         let unknown_count = Rc::clone(&unknown_count);
+        let secure_service6_calls = Rc::clone(&secure_service6_calls);
+        let unhandled_rom_fetch = Rc::clone(&unhandled_rom_fetch);
+        let allow_secure_service6 = options.hle_secure_service6;
         move |cpu, kind, address, size, value| {
-            let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0);
+            let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0) as u32;
             let operation = match kind {
                 MemType::READ => "READ",
                 MemType::WRITE => "WRITE",
@@ -563,6 +583,60 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                 MemType::WRITE_UNMAPPED => "WRITE_UNMAPPED",
                 MemType::FETCH_UNMAPPED => "FETCH_UNMAPPED",
             };
+
+            if kind == MemType::FETCH_UNMAPPED && address == NOLO_ROM_SEC_SERVICE as u64 {
+                let descriptor_ptr = cpu.reg_read(RegisterARM::R0).unwrap_or(0) as u32;
+                let r1 = cpu.reg_read(RegisterARM::R1).unwrap_or(0) as u32;
+                let r2 = cpu.reg_read(RegisterARM::R2).unwrap_or(0) as u32;
+                let r3 = cpu.reg_read(RegisterARM::R3).unwrap_or(0) as u32;
+                let mut descriptor = [0u8; 16];
+                let descriptor_read = cpu.mem_read(descriptor_ptr as u64, &mut descriptor).is_ok();
+                let service = if descriptor_read {
+                    decode_secure_service(&descriptor)
+                } else {
+                    None
+                };
+
+                if allow_secure_service6 && service == Some(0x0006) {
+                    let page = address & !0xFFF;
+                    if cpu.mem_map(page, 0x1000, Prot::ALL).is_err() {
+                        println!("  [NOLO ROM HLE] failed to map ROM page 0x{page:08X}");
+                        unhandled_rom_fetch.set(Some((address as u32, pc, service.unwrap())));
+                        let _ = cpu.emu_stop();
+                        return false;
+                    }
+                    if cpu.mem_write(address, &SEC_SERVICE6_THUMB_STUB).is_err() {
+                        println!("  [NOLO ROM HLE] failed to install service-6 Thumb return stub");
+                        unhandled_rom_fetch.set(Some((address as u32, pc, service.unwrap())));
+                        let _ = cpu.emu_stop();
+                        return false;
+                    }
+                    secure_service6_calls.set(secure_service6_calls.get() + 1);
+                    println!(
+                        "  [NOLO ROM HLE] secure service 0x06 at 0x{address:08X}: desc=0x{descriptor_ptr:08X}, r1=0x{r1:08X}, r2=0x{r2:08X}, r3=0x{r3:08X}; returns r0=0 via MOVS r0,#0; BX LR"
+                    );
+                    return true;
+                }
+
+                println!(
+                    "  [NOLO ROM] unhandled fetch 0x{address:08X} from PC 0x{pc:08X}: desc=0x{descriptor_ptr:08X}, secure_service={service:?}, r1=0x{r1:08X}, r2=0x{r2:08X}, r3=0x{r3:08X}, HLE-enabled={allow_secure_service6}"
+                );
+                unhandled_rom_fetch.set(Some((address as u32, pc, service.unwrap_or(0xFFFF))));
+                let _ = cpu.emu_stop();
+                return false;
+            }
+
+            // Do not execute zero-filled pages as if they were ROM. A future ROM entry
+            // must be identified and HLE'd explicitly; otherwise stop at the boundary.
+            if kind == MemType::FETCH_UNMAPPED && address >= 0xFFFF_0000 {
+                println!(
+                    "  [NOLO ROM] unsupported fetch 0x{address:08X} from PC 0x{pc:08X}; stopping instead of mapping zero-filled ROM"
+                );
+                unhandled_rom_fetch.set(Some((address as u32, pc, 0xFFFF)));
+                let _ = cpu.emu_stop();
+                return false;
+            }
+
             let n = unknown_count.get();
             if n < 128 {
                 unknown_count.set(n + 1);
@@ -818,6 +892,17 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
 
         if let Err(error) = result {
             stop = format!("CPU error: {error:?}");
+            if let Some((address, source_pc, service)) = unhandled_rom_fetch.get() {
+                stop = format!(
+                    "unhandled NOLO ROM fetch 0x{address:08X} from 0x{source_pc:08X} (secure service {service:#06X})"
+                );
+            }
+            break;
+        }
+        if let Some((address, source_pc, service)) = unhandled_rom_fetch.get() {
+            stop = format!(
+                "unhandled NOLO ROM fetch 0x{address:08X} from 0x{source_pc:08X} (secure service {service:#06X})"
+            );
             break;
         }
         if let Some((address, value, pc)) = reset_request.get() {
@@ -864,6 +949,12 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         read(RegisterARM::R6)
     );
     println!("Dynamically mapped pages: {}", unknown_count.get());
+    println!("NOLO secure-service 0x06 HLE calls: {}", secure_service6_calls.get());
+    if let Some((address, source_pc, service)) = unhandled_rom_fetch.get() {
+        println!(
+            "Unhandled ROM boundary: target=0x{address:08X}, caller=0x{source_pc:08X}, service=0x{service:04X}"
+        );
+    }
     if let Some((address, value, pc)) = reset_request.get() {
         println!(
             "Hardware reset boundary captured: register=0x{address:08X}, value=0x{value:08X}, guest PC=0x{pc:08X}. Reset-controller behavior is not yet emulated."
@@ -882,7 +973,7 @@ fn main() {
             }
         }
         Err(message) if message.is_empty() => {
-            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
+            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--hle-secure-service6] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
         }
         Err(message) => {
             eprintln!("{message}");
@@ -912,6 +1003,22 @@ mod tests {
         assert_eq!(read_u32_le(&image, entry_offset + 0x78).unwrap(), 0xF010_0000);
         assert_eq!(0xF010_0000u32 + entry_offset as u32 + 0x40, 0xF010_0410);
         assert_eq!(0x0800_4000u32 - 0x1800, 0x0800_2800);
+    }
+
+    #[test]
+    fn decodes_only_the_known_secure_service_descriptor() {
+        let mut descriptor = [0u8; 16];
+        descriptor[..12].copy_from_slice(&SEC_SERVICE_ID);
+        descriptor[14..16].copy_from_slice(&6u16.to_le_bytes());
+        assert_eq!(decode_secure_service(&descriptor), Some(6));
+        descriptor[0] ^= 0xFF;
+        assert_eq!(decode_secure_service(&descriptor), None);
+        assert_eq!(decode_secure_service(&descriptor[..12]), None);
+    }
+
+    #[test]
+    fn service6_stub_returns_zero_and_branches_through_lr() {
+        assert_eq!(SEC_SERVICE6_THUMB_STUB, [0x00, 0x20, 0x70, 0x47]);
     }
 
     #[test]
