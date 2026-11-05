@@ -1038,7 +1038,25 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     dump_memory_window(cpu, "watch-pc r1 source", pointer_r1.saturating_sub(0x10), 0x100);
                 }
                 let pointer_r2 = read(RegisterARM::R2);
-                if pointer_r2 != 0 && pointer_r2 <= 0x0FFF_FFFF {
+                if (0x1000_0000..=0x1FFF_FFFF).contains(&pointer_r2) {
+                    // NOLO's r2 points at the generated HW configuration message
+                    // near the top of the 16-MiB SDRAM window. Dump through the
+                    // mapped end of SDRAM without reading beyond it.
+                    dump_memory_window(
+                        cpu,
+                        "watch-pc r2 HW-config",
+                        pointer_r2.saturating_sub(0x20),
+                        0x94,
+                    );
+                    let mut table_ptr_bytes = [0u8; 4];
+                    if cpu.mem_read(pointer_r2 as u64 + 0x70, &mut table_ptr_bytes).is_ok() {
+                        let table_ptr = u32::from_le_bytes(table_ptr_bytes);
+                        println!("  [watch-pc HW-config table pointer] = 0x{table_ptr:08X}");
+                        if (0x0002_0000..=0x00FF_FFFF).contains(&table_ptr) {
+                            dump_memory_window(cpu, "watch-pc fixed HW-config table", table_ptr, 0x200);
+                        }
+                    }
+                } else if pointer_r2 != 0 && pointer_r2 <= 0x0FFF_FFFF {
                     dump_memory_window(cpu, "watch-pc r2 target", pointer_r2, 0x100);
                 }
                 let sp = read(RegisterARM::SP);
