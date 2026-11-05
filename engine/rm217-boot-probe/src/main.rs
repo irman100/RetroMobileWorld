@@ -1004,9 +1004,6 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     dump_memory_window(cpu, "watch-pc r2 target", pointer_r2, 0x100);
                 }
                 let sp = read(RegisterARM::SP);
-                if let Ok(mut arg_bytes) = cpu.mem_read(sp as u64 + 0x44, &mut [0u8; 4]) {
-                    let _ = &mut arg_bytes;
-                }
                 let mut stack_argument = [0u8; 4];
                 if cpu.mem_read(sp as u64 + 0x44, &mut stack_argument).is_ok() {
                     let pointer = u32::from_le_bytes(stack_argument);
