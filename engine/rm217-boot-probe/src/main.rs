@@ -209,7 +209,15 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             .map_err(|error| std::io::Error::other(format!("register setup failed: {error:?}")))?;
     }
 
-    // Watch likely early hardware configuration locations found in the first-stage code.
+    // The first 100k-instruction pass found these addresses as the first
+    // writes outside the RM-614 map. Record both values and the guest PC.
+    for address in [0x201E_F000u64, 0x201F_D800] {
+        machine
+            .watch(address)
+            .map_err(std::io::Error::other)?;
+    }
+
+    // Retain the reference probe's candidate clock/controller watchpoints too.
     for address in [0xD800_0094u64, 0xD800_00A4, 0xE000_1000, 0xE000_3000] {
         if let Err(error) = machine.iolog(address, 4) {
             println!("Could not attach I/O watch at 0x{address:08X}: {error}");
