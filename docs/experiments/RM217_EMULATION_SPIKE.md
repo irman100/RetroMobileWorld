@@ -1,6 +1,6 @@
 # RM-217 genuine-firmware emulation spike
 
-**Status:** research and host-contract foundation; no RM-217 firmware has been booted yet.  
+**Status:** partial NOLO startup is now executing in a local CPU-only probe and resolves the main MCUSW image; the full Series 40 OS has not yet reached a stable display or menu.  
 **Reference date:** 5 November 2026.
 
 ## Objective
@@ -126,6 +126,33 @@ This is not a ready-made RM-217 engine.
 The c3emu source explicitly labels its address map as RM-614 / RAPIDO / RAP3G. Its boot layout, MMIO model, LCD controller registers, 320×240 panel, keypad matrix, timer/interrupt controller, I2C devices, PMIC behaviour, DSP HLE, storage hooks and fixed firmware entry points are tied to the C3-00 analysis.
 
 The Nokia 6300 service manual identifies RM-217 as a BB5.0 design using RAPGSM, Retu/Tahvo power management, Ahne RF and 128 Mbit SDRAM + 256 Mbit NOR flash, with a 240×320 QVGA display. Similar family membership is not proof that its peripheral register map is compatible with RM-614.
+
+## Dynamic NOLO startup experiment (5 November 2026)
+
+The first executable experiment now starts the archive's real NOLO region at its BB5 entry point (0x000206D0) using the ARM926 CPU backend as a CPU-only probe. This does not yet emulate the RM-217 peripherals or prove that the 6300 uses the same peripheral map as the C3-00.
+
+### Confirmed progress
+
+- NOLO executes from the firmware region at flash address 0x00020300; the entry offset is 0x3D0.
+- Its image lookup reads the TOC base from global 0x080006A0. NOLO initializes this value to 0x00000400.
+- TOC records are 0x20 bytes long, the image name starts at record offset 0x14, and an end record is marked by 0xFF in the first byte of the name.
+- The probe previously wrote the records at 0x08006400; NOLO did not scan that address. Writing the same records at 0x00000400, with relative offsets based on that TOC address, makes NOLO find MCUSW at 0xF0100000. The firmware then prints both 'Image found at address' and 'BB5 header at address' for that image.
+- This TOC correction is covered by a unit test which resolves each candidate record back to its intended load address.
+- The diagnostic BSE experiments require memory tags 0, 4 and 5 before the MCUSW early initialisation passes its first memory-map checks. Their current base/size values remain experimental candidates, not a validated RM-217 physical memory map.
+- NOLO's next observed call is a BLX to 0xFFFF0808. The descriptor at 0x00023480 contains the 12-byte secure-service identifier AB 0F BD 96 AF 2A C2 71 D2 62 64 AF and service number 0x0006. The call site at 0x00022168 proceeds to the 'Starting MCUSW...' message without testing the returned r0.
+
+### Current ROM-service boundary
+
+The probe now treats 0xFFFF0808 as an explicit ROM service entry rather than mapping the entire 0xFFFFxxxx area as zero-filled memory. The opt-in switch --hle-secure-service6 installs a tiny Thumb return stub for only the verified service-6 descriptor: MOVS r0,#0; BX LR. This follows the same conservative interface-level assumption used by the c3emu reference's generic secure-service HLE, but the internal implementation of RM-217 service 6 is still unknown. Do not treat this as a hardware implementation or proof of secure-image validation.
+
+Any other fetch from the high ROM window is stopped and reported with its address and caller rather than executing zero-filled memory. Diagnostic --ready-bit overrides also remain opt-in test aids; they are not part of the normal machine model.
+
+### Next boot gates
+
+1. Run NOLO with the opt-in service-6 boundary and inspect the next ROM service or peripheral access.
+2. Identify the MCUSW hand-off contract and determine whether NOLO branches to its entry or continues in its own loader.
+3. Replace the provisional RAM tags and ready-bit overrides with an evidence-based RM-217 memory/peripheral model.
+4. Reach a stable original Series 40 display before starting Android UI integration or Java ME networking.
 
 ## Planned machine boundary
 
