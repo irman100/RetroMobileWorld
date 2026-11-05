@@ -935,6 +935,11 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             ("NOR-controller-write", HookType::MEM_WRITE, 0x2003_6900, 0x2003_693F),
             ("NOR-interface-read", HookType::MEM_READ, 0x1000_4000, 0x1000_403F),
             ("NOR-interface-write", HookType::MEM_WRITE, 0x1000_4000, 0x1000_403F),
+            // NOLO's flash-ID routine calls the flash at the base passed in r4.
+            // For the observed NOR0 call that base is zero, so capture command
+            // writes and ID reads at the physical low-memory window directly.
+            ("NOR-command-read", HookType::MEM_READ, 0x0000_0000, 0x0000_000F),
+            ("NOR-command-write", HookType::MEM_WRITE, 0x0000_0000, 0x0000_000F),
             ("BSE-descriptors-read", HookType::MEM_READ, 0x0800_37A0, 0x0800_389F),
             ("BSE-descriptors-write", HookType::MEM_WRITE, 0x0800_37A0, 0x0800_389F),
             ("BSE-targets-read", HookType::MEM_READ, 0x0800_3FA0, 0x0800_411F),
@@ -944,7 +949,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             let count = Rc::new(Cell::new(0usize));
             // The focused descriptor/map windows must outlive their initial clear
             // pass; keep enough events to catch the subsequent record construction.
-            let event_limit = if label.contains("map-entry") || label.contains("descriptors") || label.contains("tag-list") || label.contains("boot-config") || label.contains("NOR-candidate") || label.contains("NOR-controller") || label.contains("NOR-interface") {
+            let event_limit = if label.contains("map-entry") || label.contains("descriptors") || label.contains("tag-list") || label.contains("boot-config") || label.contains("NOR-candidate") || label.contains("NOR-controller") || label.contains("NOR-interface") || label.contains("NOR-command") {
                 256usize
             } else {
                 64usize
@@ -1019,7 +1024,8 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     read(RegisterARM::SP),
                     read(RegisterARM::LR)
                 );
-                dump_memory_window(cpu, "watch-pc code bytes", (pc as u32).saturating_sub(0x10), 0x50);
+                let code_dump_len = if address == 0x0800_0870 { 0x180 } else { 0x50 };
+                dump_memory_window(cpu, "watch-pc code bytes", (pc as u32).saturating_sub(0x10), code_dump_len);
                 let pointer = read(RegisterARM::R0);
                 if pointer != 0 && pointer <= 0x0FFF_FFFF {
                     dump_memory_window(cpu, "watch-pc r0 target", pointer, 0x100);
