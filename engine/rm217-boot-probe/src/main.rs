@@ -20,9 +20,16 @@ const BOOT_TAGS_ADDR: u32 = 0x0800_6000;
 const IMAGE_TABLE_ADDR: u32 = 0x0800_6400;
 const PAPUBKEYS_RAM_ADDR: u32 = 0x0801_0000;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartImage {
+    Mcusw,
+    Nolo,
+}
+
 #[derive(Debug)]
 struct Options {
     archive: PathBuf,
+    start_image: StartImage,
     instructions: u64,
     trace: u64,
     initial_registers: [u32; 4],
@@ -59,6 +66,14 @@ fn parse_ram_range(value: &str) -> Result<(u32, u32), String> {
     Ok((base as u32, size as u32))
 }
 
+fn parse_start_image(value: &str) -> Result<StartImage, String> {
+    match value {
+        "mcusw" => Ok(StartImage::Mcusw),
+        "nolo" => Ok(StartImage::Nolo),
+        _ => Err(format!("unknown entry image {value}; expected mcusw or nolo")),
+    }
+}
+
 fn parse_poke(value: &str) -> Result<(u32, u32), String> {
     let (address, data) = value
         .split_once(':')
@@ -76,6 +91,7 @@ fn parse_poke(value: &str) -> Result<(u32, u32), String> {
 
 fn parse_options() -> Result<Options, String> {
     let mut archive = None;
+    let mut start_image = StartImage::Mcusw;
     let mut instructions = DEFAULT_INSTRUCTIONS;
     let mut trace = DEFAULT_TRACE;
     let mut initial_registers = [0u32; 4];
@@ -86,7 +102,9 @@ fn parse_options() -> Result<Options, String> {
     let mut ram_tag5 = None;
 
     for arg in std::env::args().skip(1) {
-        if let Some(value) = arg.strip_prefix("--instructions=") {
+        if let Some(value) = arg.strip_prefix("--entry=") {
+            start_image = parse_start_image(&value)?;
+        } else if let Some(value) = arg.strip_prefix("--instructions=") {
             instructions = parse_u64(value)?;
         } else if let Some(value) = arg.strip_prefix("--trace=") {
             trace = parse_u64(value)?;
@@ -118,9 +136,9 @@ fn parse_options() -> Result<Options, String> {
     }
 
     let archive = archive.ok_or_else(|| {
-        "usage: rm217-boot-probe <RM-217.zip> [--instructions=1000000] [--trace=96] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
+        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
     })?;
-    Ok(Options { archive, instructions, trace, initial_registers, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
+    Ok(Options { archive, start_image, instructions, trace, initial_registers, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
 }
 
 fn read_mcusw_from_archive(path: &PathBuf) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -170,6 +188,45 @@ fn select_main_mcusw(regions: &[Region]) -> Result<&Region, Box<dyn Error>> {
         .filter(|region| region.name.as_deref() == Some("MCUSW"))
         .max_by_key(|region| region.data.len())
         .ok_or_else(|| "MCU FPSX has no named MCUSW region".into())
+}
+
+
+fn select_nolo(regions: &[Region]) -> Result<&Region, Box<dyn Error>> {
+    regions
+        .iter()
+        .filter(|region| region.name.as_deref() == Some("NOLO"))
+        .max_by_key(|region| region.data.len())
+        .ok_or_else(|| "MCU FPSX has no named NOLO region".into())
+}
+
+fn map_region_once(
+    uc: &mut Uc<'_>,
+    mapped: &mut Vec<(u64, u64)>,
+    base: u32,
+    size: u32,
+    label: &str,
+) -> Result<(), Box<dyn Error>> {
+    if size == 0 {
+        return Err(format!("{label} memory range is empty").into());
+    }
+    let start = base as u64;
+    let end = start.checked_add(size as u64).ok_or("memory range overflow")?;
+    if end > (u32::MAX as u64) + 1 || start & 0xFFF != 0 || size as u64 & 0xFFF != 0 {
+        return Err(format!("{label} memory range is not a valid page-aligned 32-bit interval").into());
+    }
+    if mapped.iter().any(|(b, e)| start >= *b && end <= *e) {
+        println!("  {label} range 0x{base:08X}+0x{size:08X} already covered by an existing mapping");
+        return Ok(());
+    }
+    if mapped.iter().any(|(b, e)| start < *e && *b < end) {
+        return Err(format!("{label} range overlaps an existing mapping").into());
+    }
+    uc.mem_map(start, size as u64, Prot::ALL).map_err(|error| {
+        std::io::Error::other(format!("could not map {label} at 0x{base:08X}+0x{size:08X}: {error:?}"))
+    })?;
+    mapped.push((start, end));
+    println!("  mapped {label}: 0x{base:08X}..0x{:08X}", end as u32);
+    Ok(())
 }
 
 fn read_u32_le(bytes: &[u8], offset: usize) -> Result<u32, Box<dyn Error>> {
@@ -321,53 +378,100 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     let mcusw = read_mcusw_from_archive(&options.archive)?;
     let firmware = Fpsx::parse(&mcusw)?;
     let main = select_main_mcusw(&firmware.regions)?;
+    let nolo = select_nolo(&firmware.regions)?;
     println!(
-        "Selected MCUSW: flash=0x{:08X}, bytes={}, blocks={}",
+        "Image table source MCUSW: flash=0x{:08X}, bytes={}, blocks={}",
         main.addr,
         main.data.len(),
         main.blocks
+    );
+    println!(
+        "NOLO image: flash=0x{:08X}, bytes={}, blocks={}",
+        nolo.addr,
+        nolo.data.len(),
+        nolo.blocks
     );
 
     if main.data.len() < 0x14C || read_u32_le(&main.data, 0)? != 0x8097_95A3 {
         return Err("selected MCUSW does not contain a BB5 OS header".into());
     }
-    let entry_offset = read_u32_le(&main.data, 0x1C)? as usize;
-    let header_hint = read_u32_le(&main.data, 0x148)?;
-    let entry_word = read_u32_le(&main.data, entry_offset)?;
-    let xip_entry_literal = read_u32_le(&main.data, entry_offset + 0x74)?;
-    let xip_base = read_u32_le(&main.data, entry_offset + 0x78)?;
-    let stack_cookie = read_u32_le(&main.data, entry_offset + 0x68)?;
-    let stack_reserve = read_u32_le(&main.data, entry_offset + 0x6C)?;
-    let initial_sp = read_u32_le(&main.data, entry_offset + 0x70)?;
-    let entry = xip_base.wrapping_add(entry_offset as u32);
-    let thumb_entry = xip_base.wrapping_add(entry_offset as u32 + 0x40);
-    let scratch = initial_sp.wrapping_sub(stack_reserve);
+    if nolo.data.len() < 0x20 || read_u32_le(&nolo.data, 0)? != 0x8097_95A3 {
+        return Err("selected NOLO image does not contain a BB5 OS header".into());
+    }
 
-    println!("BB5 header entry offset: 0x{entry_offset:X}; hint: 0x{header_hint:08X}");
+    let entry_region = match options.start_image {
+        StartImage::Mcusw => main,
+        StartImage::Nolo => nolo,
+    };
+    let entry_offset = read_u32_le(&entry_region.data, 0x1C)? as usize;
+    if entry_offset >= entry_region.data.len() {
+        return Err("selected entry offset is outside the chosen image".into());
+    }
+    let entry_word = read_u32_le(&entry_region.data, entry_offset)?;
+    let xip_base = read_u32_le(&main.data, 0x3D0 + 0x78)?;
+    let entry = match options.start_image {
+        StartImage::Mcusw => {
+            let base = read_u32_le(&main.data, 0x3D0 + 0x78)?;
+            base.wrapping_add(entry_offset as u32)
+        }
+        StartImage::Nolo => entry_region.addr.wrapping_add(entry_offset as u32),
+    };
+    let (thumb_entry, initial_sp, stack_cookie) = match options.start_image {
+        StartImage::Mcusw => {
+            let thumb = xip_base.wrapping_add(entry_offset as u32 + 0x40);
+            let sp = read_u32_le(&main.data, entry_offset + 0x70)?;
+            let cookie = read_u32_le(&main.data, entry_offset + 0x68)?;
+            (thumb, sp, cookie)
+        }
+        StartImage::Nolo => (entry.wrapping_add(0x28), 0x0800_0DA0, 0),
+    };
+
+    println!("Selected start image: {:?}", options.start_image);
+    println!("BB5 entry offset: 0x{entry_offset:X}");
     println!("First ARM word: 0x{entry_word:08X}");
-    println!("Candidate XIP base: 0x{xip_base:08X}");
-    println!("Candidate ARM entry: 0x{entry:08X}");
-    println!("Candidate Thumb continuation: 0x{thumb_entry:08X}");
-    println!("Early stack: 0x{initial_sp:08X}");
-    println!("Early scratch: 0x{scratch:08X}, marker=0x{stack_cookie:08X}");
-    println!(
-        "XIP entry literal agrees: {}",
-        if xip_entry_literal == entry { "yes" } else { "NO" }
-    );
+    println!("Start entry: 0x{entry:08X}");
+    println!("Candidate first Thumb entry: 0x{thumb_entry:08X}");
+    if options.start_image == StartImage::Mcusw {
+        let stack_reserve = read_u32_le(&main.data, entry_offset + 0x6C)?;
+        let scratch = initial_sp.wrapping_sub(stack_reserve);
+        println!("Early stack: 0x{initial_sp:08X}");
+        println!("Early scratch: 0x{scratch:08X}, marker=0x{stack_cookie:08X}");
+    } else {
+        println!("NOLO entry saves r0-r3 at 0x08003FF0 and sets SP=0x08000DA0 before early init.");
+    }
 
     // Use the c3emu ARM926 CPU core without its RM-614 Machine wrapper. The latter
     // installs a model-specific peripheral map and a tight-loop heuristic that can
     // mistake legitimate cache-maintenance polling for a fatal guest loop.
     let mut uc = new_cpu().map_err(|error| std::io::Error::other(format!("CPU creation failed: {error:?}")))?;
-    uc.mem_map(0x0000_0000, 0x1000_0000, Prot::ALL)
-        .map_err(|error| std::io::Error::other(format!("low RAM map failed: {error:?}")))?;
-    uc.mem_map(0x8000_0000, 0x0400_0000, Prot::ALL)
-        .map_err(|error| std::io::Error::other(format!("SDRAM map failed: {error:?}")))?;
-    let map_size = ((main.data.len() as u64 + 0xFFF) & !0xFFF).max(XIP_MINIMUM_MAP);
-    uc.mem_map(xip_base as u64, map_size, Prot::ALL)
-        .map_err(|error| std::io::Error::other(format!("XIP map failed: {error:?}")))?;
+    let mut mapped = Vec::new();
+    map_region_once(&mut uc, &mut mapped, 0x0000_0000, 0x1000_0000, "low memory")?;
+
+    if let Some((base, size)) = options.ram_tag4 {
+        map_region_once(&mut uc, &mut mapped, base, size, "candidate SDRAM/tag4")?;
+    }
+    if let Some((base, size)) = options.ram_tag5 {
+        map_region_once(&mut uc, &mut mapped, base, size, "candidate stack SRAM/tag5")?;
+    }
+    if let Some((base, size)) = options.memory_tag0 {
+        map_region_once(&mut uc, &mut mapped, base, size, "candidate NOR/tag0")?;
+    } else {
+        map_region_once(&mut uc, &mut mapped, 0x8000_0000, 0x0400_0000, "reference high RAM")?;
+    }
+
+    let xip_size = ((main.data.len() as u64 + 0xFFF) & !0xFFF).max(XIP_MINIMUM_MAP);
+    if !mapped.iter().any(|(base, end)| {
+        (xip_base as u64) >= *base && (xip_base as u64).saturating_add(xip_size) <= *end
+    }) {
+        map_region_once(&mut uc, &mut mapped, xip_base, xip_size as u32, "MCUSW XIP")?;
+    }
     uc.mem_write(xip_base as u64, &main.data)
         .map_err(|error| std::io::Error::other(format!("MCUSW load failed: {error:?}")))?;
+
+    // The same image table used by NOLO is staged in RAM for either entry experiment.
+    // MCUSW mode additionally supplies the provisional tag hand-off; NOLO starts with
+    // the incoming r0-r3 values supplied by its caller/boot ROM.
+    write_image_table(&mut uc, &firmware, main, xip_base)?;
 
     // Optional diagnostic initial values for RAM/MMIO-like locations. These are
     // explicitly experimental overrides; they are not asserted to be real device state.
@@ -384,16 +488,18 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         );
     }
 
-    if !options.no_handoff {
+    if options.start_image == StartImage::Mcusw && !options.no_handoff {
         install_rm217_handoff(&mut uc, &firmware, main, xip_base, options.memory_tag0, options.ram_tag4, options.ram_tag5)?;
+    } else if options.start_image == StartImage::Nolo {
+        println!("NOLO entry selected: no MCUSW boot-tag list is injected; r0-r3 remain explicit boot-ROM inputs.");
     } else {
-        println!("Boot hand-off disabled; r0-r3 start from supplied values.");
+        println!("MCUSW boot hand-off disabled; r0-r3 start from supplied values.");
     }
 
     uc.reg_write(RegisterARM::CPSR, 0xD3u64)
         .map_err(|error| std::io::Error::other(format!("CPSR setup failed: {error:?}")))?;
     let mut initial = options.initial_registers;
-    if !options.no_handoff && initial[2] == 0 {
+    if options.start_image == StartImage::Mcusw && !options.no_handoff && initial[2] == 0 {
         initial[2] = BOOT_TAGS_ADDR;
     }
     for (register, value) in [
@@ -700,7 +806,7 @@ fn main() {
             }
         }
         Err(message) if message.is_empty() => {
-            println!("Usage: rm217-boot-probe <RM-217.zip> [--instructions=1000000] [--trace=96] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
+            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
         }
         Err(message) => {
             eprintln!("{message}");
@@ -730,6 +836,13 @@ mod tests {
         assert_eq!(read_u32_le(&image, entry_offset + 0x78).unwrap(), 0xF010_0000);
         assert_eq!(0xF010_0000u32 + entry_offset as u32 + 0x40, 0xF010_0410);
         assert_eq!(0x0800_4000u32 - 0x1800, 0x0800_2800);
+    }
+
+    #[test]
+    fn parses_supported_start_images() {
+        assert_eq!(parse_start_image("mcusw").unwrap(), StartImage::Mcusw);
+        assert_eq!(parse_start_image("nolo").unwrap(), StartImage::Nolo);
+        assert!(parse_start_image("unknown").is_err());
     }
 
     #[test]
