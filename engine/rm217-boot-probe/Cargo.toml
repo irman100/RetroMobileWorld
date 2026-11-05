@@ -1,0 +1,10 @@
+[package]
+name = "rm217-boot-probe"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+publish = false
+
+[dependencies]
+c3emu = { git = "https://github.com/androettop/c3emu", rev = "9b0d3ae2da326e109428f64d8760ea823ee1b648", default-features = false }
+zip = { version = "=2.2.2", default-features = false, features = ["deflate"] }

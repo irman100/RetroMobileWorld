@@ -1,0 +1,42 @@
+name: RM-217 Boot Probe
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            binary: engine/rm217-boot-probe/target/release/rm217-boot-probe
+            artifact: rm217-boot-probe-linux
+          - os: windows-latest
+            binary: engine/rm217-boot-probe/target/release/rm217-boot-probe.exe
+            artifact: rm217-boot-probe-windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build local firmware probe
+        run: cargo build --release --manifest-path engine/rm217-boot-probe/Cargo.toml
+
+      - name: Upload probe binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.binary }}
+          if-no-files-found: error
+          retention-days: 14
