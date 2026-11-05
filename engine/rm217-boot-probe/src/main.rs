@@ -1,7 +1,9 @@
+use std::cell::Cell;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use c3emu::fpsx::{Fpsx, Region};
 use c3emu::machine::{parse_mmio_model, Machine};
@@ -212,6 +214,36 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         if let Err(error) = machine.iolog(address, 4) {
             println!("Could not attach I/O watch at 0x{address:08X}: {error}");
         }
+    }
+
+    // Capture the hand-off path instruction by instruction. The range contains
+    // the ARM entry stub and its first Thumb continuation; a shared cap keeps
+    // loop diagnostics bounded even if the ROM spins here.
+    let state_trace_count = Rc::new(Cell::new(0usize));
+    for address in (0xF010_03D0u64..=0xF010_04A0).step_by(2) {
+        let count = Rc::clone(&state_trace_count);
+        machine
+            .uc
+            .add_code_hook(address, address, move |uc, pc, _size| {
+                let n = count.get();
+                if n >= 160 {
+                    return;
+                }
+                count.set(n + 1);
+                let cpsr = uc.reg_read(RegisterARM::CPSR).unwrap_or(0) as u32;
+                let r4 = uc.reg_read(RegisterARM::R4).unwrap_or(0) as u32;
+                let r5 = uc.reg_read(RegisterARM::R5).unwrap_or(0) as u32;
+                let sp = uc.reg_read(RegisterARM::SP).unwrap_or(0) as u32;
+                println!(
+                    "  [state {n:03}] pc=0x{pc:08X} {} cpsr=0x{cpsr:08X} r4=0x{r4:08X} r5=0x{r5:08X} sp=0x{sp:08X}",
+                    if cpsr & 0x20 != 0 { "T" } else { "A" }
+                );
+            })
+            .map_err(|error| {
+                std::io::Error::other(format!(
+                    "could not attach boot-state hook at 0x{address:08X}: {error:?}"
+                ))
+            })?;
     }
 
     if options.trace > 0 {
