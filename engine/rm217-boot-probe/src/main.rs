@@ -110,8 +110,8 @@ fn bb5_entry_from_prefix(prefix: &[u8], image_base: u32) -> Option<u32> {
 /// Thumb trampoline for the candidate non-returning NOLO image-start service:
 /// restore the four saved input registers from the caller's stack, then BX to
 /// the validated ARM BB5 entry (the even target clears CPSR.T).
-fn secure_service6_launch_trampoline(target: u32) -> [u8; 20] {
-    let mut code = [
+fn secure_service6_launch_trampoline(target: u32) -> Vec<u8> {
+    let mut code = vec![
         0x00, 0x98, // ldr r0, [sp, #0]
         0x01, 0x99, // ldr r1, [sp, #4]
         0x02, 0x9A, // ldr r2, [sp, #8]
@@ -694,7 +694,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                         )
                     } else {
                         (
-                            SEC_SERVICE6_THUMB_STUB,
+                            SEC_SERVICE6_THUMB_STUB.to_vec(),
                             "diagnostic return stub: MOVS r0,#0; BX LR".to_string(),
                         )
                     };
