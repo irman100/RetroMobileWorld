@@ -7,8 +7,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use c3emu::fpsx::{Fpsx, Region};
-use c3emu::machine::{parse_mmio_model, Machine};
-use c3emu::uc::{Prot, RegisterARM};
+use c3emu::uc::{new_cpu, HookType, Prot, RegisterARM, Uc};
 use zip::ZipArchive;
 
 const DEFAULT_INSTRUCTIONS: u64 = 1_000_000;
@@ -16,6 +15,7 @@ const DEFAULT_TRACE: u64 = 96;
 const MAX_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_MCU_BYTES: u64 = 256 * 1024 * 1024;
 const XIP_MINIMUM_MAP: u64 = 0x0100_0000;
+
 const BOOT_TAGS_ADDR: u32 = 0x0800_6000;
 const IMAGE_TABLE_ADDR: u32 = 0x0800_6400;
 const PAPUBKEYS_RAM_ADDR: u32 = 0x0801_0000;
@@ -116,12 +116,9 @@ fn read_mcusw_from_archive(path: &PathBuf) -> Result<Vec<u8>, Box<dyn Error>> {
 }
 
 fn select_main_mcusw(regions: &[Region]) -> Result<&Region, Box<dyn Error>> {
-    let candidates: Vec<&Region> = regions
+    regions
         .iter()
         .filter(|region| region.name.as_deref() == Some("MCUSW"))
-        .collect();
-    candidates
-        .into_iter()
         .max_by_key(|region| region.data.len())
         .ok_or_else(|| "MCU FPSX has no named MCUSW region".into())
 }
@@ -131,7 +128,6 @@ fn read_u32_le(bytes: &[u8], offset: usize) -> Result<u32, Box<dyn Error>> {
     let slice = bytes.get(offset..end).ok_or("truncated MCUSW header")?;
     Ok(u32::from_le_bytes(slice.try_into()?))
 }
-
 
 fn append_tag(out: &mut Vec<u8>, tag_type: u32, payload: &[u32]) {
     let size = 8u32 + (payload.len() as u32 * 4);
@@ -151,13 +147,11 @@ fn build_boot_tag_list(image_table: u32) -> Vec<u8> {
 }
 
 fn write_image_table(
-    machine: &mut Machine,
+    uc: &mut Uc<'_>,
     firmware: &Fpsx,
     main_mcusw: &Region,
     xip_base: u32,
 ) -> Result<usize, Box<dyn Error>> {
-    // The FPSX package may contain a small header block and a larger executable
-    // continuation with the same image name. The OS needs the largest full image.
     let mut named: BTreeMap<String, (&Region, u32)> = BTreeMap::new();
     for region in &firmware.regions {
         let Some(name) = region.name.as_deref() else { continue };
@@ -168,7 +162,6 @@ fn write_image_table(
         } else {
             region.addr
         };
-
         let replace = named
             .get(name)
             .map(|(current, _)| region.data.len() > current.data.len())
@@ -178,13 +171,10 @@ fn write_image_table(
         }
     }
 
-    // MCUSW is already mapped at its virtual XIP alias. Load every other named
-    // image at the flash address recorded in FPSX (PAPUBKEYS gets a RAM staging
-    // address because its BB5 address is the special 0xFFFFFFFF sentinel).
     let mut entries = Vec::new();
     for (name, (region, destination)) in named {
         if name != "MCUSW" {
-            machine.uc.mem_write(destination as u64, &region.data).map_err(|error| {
+            uc.mem_write(destination as u64, &region.data).map_err(|error| {
                 std::io::Error::other(format!(
                     "could not stage image {name} at 0x{destination:08X}: {error:?}"
                 ))
@@ -210,32 +200,28 @@ fn write_image_table(
     let mut end = [0u8; 0x20];
     end[0x14] = 0xFF;
     entries.extend_from_slice(&end);
-    machine
-        .uc
-        .mem_write(IMAGE_TABLE_ADDR as u64, &entries)
+    uc.mem_write(IMAGE_TABLE_ADDR as u64, &entries)
         .map_err(|error| std::io::Error::other(format!("image table write failed: {error:?}")))?;
     Ok(entries.len() / 0x20 - 1)
 }
 
 fn install_rm217_handoff(
-    machine: &mut Machine,
+    uc: &mut Uc<'_>,
     firmware: &Fpsx,
     main_mcusw: &Region,
     xip_base: u32,
 ) -> Result<(), Box<dyn Error>> {
     println!("Installing provisional RM-217 boot hand-off (C3-00 tag ABI reference):");
-    let image_count = write_image_table(machine, firmware, main_mcusw, xip_base)?;
+    let image_count = write_image_table(uc, firmware, main_mcusw, xip_base)?;
     let tags = build_boot_tag_list(IMAGE_TABLE_ADDR);
-    machine
-        .uc
-        .mem_write(BOOT_TAGS_ADDR as u64, &tags)
+    uc.mem_write(BOOT_TAGS_ADDR as u64, &tags)
         .map_err(|error| std::io::Error::other(format!("boot-tag write failed: {error:?}")))?;
     println!(
         "  tag list @0x{BOOT_TAGS_ADDR:08X}; image table @0x{IMAGE_TABLE_ADDR:08X}; {image_count} images"
     );
     println!(
-        "  r1 and r2 will both point to the tag list; this is an experimental hand-off, \
-         not a confirmed Nokia RM-217 boot-ROM contract."
+        "  r2 points to the tag list; r1 remains zero unless explicitly supplied. \
+         This is an experimental hand-off, not a confirmed Nokia RM-217 boot-ROM contract."
     );
     Ok(())
 }
@@ -244,13 +230,6 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     println!("=== RM-217 FIRST-STAGE CPU PROBE ===");
     println!("Archive: {}", options.archive.display());
     println!("Instruction budget: {}", options.instructions);
-    println!(
-        "Initial r0-r3: 0x{:08X}, 0x{:08X}, 0x{:08X}, 0x{:08X}",
-        options.initial_registers[0],
-        options.initial_registers[1],
-        options.initial_registers[2],
-        options.initial_registers[3]
-    );
     println!("Firmware stays local; the probe does not extract or upload it.");
 
     let mcusw = read_mcusw_from_archive(&options.archive)?;
@@ -289,106 +268,143 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         "XIP entry literal agrees: {}",
         if xip_entry_literal == entry { "yes" } else { "NO" }
     );
-    println!();
-    println!(
-        "WARNING: this uses c3emu's RM-614 machine/peripheral model as a diagnostic scaffold. \
-         It is not an RM-217 hardware model and a stop/fault is expected until the right \
-         memory map, boot handoff and devices are implemented."
-    );
 
-    let mmio = parse_mmio_model("{}").map_err(std::io::Error::other)?;
-    let mut machine = Machine::new(0, mmio).map_err(std::io::Error::other)?;
+    // Use the c3emu ARM926 CPU core without its RM-614 Machine wrapper. The latter
+    // installs a model-specific peripheral map and a tight-loop heuristic that can
+    // mistake legitimate cache-maintenance polling for a fatal guest loop.
+    let mut uc = new_cpu().map_err(std::io::Error::other)?;
+    uc.mem_map(0x0000_0000, 0x1000_0000, Prot::ALL)
+        .map_err(|error| std::io::Error::other(format!("low RAM map failed: {error:?}")))?;
+    uc.mem_map(0x8000_0000, 0x0400_0000, Prot::ALL)
+        .map_err(|error| std::io::Error::other(format!("SDRAM map failed: {error:?}")))?;
     let map_size = ((main.data.len() as u64 + 0xFFF) & !0xFFF).max(XIP_MINIMUM_MAP);
-    machine
-        .uc
-        .mem_map(xip_base as u64, map_size, Prot::ALL)
+    uc.mem_map(xip_base as u64, map_size, Prot::ALL)
         .map_err(|error| std::io::Error::other(format!("XIP map failed: {error:?}")))?;
-    machine
-        .uc
-        .mem_write(xip_base as u64, &main.data)
+    uc.mem_write(xip_base as u64, &main.data)
         .map_err(|error| std::io::Error::other(format!("MCUSW load failed: {error:?}")))?;
 
     if !options.no_handoff {
-        install_rm217_handoff(&mut machine, &firmware, main, xip_base)?;
+        install_rm217_handoff(&mut uc, &firmware, main, xip_base)?;
     } else {
-        println!("Boot hand-off disabled; r0-r3 start from the supplied values.");
+        println!("Boot hand-off disabled; r0-r3 start from supplied values.");
     }
 
-    // The first-stage stub changes to SYS mode itself. Begin with a masked SVC state.
-    machine
-        .uc
-        .reg_write(RegisterARM::CPSR, 0xD3u64)
+    uc.reg_write(RegisterARM::CPSR, 0xD3u64)
         .map_err(|error| std::io::Error::other(format!("CPSR setup failed: {error:?}")))?;
-    let mut initial_registers = options.initial_registers;
-    if !options.no_handoff {
-        if initial_registers[1] == 0 { initial_registers[1] = BOOT_TAGS_ADDR; }
-        if initial_registers[2] == 0 { initial_registers[2] = BOOT_TAGS_ADDR; }
+    let mut initial = options.initial_registers;
+    if !options.no_handoff && initial[2] == 0 {
+        initial[2] = BOOT_TAGS_ADDR;
     }
     for (register, value) in [
-        (RegisterARM::R0, initial_registers[0]),
-        (RegisterARM::R1, initial_registers[1]),
-        (RegisterARM::R2, initial_registers[2]),
-        (RegisterARM::R3, initial_registers[3]),
+        (RegisterARM::R0, initial[0]),
+        (RegisterARM::R1, initial[1]),
+        (RegisterARM::R2, initial[2]),
+        (RegisterARM::R3, initial[3]),
     ] {
-        machine
-            .uc
-            .reg_write(register, value as u64)
+        uc.reg_write(register, value as u64)
             .map_err(|error| std::io::Error::other(format!("register setup failed: {error:?}")))?;
     }
 
-    // The first 100k-instruction pass found these addresses as the first
-    // writes outside the RM-614 map. Record both values and the guest PC.
-    for address in [0x201E_F000u64, 0x201F_D800] {
-        machine
-            .watch(address)
-            .map_err(std::io::Error::other)?;
-    }
-
-    // Retain the reference probe's candidate clock/controller watchpoints too.
-    for address in [0xD800_0094u64, 0xD800_00A4, 0xE000_1000, 0xE000_3000] {
-        if let Err(error) = machine.iolog(address, 4) {
-            println!("Could not attach I/O watch at 0x{address:08X}: {error}");
-        }
-    }
-
-    // Capture the hand-off path instruction by instruction. The range contains
-    // the ARM entry stub and its first Thumb continuation; a shared cap keeps
-    // loop diagnostics bounded even if the ROM spins here.
-    let state_trace_count = Rc::new(Cell::new(0usize));
-    for address in (0xF010_03D0u64..=0xF010_04A0).step_by(2) {
-        let count = Rc::clone(&state_trace_count);
-        machine
-            .uc
-            .add_code_hook(address, address, move |uc, pc, _size| {
-                let n = count.get();
-                if n >= 160 {
-                    return;
-                }
-                count.set(n + 1);
-                let cpsr = uc.reg_read(RegisterARM::CPSR).unwrap_or(0) as u32;
-                let r4 = uc.reg_read(RegisterARM::R4).unwrap_or(0) as u32;
-                let r5 = uc.reg_read(RegisterARM::R5).unwrap_or(0) as u32;
-                let sp = uc.reg_read(RegisterARM::SP).unwrap_or(0) as u32;
+    let unknown_count = Rc::new(Cell::new(0usize));
+    uc.add_mem_hook(HookType::MEM_UNMAPPED, 1, 0, {
+        let unknown_count = Rc::clone(&unknown_count);
+        move |cpu, kind, address, size, value| {
+            let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0);
+            let n = unknown_count.get();
+            if n < 128 {
+                unknown_count.set(n + 1);
                 println!(
-                    "  [state {n:03}] pc=0x{pc:08X} {} cpsr=0x{cpsr:08X} r4=0x{r4:08X} r5=0x{r5:08X} sp=0x{sp:08X}",
-                    if cpsr & 0x20 != 0 { "T" } else { "A" }
+                    "  [unmapped {n:03}] {kind:?} addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
                 );
-            })
-            .map_err(|error| {
-                std::io::Error::other(format!(
-                    "could not attach boot-state hook at 0x{address:08X}: {error:?}"
-                ))
-            })?;
+            }
+            cpu.mem_map(address & !0xFFF, 0x1000, Prot::ALL).is_ok()
+        }
+    })
+    .map_err(|error| std::io::Error::other(format!("unmapped hook failed: {error:?}")))?;
+
+    for (begin, end) in [
+        (0x201E_F000u64, 0x201E_F003u64),
+        (0x201F_D800u64, 0x201F_D803u64),
+    ] {
+        uc.add_mem_hook(HookType::MEM_WRITE, begin, end, move |cpu, _kind, address, size, value| {
+            let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0);
+            println!(
+                "  [write] addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
+            );
+            true
+        })
+        .map_err(|error| std::io::Error::other(format!("write watch failed: {error:?}")))?;
     }
 
-    if options.trace > 0 {
-        machine.enable_trace(0, options.trace);
+    let trace_count = Rc::new(Cell::new(0usize));
+    for (begin, end) in [
+        (0xF010_03D0u64, 0xF010_0450u64),
+        (0xF010_4EC0u64, 0xF010_4ED0u64),
+        (0xF010_3350u64, 0xF010_3380u64),
+    ] {
+        let trace_count = Rc::clone(&trace_count);
+        let trace_limit = options.trace as usize;
+        uc.add_code_hook(begin, end, move |cpu, pc, _size| {
+            let n = trace_count.get();
+            if n >= trace_limit {
+                return;
+            }
+            trace_count.set(n + 1);
+            let read = |register| cpu.reg_read(register).unwrap_or(0) as u32;
+            let cpsr = read(RegisterARM::CPSR);
+            println!(
+                "  [trace {n:03}] pc=0x{pc:08X} {} cpsr=0x{cpsr:08X} \
+                 r0=0x{:08X} r1=0x{:08X} r2=0x{:08X} r3=0x{:08X} \
+                 r4=0x{:08X} r5=0x{:08X} r6=0x{:08X} sp=0x{:08X} lr=0x{:08X}",
+                if cpsr & 0x20 != 0 { "T" } else { "A" },
+                read(RegisterARM::R0),
+                read(RegisterARM::R1),
+                read(RegisterARM::R2),
+                read(RegisterARM::R3),
+                read(RegisterARM::R4),
+                read(RegisterARM::R5),
+                read(RegisterARM::R6),
+                read(RegisterARM::SP),
+                read(RegisterARM::LR)
+            );
+        })
+        .map_err(|error| std::io::Error::other(format!("code trace hook failed: {error:?}")))?;
     }
-    let stop = machine.run(entry as u64, options.instructions);
+
+    println!(
+        "Initial registers: r0=0x{:08X} r1=0x{:08X} r2=0x{:08X} r3=0x{:08X}",
+        uc.reg_read(RegisterARM::R0)? as u32,
+        uc.reg_read(RegisterARM::R1)? as u32,
+        uc.reg_read(RegisterARM::R2)? as u32,
+        uc.reg_read(RegisterARM::R3)? as u32
+    );
+
+    let result = uc.emu_start(entry as u64, 0xFFFF_FFF0, 0, options.instructions as usize);
+    let stop = result.map(|_| "CPU execution slice ended".to_string())
+        .unwrap_or_else(|error| format!("CPU error: {error:?}"));
+    let read = |register| uc.reg_read(register).unwrap_or(0) as u32;
+
     println!();
     println!("=== PROBE STOP ===");
     println!("{stop}");
-    machine.report();
+    println!(
+        "PC=0x{:08X}; CPSR=0x{:08X}; SP=0x{:08X}; LR=0x{:08X}",
+        read(RegisterARM::PC),
+        read(RegisterARM::CPSR),
+        read(RegisterARM::SP),
+        read(RegisterARM::LR)
+    );
+    println!(
+        "r0=0x{:08X} r1=0x{:08X} r2=0x{:08X} r3=0x{:08X} r4=0x{:08X} r5=0x{:08X} r6=0x{:08X}",
+        read(RegisterARM::R0),
+        read(RegisterARM::R1),
+        read(RegisterARM::R2),
+        read(RegisterARM::R3),
+        read(RegisterARM::R4),
+        read(RegisterARM::R5),
+        read(RegisterARM::R6)
+    );
+    println!("Dynamically mapped pages: {}", unknown_count.get());
     Ok(())
 }
 
@@ -431,5 +447,15 @@ mod tests {
         assert_eq!(read_u32_le(&image, entry_offset + 0x78).unwrap(), 0xF010_0000);
         assert_eq!(0xF010_0000u32 + entry_offset as u32 + 0x40, 0xF010_0410);
         assert_eq!(0x0800_4000u32 - 0x1800, 0x0800_2800);
+    }
+
+    #[test]
+    fn builds_boot_info_with_power_on_and_image_table_tags() {
+        let tags = build_boot_tag_list(IMAGE_TABLE_ADDR);
+        assert_eq!(u32::from_le_bytes(tags[0..4].try_into().unwrap()), 0x0D);
+        assert_eq!(u32::from_le_bytes(tags[8..12].try_into().unwrap()), 1);
+        assert_eq!(u32::from_le_bytes(tags[12..16].try_into().unwrap()), 0x0A);
+        assert_eq!(u32::from_le_bytes(tags[20..24].try_into().unwrap()), IMAGE_TABLE_ADDR);
+        assert_eq!(u32::from_le_bytes(tags[24..28].try_into().unwrap()), 2);
     }
 }
