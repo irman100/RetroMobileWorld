@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use c3emu::fpsx::{Fpsx, Region};
-use c3emu::uc::{new_cpu, HookType, Prot, RegisterARM, Uc};
+use c3emu::uc::{new_cpu, HookType, MemType, Prot, RegisterARM, Uc};
 use zip::ZipArchive;
 
 const DEFAULT_INSTRUCTIONS: u64 = 1_000_000;
@@ -272,7 +272,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     // Use the c3emu ARM926 CPU core without its RM-614 Machine wrapper. The latter
     // installs a model-specific peripheral map and a tight-loop heuristic that can
     // mistake legitimate cache-maintenance polling for a fatal guest loop.
-    let mut uc = new_cpu().map_err(std::io::Error::other)?;
+    let mut uc = new_cpu().map_err(|error| std::io::Error::other(format!("CPU creation failed: {error:?}")))?;
     uc.mem_map(0x0000_0000, 0x1000_0000, Prot::ALL)
         .map_err(|error| std::io::Error::other(format!("low RAM map failed: {error:?}")))?;
     uc.mem_map(0x8000_0000, 0x0400_0000, Prot::ALL)
@@ -310,11 +310,19 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         let unknown_count = Rc::clone(&unknown_count);
         move |cpu, kind, address, size, value| {
             let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0);
+            let operation = match kind {
+                MemType::READ => "READ",
+                MemType::WRITE => "WRITE",
+                MemType::FETCH => "FETCH",
+                MemType::READ_UNMAPPED => "READ_UNMAPPED",
+                MemType::WRITE_UNMAPPED => "WRITE_UNMAPPED",
+                MemType::FETCH_UNMAPPED => "FETCH_UNMAPPED",
+            };
             let n = unknown_count.get();
             if n < 128 {
                 unknown_count.set(n + 1);
                 println!(
-                    "  [unmapped {n:03}] {kind:?} addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
+                    "  [unmapped {n:03}] {operation} addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
                 );
             }
             cpu.mem_map(address & !0xFFF, 0x1000, Prot::ALL).is_ok()
