@@ -126,7 +126,13 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     println!("=== RM-217 FIRST-STAGE CPU PROBE ===");
     println!("Archive: {}", options.archive.display());
     println!("Instruction budget: {}", options.instructions);
-    println!("Initial r0-r3: {:08X?}", options.initial_registers);
+    println!(
+        "Initial r0-r3: 0x{:08X}, 0x{:08X}, 0x{:08X}, 0x{:08X}",
+        options.initial_registers[0],
+        options.initial_registers[1],
+        options.initial_registers[2],
+        options.initial_registers[3]
+    );
     println!("Firmware stays local; the probe does not extract or upload it.");
 
     let mcusw = read_mcusw_from_archive(&options.archive)?;
@@ -172,21 +178,33 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
          memory map, boot handoff and devices are implemented."
     );
 
-    let mmio = parse_mmio_model("{}")?;
-    let mut machine = Machine::new(0, mmio)?;
+    let mmio = parse_mmio_model("{}").map_err(std::io::Error::other)?;
+    let mut machine = Machine::new(0, mmio).map_err(std::io::Error::other)?;
     let map_size = ((main.data.len() as u64 + 0xFFF) & !0xFFF).max(XIP_MINIMUM_MAP);
-    machine.uc.mem_map(xip_base as u64, map_size, Prot::ALL)?;
-    machine.uc.mem_write(xip_base as u64, &main.data)?;
+    machine
+        .uc
+        .mem_map(xip_base as u64, map_size, Prot::ALL)
+        .map_err(|error| std::io::Error::other(format!("XIP map failed: {error:?}")))?;
+    machine
+        .uc
+        .mem_write(xip_base as u64, &main.data)
+        .map_err(|error| std::io::Error::other(format!("MCUSW load failed: {error:?}")))?;
 
     // The first-stage stub changes to SYS mode itself. Begin with a masked SVC state.
-    machine.uc.reg_write(RegisterARM::CPSR, 0xD3u64)?;
+    machine
+        .uc
+        .reg_write(RegisterARM::CPSR, 0xD3u64)
+        .map_err(|error| std::io::Error::other(format!("CPSR setup failed: {error:?}")))?;
     for (register, value) in [
         (RegisterARM::R0, options.initial_registers[0]),
         (RegisterARM::R1, options.initial_registers[1]),
         (RegisterARM::R2, options.initial_registers[2]),
         (RegisterARM::R3, options.initial_registers[3]),
     ] {
-        machine.uc.reg_write(register, value as u64)?;
+        machine
+            .uc
+            .reg_write(register, value as u64)
+            .map_err(|error| std::io::Error::other(format!("register setup failed: {error:?}")))?;
     }
 
     // Watch likely early hardware configuration locations found in the first-stage code.
