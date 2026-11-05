@@ -41,6 +41,7 @@ struct Options {
     trace: u64,
     initial_registers: [u32; 4],
     ready_on_read: Vec<(u32, u8)>,
+    watch_pc: Vec<u32>,
     hle_secure_service6: bool,
     hle_secure_service6_launch: bool,
     no_handoff: bool,
@@ -126,6 +127,14 @@ fn secure_service6_launch_trampoline(target: u32) -> Vec<u8> {
     code
 }
 
+fn parse_watch_pc(value: &str) -> Result<u32, String> {
+    let address = parse_u64(value)?;
+    if address > u32::MAX as u64 || address & 1 != 0 {
+        return Err("watch PC must be a halfword-aligned 32-bit address".to_string());
+    }
+    Ok(address as u32)
+}
+
 fn parse_ready_bit(value: &str) -> Result<(u32, u8), String> {
     let (address, bit) = value
         .split_once(':')
@@ -171,6 +180,7 @@ fn parse_options() -> Result<Options, String> {
     let mut trace = DEFAULT_TRACE;
     let mut initial_registers = [0u32; 4];
     let mut ready_on_read = Vec::new();
+    let mut watch_pc = Vec::new();
     let mut hle_secure_service6 = false;
     let mut hle_secure_service6_launch = false;
     let mut no_handoff = false;
@@ -188,6 +198,8 @@ fn parse_options() -> Result<Options, String> {
             trace = parse_u64(value)?;
         } else if let Some(value) = arg.strip_prefix("--ready-bit=") {
             ready_on_read.push(parse_ready_bit(value)?);
+        } else if let Some(value) = arg.strip_prefix("--watch-pc=") {
+            watch_pc.push(parse_watch_pc(value)?);
         } else if arg == "--hle-secure-service6" {
             hle_secure_service6 = true;
         } else if arg == "--hle-secure-service6-launch" {
@@ -220,9 +232,9 @@ fn parse_options() -> Result<Options, String> {
     }
 
     let archive = archive.ok_or_else(|| {
-        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
+        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--watch-pc=ADDRESS ...] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
     })?;
-    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, hle_secure_service6, hle_secure_service6_launch, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
+    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, watch_pc, hle_secure_service6, hle_secure_service6_launch, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
 }
 
 fn read_mcusw_from_archive(path: &PathBuf) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -907,6 +919,42 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         .map_err(|error| std::io::Error::other(format!("ready-bit hook failed at 0x{address:08X}: {error:?}")))?;
     }
 
+    for address in options.watch_pc.iter().copied() {
+        let fired = Rc::new(Cell::new(false));
+        uc.add_code_hook(address as u64, address as u64 + 1, {
+            let fired = Rc::clone(&fired);
+            move |cpu, pc, size| {
+                if fired.replace(true) {
+                    return;
+                }
+                let read = |register| cpu.reg_read(register).unwrap_or(0) as u32;
+                println!(
+                    "  [watch-pc] pc=0x{pc:08X} size={size} cpsr=0x{:08X}                      r0=0x{:08X} r1=0x{:08X} r2=0x{:08X} r3=0x{:08X}                      r4=0x{:08X} r5=0x{:08X} r6=0x{:08X} r7=0x{:08X}                      sp=0x{:08X} lr=0x{:08X}",
+                    read(RegisterARM::CPSR),
+                    read(RegisterARM::R0),
+                    read(RegisterARM::R1),
+                    read(RegisterARM::R2),
+                    read(RegisterARM::R3),
+                    read(RegisterARM::R4),
+                    read(RegisterARM::R5),
+                    read(RegisterARM::R6),
+                    read(RegisterARM::R7),
+                    read(RegisterARM::SP),
+                    read(RegisterARM::LR)
+                );
+                let pointer = read(RegisterARM::R0);
+                if pointer != 0 && pointer <= 0x0FFF_FFFF {
+                    dump_memory_window(cpu, "watch-pc r0 target", pointer, 0x100);
+                }
+                let sp = read(RegisterARM::SP);
+                if sp != 0 && sp <= 0x0FFF_FFFF {
+                    dump_memory_window(cpu, "watch-pc stack", sp.saturating_sub(0x10), 0x70);
+                }
+            }
+        })
+        .map_err(|error| std::io::Error::other(format!("watch-pc hook failed at 0x{address:08X}: {error:?}")))?;
+    }
+
     let status_read_count = Rc::new(Cell::new(0usize));
     for (begin, end) in [
         (0x2005_0014u64, 0x2005_0017u64),
@@ -1066,7 +1114,7 @@ fn main() {
             }
         }
         Err(message) if message.is_empty() => {
-            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
+            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--watch-pc=ADDRESS ...] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
         }
         Err(message) => {
             eprintln!("{message}");
@@ -1134,6 +1182,14 @@ mod tests {
         let code = secure_service6_launch_trampoline(0xF010_03D0);
         assert_eq!(&code[0..12], &[0x00, 0x98, 0x01, 0x99, 0x02, 0x9A, 0x03, 0x9B, 0x01, 0x4C, 0x20, 0x47]);
         assert_eq!(u32::from_le_bytes(code[16..20].try_into().unwrap()), 0xF010_03D0);
+    }
+
+    #[test]
+    fn parses_halfword_aligned_watch_pcs() {
+        assert_eq!(parse_watch_pc("0xF0104172").unwrap(), 0xF010_4172);
+        assert_eq!(parse_watch_pc("402759534").unwrap(), 402_759_534);
+        assert!(parse_watch_pc("0xF0104173").is_err());
+        assert!(parse_watch_pc("0x100000000").is_err());
     }
 
     #[test]
