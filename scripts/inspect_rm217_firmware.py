@@ -277,40 +277,40 @@ def inspect_archive(path: str, product_code: str) -> int:
                         f"    {label}: flash=0x{region.address:08X}; "
                         f"size={len(region.payload):,}; blocks={region.blocks}"
                     )
-            if name.lower().endswith(".mcusw"):
-                main_region = select_main_mcusw(regions)
-                print(
-                    f"  selected MCUSW: flash=0x{main_region.address:08X}; "
-                    f"size={len(main_region.payload):,}; blocks={main_region.blocks}"
-                )
-                boot = inspect_rm217_boot_entry(main_region.payload)
-                if boot is None:
-                    print("  RM-217 boot probe: BB5 entry header could not be decoded")
-                else:
+                if name.lower().endswith(".mcusw"):
+                    main_region = select_main_mcusw(regions)
                     print(
-                        f"  RM-217 boot probe: file offset=0x{boot['entry_offset']:X}; "
-                        f"header hint=0x{boot['header_hint']:08X}"
+                        f"  selected MCUSW: flash=0x{main_region.address:08X}; "
+                        f"size={len(main_region.payload):,}; blocks={main_region.blocks}"
                     )
-                    print(
-                        f"    first ARM word=0x{boot['first_word']:08X}; "
-                        f"candidate XIP base=0x{boot['xip_base']:08X}"
-                    )
-                    print(
-                        f"    candidate ARM entry=0x{boot['candidate_entry']:08X}; "
-                        f"candidate Thumb continuation=0x{boot['thumb_entry']:08X}"
-                    )
-                    print(
-                        f"    early stack=0x{boot['stack_pointer']:08X}; "
-                        f"reserved scratch=0x{boot['stack_cookie_address']:08X}; "
-                        f"scratch marker=0x{boot['stack_cookie']:08X}"
-                    )
-                    print(
-                        f"    early global [image+0x164]=0x{boot['early_global_0x164']:08X}"
-                    )
-                    print(
-                        "    NOTE: candidate mapping/entry only; this does not prove "
-                        "that the machine can boot."
-                    )
+                    boot = inspect_rm217_boot_entry(main_region.payload)
+                    if boot is None:
+                        print("  RM-217 boot probe: BB5 entry header could not be decoded")
+                    else:
+                        print(
+                            f"  RM-217 boot probe: file offset=0x{boot['entry_offset']:X}; "
+                            f"header hint=0x{boot['header_hint']:08X}"
+                        )
+                        print(
+                            f"    first ARM word=0x{boot['first_word']:08X}; "
+                            f"candidate XIP base=0x{boot['xip_base']:08X}"
+                        )
+                        print(
+                            f"    candidate ARM entry=0x{boot['candidate_entry']:08X}; "
+                            f"candidate Thumb continuation=0x{boot['thumb_entry']:08X}"
+                        )
+                        print(
+                            f"    early stack=0x{boot['stack_pointer']:08X}; "
+                            f"reserved scratch=0x{boot['stack_cookie_address']:08X}; "
+                            f"scratch marker=0x{boot['stack_cookie']:08X}"
+                        )
+                        print(
+                            f"    early global [image+0x164]=0x{boot['early_global_0x164']:08X}"
+                        )
+                        print(
+                            "    NOTE: candidate mapping/entry only; this does not prove "
+                            "that the machine can boot."
+                        )
             except ValueError as error:
                 print(f"  FPSX parse error: {error}")
                 failures += 1

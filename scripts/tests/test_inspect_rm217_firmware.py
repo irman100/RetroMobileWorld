@@ -4,7 +4,13 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from inspect_rm217_firmware import (\n    Region,\n    inspect_rm217_boot_entry,\n    parse_fpsx,\n    parse_vpl,\n    select_main_mcusw,\n)
+from inspect_rm217_firmware import (
+    Region,
+    inspect_rm217_boot_entry,
+    parse_fpsx,
+    parse_vpl,
+    select_main_mcusw,
+)
 
 
 def raw_block(address: int, payload: bytes) -> bytes:
