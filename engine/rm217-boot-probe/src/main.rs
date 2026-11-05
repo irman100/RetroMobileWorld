@@ -364,6 +364,26 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     })
     .map_err(|error| std::io::Error::other(format!("unmapped hook failed: {error:?}")))?;
 
+    fn dump_memory_window(cpu: &Uc<'_>, label: &str, base: u32, length: u32) {
+        println!("  [{label}] 0x{base:08X}..0x{:08X}", base.saturating_add(length));
+        for offset in (0..length).step_by(16) {
+            let address = base.saturating_add(offset);
+            let mut bytes = [0u8; 16];
+            let available = (length - offset).min(16) as usize;
+            if cpu.mem_read(address as u64, &mut bytes[..available]).is_err() {
+                println!("    0x{address:08X}: <unreadable>");
+                continue;
+            }
+            let mut words = Vec::new();
+            for chunk in bytes[..available].chunks(4) {
+                let mut word = [0u8; 4];
+                word[..chunk.len()].copy_from_slice(chunk);
+                words.push(format!("{:08X}", u32::from_le_bytes(word)));
+            }
+            println!("    0x{address:08X}: {}", words.join(" "));
+        }
+    }
+
     fn dump_cpu_context(cpu: &mut Uc<'_>, label: &str) {
         let read_reg = |cpu: &Uc<'_>, reg| cpu.reg_read(reg).unwrap_or(0) as u32;
         let pc = read_reg(cpu, RegisterARM::PC);
@@ -384,6 +404,14 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             read_reg(cpu, RegisterARM::R6),
             read_reg(cpu, RegisterARM::R7)
         );
+        // The BSE frame reserves 0x107C bytes below the incoming stack and builds
+        // temporary memory-map records at SP+0x40 and a descriptor list at SP+0x840.
+        // Capture those objects plus the original register-save area and boot tags.
+        dump_memory_window(cpu, "BSE-memory-map-scratch", 0x0800_2FA0, 0x180);
+        dump_memory_window(cpu, "BSE-descriptor-list", 0x0800_37A0, 0x100);
+        dump_memory_window(cpu, "BSE-entry-register-save", 0x0800_3FD8, 0x28);
+        dump_memory_window(cpu, "boot-tags", BOOT_TAGS_ADDR, 0x40);
+
         let begin = sp.saturating_sub(0x20);
         for offset in (0..0x70u32).step_by(4) {
             let address = begin.saturating_add(offset);
