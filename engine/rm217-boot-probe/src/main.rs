@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
@@ -15,6 +16,9 @@ const DEFAULT_TRACE: u64 = 96;
 const MAX_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_MCU_BYTES: u64 = 256 * 1024 * 1024;
 const XIP_MINIMUM_MAP: u64 = 0x0100_0000;
+const BOOT_TAGS_ADDR: u32 = 0x0800_6000;
+const IMAGE_TABLE_ADDR: u32 = 0x0800_6400;
+const PAPUBKEYS_RAM_ADDR: u32 = 0x0801_0000;
 
 #[derive(Debug)]
 struct Options {
@@ -22,6 +26,7 @@ struct Options {
     instructions: u64,
     trace: u64,
     initial_registers: [u32; 4],
+    no_handoff: bool,
 }
 
 fn parse_u64(value: &str) -> Result<u64, String> {
@@ -37,6 +42,7 @@ fn parse_options() -> Result<Options, String> {
     let mut instructions = DEFAULT_INSTRUCTIONS;
     let mut trace = DEFAULT_TRACE;
     let mut initial_registers = [0u32; 4];
+    let mut no_handoff = false;
 
     for arg in std::env::args().skip(1) {
         if let Some(value) = arg.strip_prefix("--instructions=") {
@@ -51,6 +57,8 @@ fn parse_options() -> Result<Options, String> {
             initial_registers[2] = parse_u64(value)? as u32;
         } else if let Some(value) = arg.strip_prefix("--r3=") {
             initial_registers[3] = parse_u64(value)? as u32;
+        } else if arg == "--no-handoff" {
+            no_handoff = true;
         } else if arg == "--help" || arg == "-h" {
             return Err(String::new());
         } else if archive.is_none() {
@@ -61,9 +69,9 @@ fn parse_options() -> Result<Options, String> {
     }
 
     let archive = archive.ok_or_else(|| {
-        "usage: rm217-boot-probe <RM-217.zip> [--instructions=1000000] [--trace=96] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
+        "usage: rm217-boot-probe <RM-217.zip> [--instructions=1000000] [--trace=96] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
     })?;
-    Ok(Options { archive, instructions, trace, initial_registers })
+    Ok(Options { archive, instructions, trace, initial_registers, no_handoff })
 }
 
 fn read_mcusw_from_archive(path: &PathBuf) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -122,6 +130,114 @@ fn read_u32_le(bytes: &[u8], offset: usize) -> Result<u32, Box<dyn Error>> {
     let end = offset.checked_add(4).ok_or("offset overflow")?;
     let slice = bytes.get(offset..end).ok_or("truncated MCUSW header")?;
     Ok(u32::from_le_bytes(slice.try_into()?))
+}
+
+
+fn append_tag(out: &mut Vec<u8>, tag_type: u32, payload: &[u32]) {
+    let size = 8u32 + (payload.len() as u32 * 4);
+    out.extend_from_slice(&tag_type.to_le_bytes());
+    out.extend_from_slice(&size.to_le_bytes());
+    for value in payload {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+}
+
+fn build_boot_tag_list(image_table: u32) -> Vec<u8> {
+    let mut tags = Vec::new();
+    append_tag(&mut tags, 0x0D, &[1]); // power-on by key
+    append_tag(&mut tags, 0x0A, &[image_table]); // image table pointer
+    append_tag(&mut tags, 2, &[]); // end
+    tags
+}
+
+fn write_image_table(
+    machine: &mut Machine,
+    firmware: &Fpsx,
+    main_mcusw: &Region,
+    xip_base: u32,
+) -> Result<usize, Box<dyn Error>> {
+    // The FPSX package may contain a small header block and a larger executable
+    // continuation with the same image name. The OS needs the largest full image.
+    let mut named: BTreeMap<String, (&Region, u32)> = BTreeMap::new();
+    for region in &firmware.regions {
+        let Some(name) = region.name.as_deref() else { continue };
+        let destination = if name == "MCUSW" {
+            xip_base
+        } else if region.addr == 0xFFFF_FFFF {
+            PAPUBKEYS_RAM_ADDR
+        } else {
+            region.addr
+        };
+
+        let replace = named
+            .get(name)
+            .map(|(current, _)| region.data.len() > current.data.len())
+            .unwrap_or(true);
+        if replace {
+            named.insert(name.to_string(), (region, destination));
+        }
+    }
+
+    // MCUSW is already mapped at its virtual XIP alias. Load every other named
+    // image at the flash address recorded in FPSX (PAPUBKEYS gets a RAM staging
+    // address because its BB5 address is the special 0xFFFFFFFF sentinel).
+    let mut entries = Vec::new();
+    for (name, (region, destination)) in named {
+        if name != "MCUSW" {
+            machine.uc.mem_write(destination as u64, &region.data).map_err(|error| {
+                std::io::Error::other(format!(
+                    "could not stage image {name} at 0x{destination:08X}: {error:?}"
+                ))
+            })?;
+        } else if region.data.as_slice() != main_mcusw.data.as_slice() {
+            return Err("image table MCUSW does not reference selected main executable region".into());
+        }
+
+        let mut entry = [0u8; 0x20];
+        let relative = destination.wrapping_sub(IMAGE_TABLE_ADDR);
+        entry[0..4].copy_from_slice(&relative.to_le_bytes());
+        entry[4..8].copy_from_slice(&(region.data.len() as u32).to_le_bytes());
+        let name_bytes = name.as_bytes();
+        let name_len = name_bytes.len().min(12);
+        entry[0x14..0x14 + name_len].copy_from_slice(&name_bytes[..name_len]);
+        entries.extend_from_slice(&entry);
+        println!(
+            "  staged image {name:10} -> 0x{destination:08X} ({} bytes)",
+            region.data.len()
+        );
+    }
+
+    let mut end = [0u8; 0x20];
+    end[0x14] = 0xFF;
+    entries.extend_from_slice(&end);
+    machine
+        .uc
+        .mem_write(IMAGE_TABLE_ADDR as u64, &entries)
+        .map_err(|error| std::io::Error::other(format!("image table write failed: {error:?}")))?;
+    Ok(entries.len() / 0x20 - 1)
+}
+
+fn install_rm217_handoff(
+    machine: &mut Machine,
+    firmware: &Fpsx,
+    main_mcusw: &Region,
+    xip_base: u32,
+) -> Result<(), Box<dyn Error>> {
+    println!("Installing provisional RM-217 boot hand-off (C3-00 tag ABI reference):");
+    let image_count = write_image_table(machine, firmware, main_mcusw, xip_base)?;
+    let tags = build_boot_tag_list(IMAGE_TABLE_ADDR);
+    machine
+        .uc
+        .mem_write(BOOT_TAGS_ADDR as u64, &tags)
+        .map_err(|error| std::io::Error::other(format!("boot-tag write failed: {error:?}")))?;
+    println!(
+        "  tag list @0x{BOOT_TAGS_ADDR:08X}; image table @0x{IMAGE_TABLE_ADDR:08X}; {image_count} images"
+    );
+    println!(
+        "  r1 and r2 will both point to the tag list; this is an experimental hand-off, \
+         not a confirmed Nokia RM-217 boot-ROM contract."
+    );
+    Ok(())
 }
 
 fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
@@ -192,16 +308,27 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         .mem_write(xip_base as u64, &main.data)
         .map_err(|error| std::io::Error::other(format!("MCUSW load failed: {error:?}")))?;
 
+    if !options.no_handoff {
+        install_rm217_handoff(&mut machine, &firmware, main, xip_base)?;
+    } else {
+        println!("Boot hand-off disabled; r0-r3 start from the supplied values.");
+    }
+
     // The first-stage stub changes to SYS mode itself. Begin with a masked SVC state.
     machine
         .uc
         .reg_write(RegisterARM::CPSR, 0xD3u64)
         .map_err(|error| std::io::Error::other(format!("CPSR setup failed: {error:?}")))?;
+    let mut initial_registers = options.initial_registers;
+    if !options.no_handoff {
+        if initial_registers[1] == 0 { initial_registers[1] = BOOT_TAGS_ADDR; }
+        if initial_registers[2] == 0 { initial_registers[2] = BOOT_TAGS_ADDR; }
+    }
     for (register, value) in [
-        (RegisterARM::R0, options.initial_registers[0]),
-        (RegisterARM::R1, options.initial_registers[1]),
-        (RegisterARM::R2, options.initial_registers[2]),
-        (RegisterARM::R3, options.initial_registers[3]),
+        (RegisterARM::R0, initial_registers[0]),
+        (RegisterARM::R1, initial_registers[1]),
+        (RegisterARM::R2, initial_registers[2]),
+        (RegisterARM::R3, initial_registers[3]),
     ] {
         machine
             .uc
@@ -274,7 +401,7 @@ fn main() {
             }
         }
         Err(message) if message.is_empty() => {
-            println!("Usage: rm217-boot-probe <RM-217.zip> [--instructions=1000000] [--trace=96] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
+            println!("Usage: rm217-boot-probe <RM-217.zip> [--instructions=1000000] [--trace=96] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
         }
         Err(message) => {
             eprintln!("{message}");
