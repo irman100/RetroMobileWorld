@@ -920,8 +920,8 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             // This pointer is consumed as the root of the boot-configuration
             // descriptor tree. Trace it separately to establish where type 0
             // should originate; do not infer its contents from the pointer alone.
-            ("BSE-boot-config-read", HookType::MEM_READ, 0x10FF_FF80, 0x10FF_FFCF),
-            ("BSE-boot-config-write", HookType::MEM_WRITE, 0x10FF_FF80, 0x10FF_FFCF),
+            ("BSE-boot-config-read", HookType::MEM_READ, 0x10FF_FF80, 0x10FF_FFFF),
+            ("BSE-boot-config-write", HookType::MEM_WRITE, 0x10FF_FF80, 0x10FF_FFFF),
             ("BSE-descriptors-read", HookType::MEM_READ, 0x0800_37A0, 0x0800_389F),
             ("BSE-descriptors-write", HookType::MEM_WRITE, 0x0800_37A0, 0x0800_389F),
             ("BSE-targets-read", HookType::MEM_READ, 0x0800_3FA0, 0x0800_411F),
