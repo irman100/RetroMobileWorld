@@ -344,41 +344,6 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         .map_err(|error| std::io::Error::other(format!("write watch failed: {error:?}")))?;
     }
 
-    let trace_count = Rc::new(Cell::new(0usize));
-    for (begin, end) in [
-        (0xF010_03D0u64, 0xF010_0450u64),
-        (0xF010_4EC0u64, 0xF010_4ED0u64),
-        (0xF010_3350u64, 0xF010_3380u64),
-    ] {
-        let trace_count = Rc::clone(&trace_count);
-        let trace_limit = options.trace as usize;
-        uc.add_code_hook(begin, end, move |cpu, pc, _size| {
-            let n = trace_count.get();
-            if n >= trace_limit {
-                return;
-            }
-            trace_count.set(n + 1);
-            let read = |register| cpu.reg_read(register).unwrap_or(0) as u32;
-            let cpsr = read(RegisterARM::CPSR);
-            println!(
-                "  [trace {n:03}] pc=0x{pc:08X} {} cpsr=0x{cpsr:08X} \
-                 r0=0x{:08X} r1=0x{:08X} r2=0x{:08X} r3=0x{:08X} \
-                 r4=0x{:08X} r5=0x{:08X} r6=0x{:08X} sp=0x{:08X} lr=0x{:08X}",
-                if cpsr & 0x20 != 0 { "T" } else { "A" },
-                read(RegisterARM::R0),
-                read(RegisterARM::R1),
-                read(RegisterARM::R2),
-                read(RegisterARM::R3),
-                read(RegisterARM::R4),
-                read(RegisterARM::R5),
-                read(RegisterARM::R6),
-                read(RegisterARM::SP),
-                read(RegisterARM::LR)
-            );
-        })
-        .map_err(|error| std::io::Error::other(format!("code trace hook failed: {error:?}")))?;
-    }
-
     println!(
         "Initial registers: r0=0x{:08X} r1=0x{:08X} r2=0x{:08X} r3=0x{:08X}",
         uc.reg_read(RegisterARM::R0).unwrap_or(0) as u32,
@@ -387,16 +352,75 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         uc.reg_read(RegisterARM::R3).unwrap_or(0) as u32
     );
 
-    let result = uc.emu_start(entry as u64, 0xFFFF_FFF0, 0, options.instructions as usize);
-    let stop = result.map(|_| "CPU execution slice ended".to_string())
-        .unwrap_or_else(|error| format!("CPU error: {error:?}"));
-    let read = |register| uc.reg_read(register).unwrap_or(0) as u32;
+    // Do not install instruction code-hooks: on this interpreter build the
+    // per-instruction hook callback can disturb the block-flow fast path.
+    // Instead, execute bounded batches and sample architectural state between them.
+    let sample_count = if options.trace == 0 {
+        1usize
+    } else {
+        (options.trace as usize).min(options.instructions.max(1) as usize)
+    };
+    let sample_count = sample_count.max(1);
+    let mut begin = entry as u64;
+    let mut executed_total = 0u64;
+    let mut stop = "instruction budget completed".to_string();
 
+    for sample in 0..sample_count {
+        let remaining = options.instructions.saturating_sub(executed_total);
+        if remaining == 0 {
+            break;
+        }
+        let samples_left = (sample_count - sample) as u64;
+        let batch = ((remaining + samples_left - 1) / samples_left).max(1);
+        let before = uc.icount;
+        let result = uc.emu_start(begin, 0xFFFF_FFF0, 0, batch as usize);
+        let after = uc.icount;
+        let retired = after.saturating_sub(before);
+        executed_total = executed_total.saturating_add(retired);
+
+        let read = |register| uc.reg_read(register).unwrap_or(0) as u32;
+        let pc = read(RegisterARM::PC);
+        let cpsr = read(RegisterARM::CPSR);
+        println!(
+            "  [sample {sample:03}] +{retired} instructions (total {executed_total}) \
+             pc=0x{pc:08X} {} cpsr=0x{cpsr:08X} \
+             r0=0x{:08X} r1=0x{:08X} r2=0x{:08X} r3=0x{:08X} \
+             sp=0x{:08X} lr=0x{:08X}",
+            if cpsr & 0x20 != 0 { "T" } else { "A" },
+            read(RegisterARM::R0),
+            read(RegisterARM::R1),
+            read(RegisterARM::R2),
+            read(RegisterARM::R3),
+            read(RegisterARM::SP),
+            read(RegisterARM::LR)
+        );
+
+        if let Err(error) = result {
+            stop = format!("CPU error: {error:?}");
+            break;
+        }
+        if retired == 0 {
+            stop = "CPU returned without retiring an instruction".to_string();
+            break;
+        }
+        if pc >= 0xFFFF_FFF0 {
+            stop = "guest reached the requested stop address".to_string();
+            break;
+        }
+        if uc.wfi {
+            stop = "CPU entered WFI".to_string();
+            break;
+        }
+
+        begin = pc as u64 | u64::from(cpsr & 0x20 != 0);
+    }
+
+    let read = |register| uc.reg_read(register).unwrap_or(0) as u32;
     println!();
     println!("=== PROBE STOP ===");
     println!("{stop}");
     println!(
-        "PC=0x{:08X}; CPSR=0x{:08X}; SP=0x{:08X}; LR=0x{:08X}",
+        "Instructions retired: {executed_total}; PC=0x{:08X}; CPSR=0x{:08X}; SP=0x{:08X}; LR=0x{:08X}",
         read(RegisterARM::PC),
         read(RegisterARM::CPSR),
         read(RegisterARM::SP),
