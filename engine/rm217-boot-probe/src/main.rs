@@ -956,7 +956,13 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     }
 
     let status_read_count = Rc::new(Cell::new(0usize));
+    // NOLO currently polls this candidate ASIC status register while bringing
+    // up the SUBC path. Keep both the 0x200... view and observed 0xFFD... alias
+    // visible in the trace. This is diagnostic only; it does not synthesize
+    // readiness or claim a completed peripheral model.
     for (begin, end) in [
+        (0x2003_2D80u64, 0x2003_2D83u64),
+        (0xFFD3_2D80u64, 0xFFD3_2D83u64),
         (0x2005_0014u64, 0x2005_0017u64),
         (0xFFD5_0014u64, 0xFFD5_0017u64),
     ] {
