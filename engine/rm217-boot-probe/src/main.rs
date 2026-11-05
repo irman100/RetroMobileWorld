@@ -922,6 +922,13 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             // should originate; do not infer its contents from the pointer alone.
             ("BSE-boot-config-read", HookType::MEM_READ, 0x10FF_FF80, 0x10FF_FFFF),
             ("BSE-boot-config-write", HookType::MEM_WRITE, 0x10FF_FF80, 0x10FF_FFFF),
+            // NOLO explicitly logged "NOR Flash 0 not found" before building
+            // the configuration message. Observe the candidate NOR bus windows
+            // without synthesizing chip IDs or claiming a validated mapping.
+            ("NOR-candidate-low-read", HookType::MEM_READ, 0xF000_0000, 0xF00F_FFFF),
+            ("NOR-candidate-low-write", HookType::MEM_WRITE, 0xF000_0000, 0xF00F_FFFF),
+            ("NOR-candidate-high-read", HookType::MEM_READ, 0xF110_0000, 0xF1FF_FFFF),
+            ("NOR-candidate-high-write", HookType::MEM_WRITE, 0xF110_0000, 0xF1FF_FFFF),
             ("BSE-descriptors-read", HookType::MEM_READ, 0x0800_37A0, 0x0800_389F),
             ("BSE-descriptors-write", HookType::MEM_WRITE, 0x0800_37A0, 0x0800_389F),
             ("BSE-targets-read", HookType::MEM_READ, 0x0800_3FA0, 0x0800_411F),
@@ -931,7 +938,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             let count = Rc::new(Cell::new(0usize));
             // The focused descriptor/map windows must outlive their initial clear
             // pass; keep enough events to catch the subsequent record construction.
-            let event_limit = if label.contains("map-entry") || label.contains("descriptors") || label.contains("tag-list") || label.contains("boot-config") {
+            let event_limit = if label.contains("map-entry") || label.contains("descriptors") || label.contains("tag-list") || label.contains("boot-config") || label.contains("NOR-candidate") {
                 256usize
             } else {
                 64usize
