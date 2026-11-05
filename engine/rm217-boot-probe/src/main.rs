@@ -27,6 +27,7 @@ struct Options {
     trace: u64,
     initial_registers: [u32; 4],
     no_handoff: bool,
+    pokes: Vec<(u32, u32)>,
 }
 
 fn parse_u64(value: &str) -> Result<u64, String> {
@@ -37,12 +38,28 @@ fn parse_u64(value: &str) -> Result<u64, String> {
     }
 }
 
+fn parse_poke(value: &str) -> Result<(u32, u32), String> {
+    let (address, data) = value
+        .split_once(':')
+        .ok_or_else(|| format!("invalid --poke={value}; expected ADDRESS:VALUE"))?;
+    let address = parse_u64(address)?;
+    let data = parse_u64(data)?;
+    if address > u32::MAX as u64 || address & 3 != 0 {
+        return Err(format!("poke address must be a 4-byte-aligned 32-bit address: {address:#x}"));
+    }
+    if data > u32::MAX as u64 {
+        return Err(format!("poke value must fit in 32 bits: {data:#x}"));
+    }
+    Ok((address as u32, data as u32))
+}
+
 fn parse_options() -> Result<Options, String> {
     let mut archive = None;
     let mut instructions = DEFAULT_INSTRUCTIONS;
     let mut trace = DEFAULT_TRACE;
     let mut initial_registers = [0u32; 4];
     let mut no_handoff = false;
+    let mut pokes = Vec::new();
 
     for arg in std::env::args().skip(1) {
         if let Some(value) = arg.strip_prefix("--instructions=") {
@@ -57,6 +74,8 @@ fn parse_options() -> Result<Options, String> {
             initial_registers[2] = parse_u64(value)? as u32;
         } else if let Some(value) = arg.strip_prefix("--r3=") {
             initial_registers[3] = parse_u64(value)? as u32;
+        } else if let Some(value) = arg.strip_prefix("--poke=") {
+            pokes.push(parse_poke(value)?);
         } else if arg == "--no-handoff" {
             no_handoff = true;
         } else if arg == "--help" || arg == "-h" {
@@ -69,9 +88,9 @@ fn parse_options() -> Result<Options, String> {
     }
 
     let archive = archive.ok_or_else(|| {
-        "usage: rm217-boot-probe <RM-217.zip> [--instructions=1000000] [--trace=96] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
+        "usage: rm217-boot-probe <RM-217.zip> [--instructions=1000000] [--trace=96] [--poke=ADDRESS:VALUE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
     })?;
-    Ok(Options { archive, instructions, trace, initial_registers, no_handoff })
+    Ok(Options { archive, instructions, trace, initial_registers, no_handoff, pokes })
 }
 
 fn read_mcusw_from_archive(path: &PathBuf) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -283,6 +302,21 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     uc.mem_write(xip_base as u64, &main.data)
         .map_err(|error| std::io::Error::other(format!("MCUSW load failed: {error:?}")))?;
 
+    // Optional diagnostic initial values for RAM/MMIO-like locations. These are
+    // explicitly experimental overrides; they are not asserted to be real device state.
+    for (address, value) in &options.pokes {
+        let page = (*address as u64) & !0xFFF;
+        uc.mem_map(page, 0x1000, Prot::ALL).map_err(|error| {
+            std::io::Error::other(format!("poke page map failed at 0x{page:08X}: {error:?}"))
+        })?;
+        uc.mem_write(*address as u64, &value.to_le_bytes()).map_err(|error| {
+            std::io::Error::other(format!("poke write failed at 0x{address:08X}: {error:?}"))
+        })?;
+        println!(
+            "  [experimental poke] 0x{address:08X} <- 0x{value:08X} (not a validated hardware model)"
+        );
+    }
+
     if !options.no_handoff {
         install_rm217_handoff(&mut uc, &firmware, main, xip_base)?;
     } else {
@@ -449,7 +483,7 @@ fn main() {
             }
         }
         Err(message) if message.is_empty() => {
-            println!("Usage: rm217-boot-probe <RM-217.zip> [--instructions=1000000] [--trace=96] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
+            println!("Usage: rm217-boot-probe <RM-217.zip> [--instructions=1000000] [--trace=96] [--poke=ADDRESS:VALUE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
         }
         Err(message) => {
             eprintln!("{message}");
@@ -479,6 +513,16 @@ mod tests {
         assert_eq!(read_u32_le(&image, entry_offset + 0x78).unwrap(), 0xF010_0000);
         assert_eq!(0xF010_0000u32 + entry_offset as u32 + 0x40, 0xF010_0410);
         assert_eq!(0x0800_4000u32 - 0x1800, 0x0800_2800);
+    }
+
+    #[test]
+    fn parses_aligned_32_bit_poke_specification() {
+        assert_eq!(parse_poke("0x20050014:0x4").unwrap(), (0x2005_0014, 4));
+        assert_eq!(parse_poke("536936468:4").unwrap(), (0x2005_0014, 4));
+        assert!(parse_poke("0x20050015:4").is_err());
+        assert!(parse_poke("0x100000000:4").is_err());
+        assert!(parse_poke("0x20050014:0x100000000").is_err());
+        assert!(parse_poke("0x20050014").is_err());
     }
 
     #[test]
