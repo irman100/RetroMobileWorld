@@ -798,6 +798,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         // temporary memory-map records at SP+0x40 and a descriptor list at SP+0x840.
         // Capture those objects plus the original register-save area and boot tags.
         dump_memory_window(cpu, "BSE-memory-map-scratch", 0x0800_2FA0, 0x180);
+        dump_memory_window(cpu, "BSE-region-records", 0x0800_2F60, 0xC0);
         dump_memory_window(cpu, "BSE-region-map-tables", 0x0800_3200, 0x200);
         dump_memory_window(cpu, "BSE-memory-targets", 0x0800_3FA0, 0x180);
         dump_memory_window(cpu, "BSE-descriptor-list", 0x0800_37A0, 0x100);
