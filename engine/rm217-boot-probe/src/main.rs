@@ -25,6 +25,7 @@ const NOLO_ROM_SEC_SERVICE: u32 = 0xFFFF_0808;
 const SEC_SERVICE_ID: [u8; 12] =
     [0xAB, 0x0F, 0xBD, 0x96, 0xAF, 0x2A, 0xC2, 0x71, 0xD2, 0x62, 0x64, 0xAF];
 const SEC_SERVICE6_THUMB_STUB: [u8; 4] = [0x00, 0x20, 0x70, 0x47]; // movs r0,#0; bx lr
+const BB5_MAGIC: u32 = 0x8097_95A3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StartImage {
@@ -41,6 +42,7 @@ struct Options {
     initial_registers: [u32; 4],
     ready_on_read: Vec<(u32, u8)>,
     hle_secure_service6: bool,
+    hle_secure_service6_launch: bool,
     no_handoff: bool,
     pokes: Vec<(u32, u32)>,
     memory_tag0: Option<(u32, u32)>,
@@ -79,6 +81,49 @@ fn decode_secure_service(descriptor: &[u8]) -> Option<u16> {
         return None;
     }
     Some(u16::from_le_bytes([descriptor[14], descriptor[15]]))
+}
+
+/// Resolve the BB5 reset entry only when the supplied image prefix is internally
+/// self-consistent: magic, entry offset, XIP base and entry literal must agree.
+fn bb5_entry_from_prefix(prefix: &[u8], image_base: u32) -> Option<u32> {
+    let word = |offset: usize| -> Option<u32> {
+        let bytes = prefix.get(offset..offset.checked_add(4)?)?;
+        Some(u32::from_le_bytes(bytes.try_into().ok()?))
+    };
+    if word(0)? != BB5_MAGIC {
+        return None;
+    }
+    let entry_offset = word(0x1C)? as usize;
+    let literal_end = entry_offset.checked_add(0x7C)?;
+    if literal_end > prefix.len() {
+        return None;
+    }
+    let entry = image_base.checked_add(entry_offset as u32)?;
+    let entry_literal = word(entry_offset.checked_add(0x74)?)?;
+    let xip_base = word(entry_offset.checked_add(0x78)?)?;
+    if xip_base != image_base || entry_literal != entry {
+        return None;
+    }
+    Some(entry)
+}
+
+/// Thumb trampoline for the candidate non-returning NOLO image-start service:
+/// restore the four saved input registers from the caller's stack, then BX to
+/// the validated ARM BB5 entry (the even target clears CPSR.T).
+fn secure_service6_launch_trampoline(target: u32) -> [u8; 20] {
+    let mut code = [
+        0x00, 0x98, // ldr r0, [sp, #0]
+        0x01, 0x99, // ldr r1, [sp, #4]
+        0x02, 0x9A, // ldr r2, [sp, #8]
+        0x03, 0x9B, // ldr r3, [sp, #12]
+        0x01, 0x4C, // ldr r4, [pc, #4] -> literal at entry+16
+        0x20, 0x47, // bx r4
+        0xC0, 0x46, // nop (alignment / literal separation)
+        0xC0, 0x46, // nop
+        0, 0, 0, 0, // ARM entry literal
+    ];
+    code[16..20].copy_from_slice(&target.to_le_bytes());
+    code
 }
 
 fn parse_ready_bit(value: &str) -> Result<(u32, u8), String> {
@@ -127,6 +172,7 @@ fn parse_options() -> Result<Options, String> {
     let mut initial_registers = [0u32; 4];
     let mut ready_on_read = Vec::new();
     let mut hle_secure_service6 = false;
+    let mut hle_secure_service6_launch = false;
     let mut no_handoff = false;
     let mut pokes = Vec::new();
     let mut memory_tag0 = None;
@@ -144,6 +190,8 @@ fn parse_options() -> Result<Options, String> {
             ready_on_read.push(parse_ready_bit(value)?);
         } else if arg == "--hle-secure-service6" {
             hle_secure_service6 = true;
+        } else if arg == "--hle-secure-service6-launch" {
+            hle_secure_service6_launch = true;
         } else if let Some(value) = arg.strip_prefix("--r0=") {
             initial_registers[0] = parse_u64(value)? as u32;
         } else if let Some(value) = arg.strip_prefix("--r1=") {
@@ -172,9 +220,9 @@ fn parse_options() -> Result<Options, String> {
     }
 
     let archive = archive.ok_or_else(|| {
-        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--hle-secure-service6] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
+        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
     })?;
-    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, hle_secure_service6, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
+    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, hle_secure_service6, hle_secure_service6_launch, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
 }
 
 fn read_mcusw_from_archive(path: &PathBuf) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -573,6 +621,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         let secure_service6_calls = Rc::clone(&secure_service6_calls);
         let unhandled_rom_fetch = Rc::clone(&unhandled_rom_fetch);
         let allow_secure_service6 = options.hle_secure_service6;
+        let allow_secure_service6_launch = options.hle_secure_service6_launch;
         move |cpu, kind, address, size, value| {
             let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0) as u32;
             let operation = match kind {
@@ -597,7 +646,9 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     None
                 };
 
-                if allow_secure_service6 && service == Some(0x0006) {
+                if (allow_secure_service6 || allow_secure_service6_launch)
+                    && service == Some(0x0006)
+                {
                     let page = address & !0xFFF;
                     if cpu.mem_map(page, 0x1000, Prot::ALL).is_err() {
                         println!("  [NOLO ROM HLE] failed to map ROM page 0x{page:08X}");
@@ -605,15 +656,57 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                         let _ = cpu.emu_stop();
                         return false;
                     }
-                    if cpu.mem_write(address, &SEC_SERVICE6_THUMB_STUB).is_err() {
-                        println!("  [NOLO ROM HLE] failed to install service-6 Thumb return stub");
-                        unhandled_rom_fetch.set(Some((address as u32, pc, service.unwrap() as u32)));
+                    let (stub, description) = if allow_secure_service6_launch {
+                        let mut prefix = vec![0u8; 0x500];
+                        if cpu.mem_read(r2 as u64, &mut prefix).is_err() {
+                            println!("  [NOLO ROM HLE] cannot read BB5 image prefix at 0x{r2:08X}");
+                            unhandled_rom_fetch.set(Some((address as u32, pc, 6)));
+                            let _ = cpu.emu_stop();
+                            return false;
+                        }
+                        let Some(target) = bb5_entry_from_prefix(&prefix, r2) else {
+                            println!("  [NOLO ROM HLE] BB5 image at 0x{r2:08X} has no validated entry literals");
+                            unhandled_rom_fetch.set(Some((address as u32, pc, 6)));
+                            let _ = cpu.emu_stop();
+                            return false;
+                        };
+                        let stack = cpu.reg_read(RegisterARM::SP).unwrap_or(0);
+                        let mut saved = [0u8; 16];
+                        if cpu.mem_read(stack, &mut saved).is_err() {
+                            println!("  [NOLO ROM HLE] cannot read four saved startup registers from SP=0x{stack:08X}");
+                            unhandled_rom_fetch.set(Some((address as u32, pc, 6)));
+                            let _ = cpu.emu_stop();
+                            return false;
+                        }
+                        let regs = [
+                            u32::from_le_bytes(saved[0..4].try_into().unwrap()),
+                            u32::from_le_bytes(saved[4..8].try_into().unwrap()),
+                            u32::from_le_bytes(saved[8..12].try_into().unwrap()),
+                            u32::from_le_bytes(saved[12..16].try_into().unwrap()),
+                        ];
+                        println!(
+                            "  [NOLO launch candidate] service=0x06; stack=0x{stack:08X}; saved r0-r3={:08X?}; image=0x{r2:08X}; validated BB5 ARM entry=0x{target:08X}",
+                            regs
+                        );
+                        (
+                            secure_service6_launch_trampoline(target),
+                            format!("candidate non-returning image launch to ARM BB5 entry 0x{target:08X}; restores r0-r3 from service stack"),
+                        )
+                    } else {
+                        (
+                            SEC_SERVICE6_THUMB_STUB,
+                            "diagnostic return stub: MOVS r0,#0; BX LR".to_string(),
+                        )
+                    };
+                    if cpu.mem_write(address, &stub).is_err() {
+                        println!("  [NOLO ROM HLE] failed to install service-6 Thumb stub");
+                        unhandled_rom_fetch.set(Some((address as u32, pc, 6)));
                         let _ = cpu.emu_stop();
                         return false;
                     }
                     secure_service6_calls.set(secure_service6_calls.get() + 1);
                     println!(
-                        "  [NOLO ROM HLE] secure service 0x06 at 0x{address:08X}: desc=0x{descriptor_ptr:08X}, r1=0x{r1:08X}, r2=0x{r2:08X}, r3=0x{r3:08X}; returns r0=0 via MOVS r0,#0; BX LR"
+                        "  [NOLO ROM HLE] secure service 0x06 at 0x{address:08X}: desc=0x{descriptor_ptr:08X}, r1=0x{r1:08X}, r2=0x{r2:08X}, r3=0x{r3:08X}; {description}"
                     );
                     return true;
                 }
@@ -973,7 +1066,7 @@ fn main() {
             }
         }
         Err(message) if message.is_empty() => {
-            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--hle-secure-service6] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
+            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
         }
         Err(message) => {
             eprintln!("{message}");
@@ -1017,8 +1110,30 @@ mod tests {
     }
 
     #[test]
-    fn service6_stub_returns_zero_and_branches_through_lr() {
+    fn service6_return_stub_is_explicit_and_separate() {
         assert_eq!(SEC_SERVICE6_THUMB_STUB, [0x00, 0x20, 0x70, 0x47]);
+    }
+
+    #[test]
+    fn validates_main_mcusw_bb5_launch_entry() {
+        let mut image = vec![0u8; 0x500];
+        image[0..4].copy_from_slice(&BB5_MAGIC.to_le_bytes());
+        image[0x1C..0x20].copy_from_slice(&0x3D0u32.to_le_bytes());
+        image[0x3D0 + 0x74..0x3D0 + 0x78]
+            .copy_from_slice(&0xF010_03D0u32.to_le_bytes());
+        image[0x3D0 + 0x78..0x3D0 + 0x7C]
+            .copy_from_slice(&0xF010_0000u32.to_le_bytes());
+        assert_eq!(bb5_entry_from_prefix(&image, 0xF010_0000), Some(0xF010_03D0));
+        assert_eq!(bb5_entry_from_prefix(&image, 0xF020_0000), None);
+        image[0] = 0;
+        assert_eq!(bb5_entry_from_prefix(&image, 0xF010_0000), None);
+    }
+
+    #[test]
+    fn builds_thumb_launch_trampoline_with_four_saved_register_loads() {
+        let code = secure_service6_launch_trampoline(0xF010_03D0);
+        assert_eq!(&code[0..12], &[0x00, 0x98, 0x01, 0x99, 0x02, 0x9A, 0x03, 0x9B, 0x01, 0x4C, 0x20, 0x47]);
+        assert_eq!(u32::from_le_bytes(code[16..20].try_into().unwrap()), 0xF010_03D0);
     }
 
     #[test]
