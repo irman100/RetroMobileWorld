@@ -33,6 +33,7 @@ struct Options {
     instructions: u64,
     trace: u64,
     initial_registers: [u32; 4],
+    ready_on_read: Option<(u32, u8)>,
     no_handoff: bool,
     pokes: Vec<(u32, u32)>,
     memory_tag0: Option<(u32, u32)>,
@@ -66,6 +67,21 @@ fn parse_ram_range(value: &str) -> Result<(u32, u32), String> {
     Ok((base as u32, size as u32))
 }
 
+fn parse_ready_bit(value: &str) -> Result<(u32, u8), String> {
+    let (address, bit) = value
+        .split_once(':')
+        .ok_or_else(|| format!("invalid --ready-bit={value}; expected ADDRESS:BIT"))?;
+    let address = parse_u64(address)?;
+    let bit = parse_u64(bit)?;
+    if address > u32::MAX as u64 || address & 3 != 0 {
+        return Err("ready-bit address must be a 4-byte-aligned 32-bit address".to_string());
+    }
+    if bit > 31 {
+        return Err("ready-bit position must be from 0 through 31".to_string());
+    }
+    Ok((address as u32, bit as u8))
+}
+
 fn parse_start_image(value: &str) -> Result<StartImage, String> {
     match value {
         "mcusw" => Ok(StartImage::Mcusw),
@@ -95,6 +111,7 @@ fn parse_options() -> Result<Options, String> {
     let mut instructions = DEFAULT_INSTRUCTIONS;
     let mut trace = DEFAULT_TRACE;
     let mut initial_registers = [0u32; 4];
+    let mut ready_on_read = None;
     let mut no_handoff = false;
     let mut pokes = Vec::new();
     let mut memory_tag0 = None;
@@ -108,6 +125,8 @@ fn parse_options() -> Result<Options, String> {
             instructions = parse_u64(value)?;
         } else if let Some(value) = arg.strip_prefix("--trace=") {
             trace = parse_u64(value)?;
+        } else if let Some(value) = arg.strip_prefix("--ready-bit=") {
+            ready_on_read = Some(parse_ready_bit(value)?);
         } else if let Some(value) = arg.strip_prefix("--r0=") {
             initial_registers[0] = parse_u64(value)? as u32;
         } else if let Some(value) = arg.strip_prefix("--r1=") {
@@ -136,9 +155,9 @@ fn parse_options() -> Result<Options, String> {
     }
 
     let archive = archive.ok_or_else(|| {
-        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
+        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
     })?;
-    Ok(Options { archive, start_image, instructions, trace, initial_registers, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
+    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
 }
 
 fn read_mcusw_from_archive(path: &PathBuf) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -664,6 +683,33 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         .map_err(|error| std::io::Error::other(format!("write watch failed: {error:?}")))?;
     }
 
+    if let Some((address, bit)) = options.ready_on_read {
+        let ready_applied = Rc::new(Cell::new(false));
+        uc.add_mem_hook(
+            HookType::MEM_READ,
+            address as u64,
+            address as u64 + 3,
+            {
+                let ready_applied = Rc::clone(&ready_applied);
+                move |cpu, _kind, accessed, _size, value| {
+                    if !ready_applied.get() {
+                        let mask = 1u32 << bit;
+                        let next_value = (value as u32) | mask;
+                        ready_applied.set(true);
+                        let result = cpu.mem_write(accessed, &next_value.to_le_bytes());
+                        println!(
+                            "  [experimental ready-bit] first read @0x{accessed:08X}: 0x{:08X} -> 0x{next_value:08X} (bit {bit}, writeback={})",
+                            value as u32,
+                            if result.is_ok() { "ok" } else { "failed" }
+                        );
+                    }
+                    true
+                }
+            },
+        )
+        .map_err(|error| std::io::Error::other(format!("ready-bit hook failed: {error:?}")))?;
+    }
+
     let status_read_count = Rc::new(Cell::new(0usize));
     for (begin, end) in [
         (0x2005_0014u64, 0x2005_0017u64),
@@ -806,7 +852,7 @@ fn main() {
             }
         }
         Err(message) if message.is_empty() => {
-            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
+            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
         }
         Err(message) => {
             eprintln!("{message}");
@@ -836,6 +882,16 @@ mod tests {
         assert_eq!(read_u32_le(&image, entry_offset + 0x78).unwrap(), 0xF010_0000);
         assert_eq!(0xF010_0000u32 + entry_offset as u32 + 0x40, 0xF010_0410);
         assert_eq!(0x0800_4000u32 - 0x1800, 0x0800_2800);
+    }
+
+    #[test]
+    fn parses_ready_bit_specification() {
+        assert_eq!(parse_ready_bit("0x20032D80:0").unwrap(), (0x2003_2D80, 0));
+        assert_eq!(parse_ready_bit("536884608:31").unwrap(), (0x2003_2D80, 31));
+        assert!(parse_ready_bit("0x20032D81:0").is_err());
+        assert!(parse_ready_bit("0x100000000:0").is_err());
+        assert!(parse_ready_bit("0x20032D80:32").is_err());
+        assert!(parse_ready_bit("0x20032D80").is_err());
     }
 
     #[test]
