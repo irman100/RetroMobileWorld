@@ -1310,7 +1310,7 @@ mod tests {
     #[test]
     fn parses_aligned_32_bit_poke_specification() {
         assert_eq!(parse_poke("0x20050014:0x4").unwrap(), (0x2005_0014, 4));
-        assert_eq!(parse_poke("536936468:4").unwrap(), (0x2005_0014, 4));
+        assert_eq!(parse_poke("537198612:4").unwrap(), (0x2005_0014, 4));
         assert!(parse_poke("0x20050015:4").is_err());
         assert!(parse_poke("0x100000000:4").is_err());
         assert!(parse_poke("0x20050014:0x100000000").is_err());
