@@ -381,10 +381,10 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
 
     println!(
         "Initial registers: r0=0x{:08X} r1=0x{:08X} r2=0x{:08X} r3=0x{:08X}",
-        uc.reg_read(RegisterARM::R0)? as u32,
-        uc.reg_read(RegisterARM::R1)? as u32,
-        uc.reg_read(RegisterARM::R2)? as u32,
-        uc.reg_read(RegisterARM::R3)? as u32
+        uc.reg_read(RegisterARM::R0).unwrap_or(0) as u32,
+        uc.reg_read(RegisterARM::R1).unwrap_or(0) as u32,
+        uc.reg_read(RegisterARM::R2).unwrap_or(0) as u32,
+        uc.reg_read(RegisterARM::R3).unwrap_or(0) as u32
     );
 
     let result = uc.emu_start(entry as u64, 0xFFFF_FFF0, 0, options.instructions as usize);
