@@ -301,3 +301,30 @@ CPU core. Treat ARM926EJ-S as the working family-level hypothesis until a
 primary RAPGSM/RM-217 source confirms it. Likewise, the experimental NOR ID
 `0x00EC:0x2208` and read-array implementation are not yet a verified
 K5G5629ATB-SF75 datasheet model.
+
+
+## ARM926 backend audit (2026-11-06)
+
+The probe's pinned c3emu dependency is built with `default-features = false` and only
+the `disasm` feature. Therefore `new_cpu()` selects c3emu's built-in
+ARM926EJ-S / ARMv5TE interpreter, not its optional Unicorn backend. The optional
+Unicorn path explicitly selects Unicorn's ARM Model_926.
+
+The pinned interpreter source was reviewed directly:
+
+- `cpu/mod.rs` describes the core as ARM926EJ-S / ARMv5TE.
+- It implements CP15 state (SCTLR, TTBR, DACR, DFSR, IFSR, FAR, FCSE and context
+  ID), L1/L2 MMU table walks, domains/AP permission checks, and a TLB.
+- Its MMU walk handles section, large-page, small-page and tiny-page descriptors.
+- It treats cache maintenance as simplified and reports SWI/BKPT/abort events
+  through host interrupt hooks without performing the architectural exception
+  vector entry itself.
+
+The probe now installs an interrupt/exception observer that logs the backend
+exception code, PC, CPSR and LR, then stops. It does not pretend that an ARM
+exception vector was entered. The remaining CPU-core limitations include full
+exception entry/banked-state transitions, IRQ/FIQ line timing, cache and
+write-buffer behaviour, and cycle-accurate bus timing.
+
+This confirms the CPU implementation being used; it does not independently prove
+that the RM-217 RAPGSM silicon contains exactly the same ARM926 revision.
