@@ -1217,14 +1217,15 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     }
 
     for address in options.watch_pc.iter().copied() {
-        // Capture the first few visits, not only the first one: BSE walks
-        // several adjacent descriptors through the same overlap-check loop.
+        // The BSE range mapper is called for a sequence of memory descriptors.
+        // Capture enough entries to identify the later overlapping range, while
+        // dumping large memory windows only on the first visit.
         let fired = Rc::new(Cell::new(0usize));
         uc.add_code_hook(address as u64, address as u64 + 1, {
             let fired = Rc::clone(&fired);
             move |cpu, pc, size| {
                 let hit = fired.get();
-                if hit >= 4 {
+                if hit >= 32 {
                     return;
                 }
                 fired.set(hit + 1);
@@ -1243,6 +1244,9 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     read(RegisterARM::SP),
                     read(RegisterARM::LR)
                 );
+                if hit != 0 {
+                    return;
+                }
                 let code_dump_len = if address == 0x0800_0870 { 0x180 } else { 0x50 };
                 dump_memory_window(cpu, "watch-pc code bytes", (pc as u32).saturating_sub(0x10), code_dump_len);
                 let pointer = read(RegisterARM::R0);
