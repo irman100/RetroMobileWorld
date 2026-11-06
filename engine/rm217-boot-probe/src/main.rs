@@ -1015,6 +1015,15 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     })
     .map_err(|error| std::io::Error::other(format!("CPU exception hook failed: {error:?}")))?;
 
+    fn read_stack_word(cpu: &Uc<'_>, base: u32, offset: u32) -> u32 {
+        let mut bytes = [0u8; 4];
+        if cpu.mem_read(base as u64 + offset as u64, &mut bytes).is_ok() {
+            u32::from_le_bytes(bytes)
+        } else {
+            u32::MAX
+        }
+    }
+
     fn dump_memory_window(cpu: &Uc<'_>, label: &str, base: u32, length: u32) {
         println!("  [{label}] 0x{base:08X}..0x{:08X}", base.saturating_add(length));
         for offset in (0..length).step_by(16) {
@@ -1318,6 +1327,77 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     read(RegisterARM::LR)
                 );
                 let sp = read(RegisterARM::SP);
+
+                // Trace the allocator's type-8 range-list walk. The helper at
+                // F010333E resolves the Nth item of a requested tag type; this
+                // instrumentation records the returned item and evolving free
+                // interval without changing guest state.
+                if address == 0xF010_433A {
+                    let descriptor = read(RegisterARM::R5);
+                    println!(
+                        "  [watch-pc allocator descriptor input] r5=0x{descriptor:08X} loop-index={} sp+30/base=0x{:08X} sp+34/length=0x{:08X}",
+                        read(RegisterARM::R4),
+                        read_stack_word(cpu, sp, 0x30),
+                        read_stack_word(cpu, sp, 0x34)
+                    );
+                    if (0x0800_0000..=0x080F_FFFF).contains(&descriptor) {
+                        dump_memory_window(
+                            cpu,
+                            "watch-pc allocator descriptor context",
+                            descriptor.saturating_sub(0x10),
+                            0x40,
+                        );
+                    }
+                }
+                if address == 0xF010_4346 {
+                    let record = read(RegisterARM::R0);
+                    println!(
+                        "  [watch-pc allocator type-8 record] ptr=0x{record:08X} index={} current-base=0x{:08X} remaining=0x{:08X}",
+                        read(RegisterARM::R4),
+                        read_stack_word(cpu, sp, 0x30),
+                        read_stack_word(cpu, sp, 0x34)
+                    );
+                    if (0x0800_0000..=0x080F_FFFF).contains(&record) {
+                        dump_memory_window(
+                            cpu,
+                            "watch-pc allocator type-8 record bytes",
+                            record.saturating_sub(0x08),
+                            0x30,
+                        );
+                        for offset in [0x00u32, 0x04, 0x08, 0x0C, 0x10, 0x14] {
+                            println!(
+                                "    record+0x{offset:02X} = 0x{:08X}",
+                                read_stack_word(cpu, record, offset)
+                            );
+                        }
+                    }
+                }
+                if address == 0xF010_437C {
+                    let list = read(RegisterARM::R0);
+                    println!(
+                        "  [watch-pc allocator type-8 lookup] list=0x{list:08X} occurrence={} cursor={} current-base=0x{:08X} remaining=0x{:08X}",
+                        read(RegisterARM::R2),
+                        read(RegisterARM::R4),
+                        read_stack_word(cpu, sp, 0x30),
+                        read_stack_word(cpu, sp, 0x34)
+                    );
+                    if hit < 3 && (0x0800_0000..=0x080F_FFFF).contains(&list) {
+                        dump_memory_window(cpu, "watch-pc allocator typed-list root", list, 0xA0);
+                    }
+                }
+                if address == 0xF010_438A || address == 0xF010_439E {
+                    println!(
+                        "  [watch-pc allocator interval {}] base=0x{:08X} length=0x{:08X} extra38=0x{:08X} extra3C=0x{:08X} source-list=0x{:08X} map-root=0x{:08X}",
+                        if address == 0xF010_438A { "after type-8 scan" } else { "before mapper" },
+                        read_stack_word(cpu, sp, 0x30),
+                        read_stack_word(cpu, sp, 0x34),
+                        read_stack_word(cpu, sp, 0x38),
+                        read_stack_word(cpu, sp, 0x3C),
+                        read_stack_word(cpu, sp, 0x44),
+                        read_stack_word(cpu, sp, 0x48)
+                    );
+                }
+
                 // Capture the allocator's source descriptor at the exact call that
                 // produced the colliding 22-MiB mapping. The call frame and descriptor
                 // may differ from the earlier descriptor-list construction snapshot.
