@@ -1927,6 +1927,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn capstone_decodes_little_endian_thumb_instructions() {
+        // Thumb trampoline bytes: movs r0, #0; bx lr.
+        let code = [0x00, 0x20, 0x70, 0x47];
+        let mut disassembler = Capstone::new()
+            .arm()
+            .mode(ArchMode::Thumb)
+            .endian(Endian::Little)
+            .build()
+            .unwrap();
+        disassembler.set_skipdata(true).unwrap();
+        let instructions = disassembler.disasm_all(&code, 0xF010_4300).unwrap();
+        assert_eq!(instructions.len(), 2);
+        assert_eq!(instructions.iter().next().unwrap().mnemonic(), Some("movs"));
+        assert_eq!(instructions.iter().nth(1).unwrap().mnemonic(), Some("bx"));
+    }
+
+    #[test]
     fn bse_alias_slot_table_matches_observed_firmware_addresses() {
         let cases = [
             (0x0000_0000, 0x000, 0x1009_0000),
