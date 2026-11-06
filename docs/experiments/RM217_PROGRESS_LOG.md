@@ -4,11 +4,11 @@
 
 **Обновлено:** 6 ноября 2026  
 **Ветка:** `feature/j2me-library-bridge-20261104`  
-**HEAD на момент обновления:** `588b77363c1fa2eff18c0c686b57c7b425946456`  
+**HEAD на момент обновления:** `304b297868d10ba31b8bbf2405b2ce6ad848c9b8`  
 **PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит.  
-**CI для HEAD `588b773`: успешно:**
-- [Android CI #42264879265](https://github.com/irman100/RetroMobileWorld/actions/runs/42264879265)
-- [RM-217 Boot Probe #42264879222](https://github.com/irman100/RetroMobileWorld/actions/runs/42264879222) — Linux и Windows build/test
+**CI для текущего HEAD `304b297`: успешно:**
+- [Android CI #42268498333](https://github.com/irman100/RetroMobileWorld/actions/runs/42268498333)
+- [RM-217 Boot Probe #42268498270](https://github.com/irman100/RetroMobileWorld/actions/runs/42268498270) — Linux и Windows build/test
 
 Исторические проверки для предыдущих диагностических коммитов сохранены в соответствующих разделах ниже.
 
@@ -379,3 +379,72 @@ Desktop `rm217-boot-probe` — диагностический инструмен
 5. Лишь после стабильного desktop frame подключить проверенный machine backend к Android `PhoneSystemEngine`, экрану и физическим key down/up.
 
 **Критерий первого реального успеха:** оригинальный RM-217 код проходит BSE mapper и формирует устойчивый LCD frame в desktop probe. После этого тот же проверенный backend портируется в Android. Простое открытие ZIP, успешные unit tests или достижение reset boundary не считать загрузкой телефона.
+
+
+---
+
+## 12. Correct guest-virtual diagnostics for BSE/MMU (2026-11-06, commit 304b297868d10ba31b8bbf2405b2ce6ad848c9b8)
+
+### 12.1 Причина изменения
+
+В pinned c3emu Uc::mem_read() — physical-memory API. Несколько старых диагностических helper-ов принимали гостевые указатели (SP, descriptor pointers, MCUSW table pointers, BSE region roots), но читали их напрямую как физические адреса. После включения ARM926 MMU такой снимок нельзя считать содержимым guest virtual address.
+
+В c3emu той же pinned revision уже есть публичные helpers c3emu::mmu::read_virt, virt_word и virt_to_phys. Использовать их для read-only guest diagnostics.
+
+### 12.2 Что исправлено
+
+В engine/rm217-boot-probe/src/main.rs:
+
+- read_stack_word теперь использует c3emu::mmu::virt_word.
+- dump_memory_window читает guest VA через c3emu::mmu::read_virt.
+- Secure Service 0x06 diagnostic path читает descriptor, MCUSW prefix и сохранённые startup registers через MMU.
+- Stack frames, указатели из HW config и descriptor windows также читаются через MMU.
+- Каждая попытка mapper на 0xF0103ECE дополнительно выводит caller/LR, r0 physical base, r1 length, r2 BSE alias, r2 >> 20 как alias slot index, guest VA→PA translation для r2 и candidate map-root из SP+0x48.
+- Фактические guest stack loads выводятся как VA, PA, размер, загруженное значение и PC.
+
+Инструментирование остаётся read-only: оно не меняет guest registers, memory map, static records или результат проверки занятости. Assertion не отключён.
+
+### 12.3 CI и артефакты
+
+Для commit 304b297868d10ba31b8bbf2405b2ce6ad848c9b8:
+
+- [Android CI #42268498333](https://github.com/irman100/RetroMobileWorld/actions/runs/42268498333) — success.
+- [RM-217 Boot Probe #42268498270](https://github.com/irman100/RetroMobileWorld/actions/runs/42268498270) — success для Linux и Windows.
+
+Полученные из этого run артефакты:
+
+- Windows artifact rm217-boot-probe-windows, ID 13527962015; executable SHA-256 8660a3e13e22daa3380de05a28e789a3f227e5ade84fe161099dea7ee550bd7d.
+- Linux artifact rm217-boot-probe-linux, ID 13528147489; executable SHA-256 15dac1dacc62ec0e47829f335a1e13d775cb3ab67536cc80f4be1d36c71509c5.
+
+Linux executable проверен локальным запуском --help; Windows artifact распакован и подтверждён как x86-64 PE executable. Firmware boot trace на этом сеансе не запускался: исходный пользовательский Phoenix archive и локальные trace artifacts не доступны в рабочем контейнере.
+
+### 12.4 Следующий запуск на исходном RM-217 archive
+
+Использовать latest Windows probe artifact из run #42268498270. Путь к firmware должен быть полным путём именно к ZIP-файлу, не к каталогу.
+
+Рекомендуемый PowerShell запуск: положить rm217-boot-probe.exe в Downloads, установить переменную firmware на реальный RM-217 ZIP (в старом журнале использовался E:RM-217.zip), задать лог Desktopm217-bse-alias-mmuv2.txt и проверить оба пути с Test-Path -PathType Leaf.
+
+Параметры запуска:
+- --entry=nolo --instructions=1000000 --trace=96
+- --ready-bit=0x20032D80:0 --ready-bit=0x20032D20:0 --ready-bit=0x20032D40:0
+- --nor-id=0x00EC:0x2208 --legacy-unmapped-as-ram --hle-secure-service6-launch --trace-bse-memory
+- --watch-pc=0xF0103ECE
+- --watch-pc=0xF0103C04 --watch-pc=0xF0103C0A
+- --watch-pc=0xF010433A --watch-pc=0xF0104346 --watch-pc=0xF010437C
+- --watch-pc=0xF010438A --watch-pc=0xF010439E --watch-pc=0xF01043A0
+
+Перенаправить stderr/stdout в Tee-Object -FilePath $log, после выполнения сохранить $LASTEXITCODE и сам текстовый trace.
+
+Флаги ready-bit, nor-id, legacy-unmapped-as-ram и hle-secure-service6-launch остаются диагностическими гипотезами/подстановками из предыдущего воспроизводимого пути, а не подтверждённой RM-217 machine model. Их сохранить для сравнения с прежней трассой; не делать вывод, что это реальная аппаратная конфигурация.
+
+В новом trace проверить:
+
+1. Для static mapper calls с caller 0xF010489D: raw 16-byte entry, r0/r1/r2, alias index и фактическое содержимое указателя после MMU translation.
+2. Для allocator mapper call с caller 0xF01043A5: те же аргументы и descriptor bytes.
+3. Совпадает ли r2 >> 20 позднего allocator с alias slots 0x000 или 0xFF1; не подменять BSE alias значением PA, полученным ARM926 MMU walk.
+4. Какой именно guest virtual slot read в районе 0xF0103C04 вернул marker 0x3E; сохранить PC, адрес чтения и значение.
+5. После установления slot formula сверить её с map-root и static record. До этого не менять map base/size, alias или raw table.
+
+### 12.5 Чего этот commit не решает
+
+Этот commit повышает достоверность диагностики, но не устраняет BSE assertion и не загружает Series 40. Следующая обязательная точка — реальная трасса с пользовательским RM-217 archive. После определения alias collision можно исправлять только подтверждённую причину, затем продвигать desktop probe к reset/exception path, периферии и первому устойчивому LCD frame.
