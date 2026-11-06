@@ -16,6 +16,11 @@ const MAX_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_MCU_BYTES: u64 = 256 * 1024 * 1024;
 const XIP_MINIMUM_MAP: u64 = 0x0100_0000;
 const NOR0_CAPACITY: usize = 0x0200_0000;
+// RM-217 Nokia service manual + board schematic: combo memory has 128-Mbit
+// SDRAM (16 MiB). Firmware boot configuration independently reports this
+// exact SDRAM window at 0x10000000..0x11000000.
+const RM217_SDRAM_BASE: u32 = 0x1000_0000;
+const RM217_SDRAM_SIZE: u32 = 0x0100_0000;
 
 const BOOT_TAGS_ADDR: u32 = 0x0800_6000;
 const IMAGE_TABLE_ADDR: u32 = 0x0800_6400;
@@ -47,6 +52,7 @@ struct Options {
     nor_id: Option<(u16, u16)>,
     watch_pc: Vec<u32>,
     trace_bse_memory: bool,
+    legacy_unmapped_as_ram: bool,
     hle_secure_service6: bool,
     hle_secure_service6_launch: bool,
     no_handoff: bool,
@@ -200,6 +206,7 @@ fn parse_options() -> Result<Options, String> {
     let mut nor_id = None;
     let mut watch_pc = Vec::new();
     let mut trace_bse_memory = false;
+    let mut legacy_unmapped_as_ram = false;
     let mut hle_secure_service6 = false;
     let mut hle_secure_service6_launch = false;
     let mut no_handoff = false;
@@ -223,6 +230,8 @@ fn parse_options() -> Result<Options, String> {
             watch_pc.push(parse_watch_pc(value)?);
         } else if arg == "--trace-bse-memory" {
             trace_bse_memory = true;
+        } else if arg == "--legacy-unmapped-as-ram" {
+            legacy_unmapped_as_ram = true;
         } else if arg == "--hle-secure-service6" {
             hle_secure_service6 = true;
         } else if arg == "--hle-secure-service6-launch" {
@@ -255,9 +264,9 @@ fn parse_options() -> Result<Options, String> {
     }
 
     let archive = archive.ok_or_else(|| {
-        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--nor-id=MANUFACTURER:DEVICE] [--watch-pc=ADDRESS ...] [--trace-bse-memory] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
+        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--nor-id=MANUFACTURER:DEVICE] [--watch-pc=ADDRESS ...] [--trace-bse-memory] [--legacy-unmapped-as-ram] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
     })?;
-    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, nor_id, watch_pc, trace_bse_memory, hle_secure_service6, hle_secure_service6_launch, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
+    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, nor_id, watch_pc, trace_bse_memory, legacy_unmapped_as_ram, hle_secure_service6, hle_secure_service6_launch, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
 }
 
 fn read_mcusw_from_archive(path: &PathBuf) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -635,18 +644,32 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     // mistake legitimate cache-maintenance polling for a fatal guest loop.
     let mut uc = new_cpu().map_err(|error| std::io::Error::other(format!("CPU creation failed: {error:?}")))?;
     let mut mapped = Vec::new();
-    map_region_once(&mut uc, &mut mapped, 0x0000_0000, 0x1000_0000, "low memory")?;
+
+    // Keep the existing low-address bootstrap backing required by the current
+    // NOLO/BB5 loader path, but do not treat it as proof of a flat physical RAM.
+    map_region_once(&mut uc, &mut mapped, 0x0000_0000, 0x1000_0000, "legacy low-address bootstrap window")?;
+
+    // This is the first explicitly grounded external RAM bank in the RM-217 map:
+    // 128 Mbit = 16 MiB, base from NOLO's HW-config descriptor and later MCUSW
+    // region records. Map it up-front as one continuous SDRAM device.
+    map_region_once(
+        &mut uc,
+        &mut mapped,
+        RM217_SDRAM_BASE,
+        RM217_SDRAM_SIZE,
+        "RM-217 combo DDR SDRAM (128 Mbit)",
+    )?;
 
     if let Some((base, size)) = options.ram_tag4 {
-        map_region_once(&mut uc, &mut mapped, base, size, "candidate SDRAM/tag4")?;
+        map_region_once(&mut uc, &mut mapped, base, size, "experimental tag-4 RAM range")?;
     }
     if let Some((base, size)) = options.ram_tag5 {
-        map_region_once(&mut uc, &mut mapped, base, size, "candidate stack SRAM/tag5")?;
+        map_region_once(&mut uc, &mut mapped, base, size, "experimental tag-5 stack RAM range")?;
     }
     if let Some((base, size)) = options.memory_tag0 {
-        map_region_once(&mut uc, &mut mapped, base, size, "candidate NOR/tag0")?;
+        map_region_once(&mut uc, &mut mapped, base, size, "experimental tag-0 NOR window")?;
     } else {
-        map_region_once(&mut uc, &mut mapped, 0x8000_0000, 0x0400_0000, "reference high RAM")?;
+        println!("  no speculative 0x80000000 high-RAM bank is installed");
     }
 
     let xip_size = ((main.data.len() as u64 + 0xFFF) & !0xFFF).max(XIP_MINIMUM_MAP);
@@ -827,6 +850,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         let unhandled_rom_fetch = Rc::clone(&unhandled_rom_fetch);
         let allow_secure_service6 = options.hle_secure_service6;
         let allow_secure_service6_launch = options.hle_secure_service6_launch;
+        let legacy_unmapped_as_ram = options.legacy_unmapped_as_ram;
         move |cpu, kind, address, size, value| {
             let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0) as u32;
             let operation = match kind {
@@ -942,7 +966,24 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     "  [unmapped {n:03}] {operation} addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
                 );
             }
-            cpu.mem_map(address & !0xFFF, 0x1000, Prot::ALL).is_ok()
+
+            if legacy_unmapped_as_ram {
+                let page = address & !0xFFF;
+                let mapped = cpu.mem_map(page, 0x1000, Prot::ALL).is_ok();
+                println!(
+                    "  [legacy fallback] mapped unknown page 0x{page:08X} as RAM: {mapped}"
+                );
+                return mapped;
+            }
+
+            // A missing decoder is a bus fault, not a request to invent a RAM page.
+            // Keep unknown ASIC/MMIO accesses visible until an explicit device model
+            // implements their register semantics.
+            println!(
+                "  [unmapped bus fault] no RM-217 device decoder for {operation} at 0x{address:08X}; stopping"
+            );
+            let _ = cpu.emu_stop();
+            false
         }
     })
     .map_err(|error| std::io::Error::other(format!("unmapped hook failed: {error:?}")))?;
@@ -1510,7 +1551,7 @@ fn main() {
             }
         }
         Err(message) if message.is_empty() => {
-            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--nor-id=MANUFACTURER:DEVICE] [--watch-pc=ADDRESS ...] [--trace-bse-memory] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
+            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--nor-id=MANUFACTURER:DEVICE] [--watch-pc=ADDRESS ...] [--trace-bse-memory] [--legacy-unmapped-as-ram] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
         }
         Err(message) => {
             eprintln!("{message}");
@@ -1522,6 +1563,18 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rm217_combo_sdram_capacity_matches_128_mbit_and_does_not_overlap_nor() {
+        assert_eq!(RM217_SDRAM_SIZE, 16 * 1024 * 1024);
+        assert_eq!(NOR0_CAPACITY, 32 * 1024 * 1024);
+        let sdram_start = RM217_SDRAM_BASE as u64;
+        let sdram_end = sdram_start + RM217_SDRAM_SIZE as u64;
+        let nor_start = 0u64;
+        let nor_end = NOR0_CAPACITY as u64;
+        assert!(nor_end <= sdram_start || sdram_end <= nor_start);
+        assert_eq!(sdram_end, 0x1100_0000);
+    }
 
     #[test]
     fn calculates_candidate_entry_aliases_and_stack_values() {
