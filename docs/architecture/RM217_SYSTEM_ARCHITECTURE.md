@@ -34,6 +34,20 @@ Related Nokia service documentation for other RAPGSM-based BB5 handsets describe
 
 If confirmed, ARM926EJ-S means ARMv5TEJ, 32-bit ARM and 16-bit Thumb instruction sets, an MMU, separate instruction/data AHB interfaces, and instruction/data caches. The CPU model therefore needs correct CP15/MMU and exception behaviour; CPU instruction execution alone is not a complete platform.
 
+### 2.1 What the current CPU backend actually implements
+
+The probe pins c3emu at revision 9b0d3ae2da326e109428f64d8760ea823ee1b648 and disables its default features, enabling only disassembly. In that configuration, c3emu selects its built-in ARM926EJ-S / ARMv5TE interpreter; its alternative Unicorn path explicitly selects Unicorn's ARM Model_926.
+
+A source audit of the pinned interpreter confirms:
+- ARM and Thumb instruction decoders for the ARMv5TE instruction set.
+- CP15 state for SCTLR, TTBR, DACR, DFSR, IFSR, FAR, FCSE and context ID.
+- MMU L1/L2 translation-table walking, including sections, large pages, small pages and tiny pages, with domain/AP permission checks and a TLB.
+- WFI and basic cache-maintenance command handling.
+
+It is not a cycle-accurate ARM926 implementation. In the current interpreter, cache-maintenance operations are simplified (including a fixed "clean" result), and SWI, BKPT and abort conditions are delivered to the host interrupt hook without automatic architectural exception-vector entry. The probe now installs an exception observer that logs the backend code, PC, CPSR and LR and stops there. Correct vector entry, banked exception state, IRQ/FIQ line timing and full cache/write-buffer behaviour remain explicit CPU-backend work.
+
+Thus, the CPU class is now confirmed as the selected emulator backend, but the exact silicon integration inside this particular RAPGSM revision remains family-level evidence until primary RAPGSM/RM-217 documentation is found.
+
 The DSP is a separate processor subsystem. Treating DSP activity as unexplained ARM memory would be architecturally wrong. The initial implementation can use a clearly delimited DSP HLE/mailbox boundary, but it must preserve shared-memory and interrupt semantics as evidence becomes available.
 
 ## 3. Memory map: known facts vs observations
