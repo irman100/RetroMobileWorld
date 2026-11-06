@@ -62,6 +62,31 @@ Probe exit code: 0
         self.assertIn("0x0000003E", summary)
         self.assertIn("host probe exit code 0 only means", summary.lower())
 
+    def test_summary_coalesces_slot_values_and_omits_unrelated_mapper_details(self):
+        trace = "\\n".join([
+            "[BSE mapper args] caller=0xF010489D phys_base=0x00000000 length=0x00100000 bse_alias=0x00000000 alias_slot_1MiB=0x0 slot_address=0x10090000 guest_va_to_pa=0x00000000",
+            "[BSE mapper args] caller=0xF010489D phys_base=0x00000000 length=0x00100000 bse_alias=0xFF100000 alias_slot_1MiB=0xFF1 slot_address=0x10093FC4 guest_va_to_pa=0xFF100000",
+            "[BSE mapper args] caller=0xF01043A5 phys_base=0x00000000 length=0x01600000 bse_alias=0x00000000 alias_slot_1MiB=0x0 slot_address=0x10090000 guest_va_to_pa=0x00000000",
+            *[
+                f"[BSE mapper args] caller=0xF0104000 phys_base=0x{i*0x100000:08X} length=0x00100000 bse_alias=0x{i*0x100000:08X} alias_slot_1MiB=0x{i:X} slot_address=0x{0x10090000+i*4:08X} guest_va_to_pa=0x{i*0x100000:08X}"
+                for i in range(40)
+            ],
+            "[BSE-memory-trace BSE-alloc-buffer-write 000] addr=0x10090000 size=4 value=0x3E pc=0xF0103C3E",
+            "[BSE slot-table-read 000] VA=0x10090000 PA=0x10090000 size=4 value=0x3E pc=0xF0103C04",
+        ])
+        summary = build_summary(trace)
+        self.assertIn("KEY MAPPER CALLS", summary)
+        self.assertIn("static prelude", summary)
+        self.assertIn("static alias FF1", summary)
+        self.assertIn("late NOR allocator", summary)
+        self.assertIn(
+            "idx=0x000 addr=0x10090000 read[PA:value]=[0x10090000:0x0000003E] write[value]=[0x0000003E]",
+            summary,
+        )
+        self.assertNotIn("other", summary)
+        self.assertIn("Mapper calls parsed: 43", summary)
+        self.assertLess(len(summary.splitlines()), 60)
+
     def test_summary_flags_wrong_logged_slot_index(self):
         trace = (
             "[BSE mapper args] caller=0xF010489D phys_base=0x00000000 "
