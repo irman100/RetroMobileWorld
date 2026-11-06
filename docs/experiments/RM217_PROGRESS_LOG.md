@@ -679,6 +679,8 @@ Thumb literal load по адресу `0xF010432E` с учётом `PC+4` и word
 
 В `scripts/tests/test_summarize_rm217_bse_trace.py` добавлен synthetic fixture с обоими предыдущими mapper calls, Type-8 raw fields и интервалами. Проверяется, что summary сохраняет ключевые события, считает все 45 synthetic mapper rows и не печатает посторонние mapper details. Тестовый fixture — проверка parser, не новая firmware trace.
 
+После CI parser был дополнительно запущен локально на ранее переданном trace `Вставленный текст.txt` (2864 строки). Реальный старый trace дал summary на 58 строк: разобраны 19 mapper calls, 16 BSE slot reads и 37 BSE slot writes. Summary распознал вызовы `LR=0xF01041CF` (`C16`), `LR=0xF01042E1` (`C00`), поздний `LR=0xF01043A5` (`alias 0`), Type-8 record `0x0800381C` и интервал `[0, 0x01600000)`. Он также подтвердил signature marker: slot 0 был пуст, затем записан `0x3E`, затем прочитан как `0x3E`; assertion formatter присутствует. Это проверка инструмента на существующей трассе, не новый запуск firmware.
+
 В `scripts/run_rm217_bse_alias_trace.ps1` добавлены exact-PC watchpoints:
 - `0xF010432A` — состояние до вызова helper `0xF0104976`;
 - `0xF0104330` — оба операнда непосредственно перед `SUBS r0, r4, r0`;
@@ -705,7 +707,9 @@ Nokia Level 3/4 service manual для RM-217/RM-222 указывает BB5.0 с 
 Опубликован свежий Windows BSE trace kit:
 - artifact `rm217-windows-bse-trace-kit`, ID `13537156195`;
 - SHA-256 `6da045af2e496956088251af63ca15890bf5c8bfbefc45af4442f2328f21aa3a`;
-- комплект содержит probe executable, PowerShell runner, summarizer и README.
+- комплект содержит probe executable, PowerShell runner, summarizer и README;
+- архив был скачан и распакован для проверки: ровно 4 плоских файла, без вложенного ZIP;
+- локальный SHA-256 архива совпал с GitHub digest: `6da045af2e496956088251af63ca15890bf5c8bfbefc45af4442f2328f21aa3a`.
 
 Следующий запуск должен использовать комплект из указанного CI run и исходный RM-217 Phoenix ZIP. Пример PowerShell:
 
