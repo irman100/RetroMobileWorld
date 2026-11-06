@@ -1318,6 +1318,39 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     read(RegisterARM::LR)
                 );
                 let sp = read(RegisterARM::SP);
+                // Capture the allocator's source descriptor at the exact call that
+                // produced the colliding 22-MiB mapping. The call frame and descriptor
+                // may differ from the earlier descriptor-list construction snapshot.
+                if address == 0xF010_3ECE
+                    && read(RegisterARM::R5) == 0x0800_382C
+                    && read(RegisterARM::R6) == 0x0800_382C
+                {
+                    println!("  [watch-pc BSE map collision candidate] lr=0x{:08X}", read(RegisterARM::LR));
+                    dump_memory_window(cpu, "watch-pc live descriptor cluster", 0x0800_3800, 0xC0);
+                    dump_memory_window(cpu, "watch-pc live BSE region table", 0x0800_2F40, 0xA0);
+                    for offset in (0u32..=0x60).step_by(4) {
+                        let mut word = [0u8; 4];
+                        if cpu.mem_read(sp as u64 + offset as u64, &mut word).is_ok() {
+                            println!(
+                                "  [watch-pc live mapper frame+0x{offset:02X}] = 0x{:08X}",
+                                u32::from_le_bytes(word)
+                            );
+                        }
+                    }
+                }
+                if address == 0xF010_43A0 {
+                    println!("  [watch-pc BSE allocator before mapper call]");
+                    dump_memory_window(cpu, "watch-pc allocator region table", 0x0800_2F40, 0xA0);
+                    for offset in [0x30u32, 0x34, 0x38, 0x3C, 0x40, 0x44, 0x48, 0x4C] {
+                        let mut word = [0u8; 4];
+                        if cpu.mem_read(sp as u64 + offset as u64, &mut word).is_ok() {
+                            println!(
+                                "  [watch-pc allocator local+0x{offset:02X}] = 0x{:08X}",
+                                u32::from_le_bytes(word)
+                            );
+                        }
+                    }
+                }
                 // Capture caller-frame inputs for every range-mapper invocation.
                 // The previous trace only dumped these words on hit zero, hiding
                 // the stack bounds and map-root arguments on the failing call.
