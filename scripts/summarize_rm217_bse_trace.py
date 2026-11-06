@@ -215,30 +215,36 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
     if not key_calls:
         out.append("- No expected static-prelude, alias-FF1 or late NOR mapper calls parsed.")
 
-    # Coalesce individual reads/writes into one concise row per BSE slot.
-    slot_events: dict[tuple[int, int, int | None], dict[str, list[int]]] = {}
+    # Coalesce individual reads/writes by guest slot address. Keep PA only
+    # beside real MEM_READ observations; do not invent a PA for write events.
+    slot_events: dict[tuple[int | None, int], dict[str, list[tuple[int, int] | int]]] = {}
     for read in slot_reads:
-        key = (read["va"], read["pa"], read["index"])
-        slot_events.setdefault(key, {"reads": [], "writes": []})["reads"].append(read["value"])
+        key = (read["index"], read["va"])
+        slot_events.setdefault(key, {"reads": [], "writes": []})["reads"].append(
+            (read["pa"], read["value"])
+        )
     for write in slot_writes:
-        key = (write["address"], write["address"], write["index"])
+        index = slot_index_from_address(write["address"])
+        key = (index, write["address"])
         slot_events.setdefault(key, {"reads": [], "writes": []})["writes"].append(write["value"])
 
     out.append("")
-    out.append("BSE SLOT VALUES (one row per observed slot)")
+    out.append("BSE SLOT VALUES (one row per observed guest slot)")
     rows = sorted(slot_events.items(), key=lambda item: (
-        item[0][2] is None,
-        item[0][2] if item[0][2] is not None else item[0][0],
-        item[0][0],
+        item[0][0] is None,
+        item[0][0] if item[0][0] is not None else item[0][1],
         item[0][1],
     ))
-    for (va, pa, index), values in rows[:24]:
+    for (index, address), values in rows[:24]:
         index_text = "outside" if index is None else _hex(index, 3)
-        reads = ",".join(_hex(value) for value in dict.fromkeys(values["reads"])) or "-"
+        reads = ",".join(
+            f"{_hex(pa)}:{_hex(value)}"
+            for pa, value in dict.fromkeys(values["reads"])
+        ) or "-"
         writes = ",".join(_hex(value) for value in dict.fromkeys(values["writes"])) or "-"
         out.append(
-            f"- idx={index_text} VA={_hex(va)} PA={_hex(pa)} "
-            f"read=[{reads}] write=[{writes}]"
+            f"- idx={index_text} addr={_hex(address)} read[PA:value]=[{reads}] "
+            f"write[value]=[{writes}]"
         )
     if len(rows) > 24:
         out.append(f"- ... {len(rows) - 24} additional slots omitted")
