@@ -1328,6 +1328,26 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                 );
                 let sp = read(RegisterARM::SP);
 
+                // The static BSE memory map is a 16-byte-entry table. On this
+                // call site r3 points at the current entry, r5 is its loop
+                // index, and r6 is the table root. Dump each raw entry before
+                // the common mapper consumes it; this distinguishes identity
+                // aliases from the later NOR free-range mapping.
+                if address == 0xF010_3ECE && read(RegisterARM::LR) == 0xF010_489D {
+                    let entry = read(RegisterARM::R3);
+                    println!(
+                        "  [watch-pc static-map entry] index={} entry=0x{entry:08X} table-root=0x{:08X} mapped-base=0x{:08X} size=0x{:08X} alias=0x{:08X}",
+                        read(RegisterARM::R5),
+                        read(RegisterARM::R6),
+                        read(RegisterARM::R0),
+                        read(RegisterARM::R1),
+                        read(RegisterARM::R2)
+                    );
+                    if (0xF010_0000..0xF110_0000).contains(&entry) {
+                        dump_memory_window(cpu, "watch-pc static-map raw entry", entry, 0x10);
+                    }
+                }
+
                 // Trace the allocator's type-8 range-list walk. The helper at
                 // F010333E resolves the Nth item of a requested tag type; this
                 // instrumentation records the returned item and evolving free
