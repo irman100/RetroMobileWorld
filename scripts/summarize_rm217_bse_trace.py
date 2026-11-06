@@ -194,43 +194,54 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
         out.append(f"Probe stop: {stop_match.group(1)}")
 
     out.append("")
-    out.append("MAPPER CALLS (caller / base / length / alias / index / slot)")
-    for call in mapper_calls:
-        if call["caller"] == 0xF010489D:
-            role = "static"
-        elif call["caller"] == 0xF01043A5:
-            role = "NOR allocator"
+    out.append("KEY MAPPER CALLS (other calls counted, details omitted)")
+    key_calls = [
+        call for call in mapper_calls
+        if (call["caller"] == 0xF010489D and call["alias"] in (0x00000000, 0xFF100000))
+        or call["caller"] == 0xF01043A5
+    ]
+    for call in key_calls:
+        if call["caller"] == 0xF010489D and call["alias"] == 0:
+            role = "static prelude"
+        elif call["caller"] == 0xF010489D and call["alias"] == 0xFF100000:
+            role = "static alias FF1"
         else:
-            role = "other"
+            role = "late NOR allocator"
         out.append(
-            f"- {role:12s} LR={_hex(call['caller'])} "
-            f"base={_hex(call['phys'])} len={_hex(call['length'])} "
+            f"- {role:18s} base={_hex(call['phys'])} len={_hex(call['length'])} "
             f"alias={_hex(call['alias'])} index={_hex(call['index'], 3)} "
             f"slot={_hex(call['slot_address'])}"
         )
+    if not key_calls:
+        out.append("- No expected static-prelude, alias-FF1 or late NOR mapper calls parsed.")
+
+    # Coalesce individual reads/writes into one concise row per BSE slot.
+    slot_events: dict[tuple[int, int, int | None], dict[str, list[int]]] = {}
+    for read in slot_reads:
+        key = (read["va"], read["pa"], read["index"])
+        slot_events.setdefault(key, {"reads": [], "writes": []})["reads"].append(read["value"])
+    for write in slot_writes:
+        key = (write["address"], write["address"], write["index"])
+        slot_events.setdefault(key, {"reads": [], "writes": []})["writes"].append(write["value"])
 
     out.append("")
-    out.append("BSE SLOT READS")
-    for read in slot_reads[:32]:
-        index = "outside-table" if read["index"] is None else _hex(read["index"], 3)
+    out.append("BSE SLOT VALUES (one row per observed slot)")
+    rows = sorted(slot_events.items(), key=lambda item: (
+        item[0][2] is None,
+        item[0][2] if item[0][2] is not None else item[0][0],
+        item[0][0],
+        item[0][1],
+    ))
+    for (va, pa, index), values in rows[:24]:
+        index_text = "outside" if index is None else _hex(index, 3)
+        reads = ",".join(_hex(value) for value in dict.fromkeys(values["reads"])) or "-"
+        writes = ",".join(_hex(value) for value in dict.fromkeys(values["writes"])) or "-"
         out.append(
-            f"- #{read['sequence']:03d} VA={_hex(read['va'])} "
-            f"PA={_hex(read['pa'])} index={index} value={_hex(read['value'])} "
-            f"PC={_hex(read['pc'])}"
+            f"- idx={index_text} VA={_hex(va)} PA={_hex(pa)} "
+            f"read=[{reads}] write=[{writes}]"
         )
-    if len(slot_reads) > 32:
-        out.append(f"- ... {len(slot_reads) - 32} additional reads omitted")
-
-    out.append("")
-    out.append("BSE SLOT WRITES")
-    for write in slot_writes[:32]:
-        index = "outside-table" if write["index"] is None else _hex(write["index"], 3)
-        out.append(
-            f"- #{write['sequence']:03d} addr={_hex(write['address'])} "
-            f"index={index} value={_hex(write['value'])} PC={_hex(write['pc'])}"
-        )
-    if len(slot_writes) > 32:
-        out.append(f"- ... {len(slot_writes) - 32} additional writes omitted")
+    if len(rows) > 24:
+        out.append(f"- ... {len(rows) - 24} additional slots omitted")
 
     out.append("")
     out.append("TRACE SIGNATURES")
