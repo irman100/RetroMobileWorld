@@ -21,6 +21,8 @@ const BOOT_TAGS_ADDR: u32 = 0x0800_6000;
 const IMAGE_TABLE_ADDR: u32 = 0x0800_6400;
 /// NOLO's own image lookup reads this base from its global at 0x080006A0.
 const NOLO_TOC_ADDR: u32 = 0x0000_0400;
+/// Scratch TOC injected by the probe; keep it visible after NOR enters array mode.
+const NOLO_TOC_SIZE: usize = 0x200;
 const PAPUBKEYS_RAM_ADDR: u32 = 0x0801_0000;
 const NOLO_ROM_SEC_SERVICE: u32 = 0xFFFF_0808;
 const SEC_SERVICE_ID: [u8; 12] =
@@ -386,6 +388,13 @@ fn build_boot_tag_list(
     }
     append_tag(&mut tags, 2, &[]); // end
     tags
+}
+
+/// True when an array read overlaps the NOLO TOC that the probe overlays in RAM.
+fn nor_read_overlaps_nolo_toc(offset: usize, width: usize) -> bool {
+    let start = NOLO_TOC_ADDR as usize;
+    let end = start + NOLO_TOC_SIZE;
+    offset < end && offset.saturating_add(width) > start
 }
 
 /// Copy one FPSX payload into the candidate physical NOR image.
@@ -1121,7 +1130,11 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     }
                     return true;
                 }
-                if !array_mode.get() || width == 0 || offset.saturating_add(width) > flash_image.len() {
+                if !array_mode.get()
+                    || width == 0
+                    || nor_read_overlaps_nolo_toc(offset, width)
+                    || offset.saturating_add(width) > flash_image.len()
+                {
                     return true;
                 }
 
@@ -1520,6 +1533,14 @@ mod tests {
         assert_eq!(parse_watch_pc("402759534").unwrap(), 402_759_534);
         assert!(parse_watch_pc("0xF0104173").is_err());
         assert!(parse_watch_pc("0x100000000").is_err());
+    }
+
+    #[test]
+    fn keeps_probe_nolo_toc_overlay_out_of_nor_array_reads() {
+        assert!(!nor_read_overlaps_nolo_toc(0x03FC, 4));
+        assert!(nor_read_overlaps_nolo_toc(0x0400, 4));
+        assert!(nor_read_overlaps_nolo_toc(0x05FE, 4));
+        assert!(!nor_read_overlaps_nolo_toc(0x0600, 4));
     }
 
     #[test]
