@@ -1092,16 +1092,20 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     }
 
     for address in options.watch_pc.iter().copied() {
-        let fired = Rc::new(Cell::new(false));
+        // Capture the first few visits, not only the first one: BSE walks
+        // several adjacent descriptors through the same overlap-check loop.
+        let fired = Rc::new(Cell::new(0usize));
         uc.add_code_hook(address as u64, address as u64 + 1, {
             let fired = Rc::clone(&fired);
             move |cpu, pc, size| {
-                if fired.replace(true) {
+                let hit = fired.get();
+                if hit >= 4 {
                     return;
                 }
+                fired.set(hit + 1);
                 let read = |register| cpu.reg_read(register).unwrap_or(0) as u32;
                 println!(
-                    "  [watch-pc] pc=0x{pc:08X} size={size} cpsr=0x{:08X}                      r0=0x{:08X} r1=0x{:08X} r2=0x{:08X} r3=0x{:08X}                      r4=0x{:08X} r5=0x{:08X} r6=0x{:08X} r7=0x{:08X}                      sp=0x{:08X} lr=0x{:08X}",
+                    "  [watch-pc hit={hit}] pc=0x{pc:08X} size={size} cpsr=0x{:08X}                      r0=0x{:08X} r1=0x{:08X} r2=0x{:08X} r3=0x{:08X}                      r4=0x{:08X} r5=0x{:08X} r6=0x{:08X} r7=0x{:08X}                      sp=0x{:08X} lr=0x{:08X}",
                     read(RegisterARM::CPSR),
                     read(RegisterARM::R0),
                     read(RegisterARM::R1),
