@@ -258,3 +258,46 @@ The PPM CRC discrepancy remains a separate archive-integrity warning. This
 CPU probe selects and executes the MCU component; the PPM is not used by this
 specific BSE memory-map experiment, so the PPM mismatch does not explain the
 observed zero-filled map table.
+
+
+## Hardware-map correction and architecture baseline (2026-11-06)
+
+A new architecture baseline is recorded in `docs/architecture/RM217_SYSTEM_ARCHITECTURE.md`.
+It separates facts from family-level inferences and lays out the eventual RAPGSM,
+DSP, Retu/Tahvo, combo-memory, bus and external-device boundaries.
+
+The Nokia RM-217/RM-222 service manual identifies RAPGSM, Retu, Tahvo, Ahne and
+a combo memory of 128-Mbit SDRAM plus 256-Mbit NOR. The board schematic identifies
+the memory device as K5G5629ATB-SF75 and labels it 256M NOR + 128M DDR DRAM.
+This converts to 16 MiB of SDRAM and 32 MiB of NOR.
+
+The firmware itself exposes the SDRAM descriptor at
+`0x10000000..0x11000000`. The probe now maps that 16-MiB window continuously
+from startup instead of relying on sparse pages created by access faults.
+Optional experimental tag-4 ranges remain available for comparison.
+
+The previous speculative `0x80000000..0x84000000` reference RAM mapping was
+removed. The existing broad low-address bootstrap backing remains provisional
+because NOLO/MCUSW currently use both low firmware/TOC addresses and a separate
+`0x0800xxxx` scratch/descriptor workspace; its exact physical RAM/ROM partition
+still needs a verified RAPGSM memory map.
+
+Most importantly, unknown memory accesses no longer silently create writable
+zero-filled pages by default. They are reported as unmapped bus faults and stop
+the probe. The previous behaviour is retained only through
+`--legacy-unmapped-as-ram` for controlled A/B comparison with older traces.
+This makes missing ASIC/MMIO models visible rather than accidentally treating
+registers as RAM.
+
+This change does not claim a successful phone boot. It intentionally exposes
+the next missing RAPGSM peripheral decoder. The next implementation phase is
+to recover and model the earliest NOLO clock/reset/status/flash register blocks,
+then Retu/Tahvo and the interrupt/bus behaviour required by the real boot chain.
+
+CPU identification remains qualified: related RAPGSM service documentation
+describes an ARM926 MCU and Lead3 PH3 DSP subsystem, but the currently reviewed
+RM-217 service-manual pages identify RAPGSM without independently naming the
+CPU core. Treat ARM926EJ-S as the working family-level hypothesis until a
+primary RAPGSM/RM-217 source confirms it. Likewise, the experimental NOR ID
+`0x00EC:0x2208` and read-array implementation are not yet a verified
+K5G5629ATB-SF75 datasheet model.
