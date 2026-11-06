@@ -10,6 +10,7 @@ from summarize_rm217_bse_trace import (
     bse_slot_address,
     bse_slot_index,
     build_summary,
+    decode_trace_bytes,
     slot_index_from_address,
 )
 
@@ -35,6 +36,12 @@ class BseTraceSummaryTests(unittest.TestCase):
         self.assertIsNone(slot_index_from_address(0x10094000))
         self.assertIsNone(slot_index_from_address(0x10090002))
         self.assertEqual(bse_slot_index(0xFF100000), 0xFF1)
+
+    def test_decodes_utf8_and_windows_powershell_utf16_logs(self):
+        sample = "[BSE slot-table-read 000] VA=0x10090000\\n"
+        self.assertEqual(decode_trace_bytes(sample.encode("utf-8")), sample)
+        self.assertEqual(decode_trace_bytes(sample.encode("utf-16")), sample)
+        self.assertEqual(decode_trace_bytes(sample.encode("utf-16-le")), sample)
 
     def test_trace_reports_the_observed_alias_zero_collision(self):
         trace = """
