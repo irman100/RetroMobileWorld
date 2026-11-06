@@ -62,10 +62,18 @@ if (Test-Path -LiteralPath $Summarizer -PathType Leaf) {
     $PythonLauncher = Get-Command py -ErrorAction SilentlyContinue
     if ($PythonLauncher) {
         & $PythonLauncher.Source -3 $Summarizer --output $Summary $Log
+        $SummaryExit = $LASTEXITCODE
+        if ($SummaryExit -ne 0) {
+            Write-Warning "Trace summarizer exited with code $SummaryExit"
+        }
     } else {
         $PythonLauncher = Get-Command python -ErrorAction SilentlyContinue
         if ($PythonLauncher) {
             & $PythonLauncher.Source $Summarizer --output $Summary $Log
+            $SummaryExit = $LASTEXITCODE
+            if ($SummaryExit -ne 0) {
+                Write-Warning "Trace summarizer exited with code $SummaryExit"
+            }
         } else {
             Write-Warning "Python was not found. Manually run: py -3 $Summarizer --output $Summary $Log"
         }
