@@ -67,6 +67,14 @@ Probe exit code: 0
             "[BSE mapper args] caller=0xF010489D phys_base=0x00000000 length=0x00100000 bse_alias=0x00000000 alias_slot_1MiB=0x0 slot_address=0x10090000 guest_va_to_pa=0x00000000",
             "[BSE mapper args] caller=0xF010489D phys_base=0x00000000 length=0x00100000 bse_alias=0xFF100000 alias_slot_1MiB=0xFF1 slot_address=0x10093FC4 guest_va_to_pa=0xFF100000",
             "[BSE mapper args] caller=0xF01043A5 phys_base=0x00000000 length=0x01600000 bse_alias=0x00000000 alias_slot_1MiB=0x0 slot_address=0x10090000 guest_va_to_pa=0x00000000",
+            "[BSE mapper args] caller=0xF01041CF phys_base=0x01600000 length=0x00A00000 bse_alias=0xC1600000 alias_slot_1MiB=0xC16 slot_address=0x10093058 guest_va_to_pa=0xC1600000",
+            "[BSE mapper args] caller=0xF01042E1 phys_base=0x00000000 length=0x0000B000 bse_alias=0xC0000000 alias_slot_1MiB=0xC00 slot_address=0x10093000 guest_va_to_pa=0xC0000000",
+            "[watch-pc allocator type-8 record] ptr=0x0800381C index=0 current-base=0x00000000 remaining=0x02000000",
+            "[watch-pc allocator type-8 record bytes] 0x08003814..0x08003844",
+            "0x08003814: 0E04DE00 00000000 00000008 00000010",
+            "0x08003824: 00A00000 01600000 00000000 00000024",
+            "[watch-pc allocator interval after type-8 scan] base=0x00000000 length=0x01600000 extra38=0x00000000 extra3C=0x00000000 source-list=0x080037A0 map-root=0x10090000",
+            "[watch-pc allocator interval before mapper] base=0x00000000 length=0x01600000 extra38=0x00000000 extra3C=0x00000000 source-list=0x080037A0 map-root=0x10090000",
             *[
                 f"[BSE mapper args] caller=0xF0104000 phys_base=0x{i*0x100000:08X} length=0x00100000 bse_alias=0x{i*0x100000:08X} alias_slot_1MiB=0x{i:X} slot_address=0x{0x10090000+i*4:08X} guest_va_to_pa=0x{i*0x100000:08X}"
                 for i in range(40)
@@ -79,6 +87,17 @@ Probe exit code: 0
         self.assertIn("static prelude", summary)
         self.assertIn("static alias FF1", summary)
         self.assertIn("late NOR allocator", summary)
+        self.assertIn("earlier high range", summary)
+        self.assertIn("earlier low window", summary)
+        self.assertIn("TYPE-8 OCCUPIED RANGE / FREE INTERVAL", summary)
+        self.assertIn(
+            "descriptor=0x0800381C raw+08(size)=0x00A00000 raw+0C(start)=0x01600000 end=0x02000000",
+            summary,
+        )
+        self.assertIn(
+            "after type-8 scan: base=0x00000000 length=0x01600000 alias-extra38=0x00000000",
+            summary,
+        )
         self.assertIn(
             "idx=0x000 addr=0x10090000 read[PA:value]=[0x10090000:0x0000003E] write[value]=[0x0000003E]",
             summary,
