@@ -814,7 +814,11 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         let nor_prefix = Rc::new(flash_image[..0x1000].to_vec());
         let toc_overlay = Rc::new(toc_overlay);
         let restored = Rc::new(Cell::new(false));
-        uc.add_code_hook(mcusw_entry as u64, mcusw_entry as u64 + 1, {
+        // Exact-address hooks become dedicated basic-block entries in c3emu.
+        // A one-byte range hook activates its global trace_all path; on the
+        // built-in interpreter that path can restart an interior instruction
+        // before Cpu.pc is updated. Keep this observer instruction-exact.
+        uc.add_code_hook(mcusw_entry as u64, mcusw_entry as u64, {
             let nor_prefix = Rc::clone(&nor_prefix);
             let toc_overlay = Rc::clone(&toc_overlay);
             let restored = Rc::clone(&restored);
@@ -1303,7 +1307,10 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         // Capture enough entries to identify the later overlapping range, while
         // dumping large memory windows only on the first visit.
         let fired = Rc::new(Cell::new(0usize));
-        uc.add_code_hook(address as u64, address as u64 + 1, {
+        // Use an exact address, not [address, address+1]. c3emu's range-hook
+        // path globally traces every instruction and is unsafe for interior
+        // ARM926 block positions; exact hooks split the block at this PC.
+        uc.add_code_hook(address as u64, address as u64, {
             let fired = Rc::clone(&fired);
             move |cpu, pc, size| {
                 let hit = fired.get();
