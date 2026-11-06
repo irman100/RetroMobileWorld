@@ -203,7 +203,12 @@ fn disassemble_thumb_window(
     let bytes = image.get(offset..end).ok_or_else(|| {
         format!("Thumb disassembly range 0x{address:08X}+0x{length:X} exceeds MCUSW image")
     })?;
-    let disassembler = Capstone::new().arm().mode(ArchMode::Thumb).build()?;
+    let mut disassembler = Capstone::new()
+        .arm()
+        .mode(ArchMode::Thumb)
+        .endian(Endian::Little)
+        .build()?;
+    disassembler.set_skipdata(true)?;
     let instructions = disassembler.disasm_all(bytes, address as u64)?;
     println!("=== RM-217 MCUSW Thumb disassembly 0x{address:08X}..0x{:08X} ===", address + length);
     println!("Decoded {} instructions from {} bytes", instructions.len(), bytes.len());
