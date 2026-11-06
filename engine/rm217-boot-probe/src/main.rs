@@ -8,6 +8,7 @@ use std::rc::Rc;
 
 use capstone::arch::arm::ArchMode;
 use capstone::prelude::*;
+use capstone::Endian;
 use c3emu::fpsx::{Fpsx, Region};
 use c3emu::uc::{new_cpu, HookType, MemType, Prot, RegisterARM, RegisterARMCP, Uc};
 use zip::ZipArchive;
