@@ -4,7 +4,7 @@
 
 **Обновлено:** 6 ноября 2026  
 **Ветка:** `feature/j2me-library-bridge-20261104`  
-**HEAD валидированного probe-кода:** `304b297868d10ba31b8bbf2405b2ce6ad848c9b8`  
+**HEAD валидированного probe-кода:** `324719a3b387d596fb96dc5542c48df9795ffbfb`  
 **PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит.  
 **CI для текущего HEAD `304b297`: успешно:**
 - [Android CI #42268498333](https://github.com/irman100/RetroMobileWorld/actions/runs/42268498333)
@@ -454,3 +454,41 @@ Windows artifact для запуска нужно распаковать ряд�
 ### 12.5 Чего этот commit не решает
 
 Этот commit повышает достоверность диагностики, но не устраняет BSE assertion и не загружает Series 40. Следующая обязательная точка — реальная трасса с пользовательским RM-217 archive. После определения alias collision можно исправлять только подтверждённую причину, затем продвигать desktop probe к reset/exception path, периферии и первому устойчивому LCD frame.
+
+
+---
+
+## 13. Direct BSE slot-table read trace (2026-11-06, commit 324719a3b387d596fb96dc5542c48df9795ffbfb)
+
+### 13.1 Что добавлено
+
+В дополнение к MMU-correct guest snapshots добавлен read-only MEM_READ hook для guest VA range 0x10090000..0x1009FFFF. Он выводит события только когда PC находится в lower mapper range 0xF0103B00..0xF0103C20.
+
+Каждое событие печатает:
+
+- guest VA обращения;
+- physical PA после c3emu::mmu::virt_to_phys;
+- размер чтения;
+- фактически прочитанное значение;
+- PC инструкции mapper.
+
+Это должно связать marker 0x3E с точным чтением slot table. Hook не пишет в table и не меняет ответ CPU. Alias-index вычисление остаётся отдельным: r2 >> 20. Не предполагать stride массива заранее — сопоставить адрес фактического read с alias slot и raw static entries.
+
+### 13.2 CI
+
+Для commit 324719a3b387d596fb96dc5542c48df9795ffbfb:
+
+- [RM-217 Boot Probe #42270244079](https://github.com/irman100/RetroMobileWorld/actions/runs/42270244079) — success, Windows и Linux tests/build.
+- [Android CI #42270244078](https://github.com/irman100/RetroMobileWorld/actions/runs/42270244078) — success.
+
+Свежий Windows artifact:
+
+- ID 13528533888;
+- файл rm217-boot-probe-windows.zip;
+- executable SHA-256 c4c68cf07b825719c640ed3541c713854dd2bd925d44de32dac980c82db4d31f.
+
+### 13.3 Следующий фактический checkpoint
+
+Запустить scripts/run_rm217_bse_alias_trace.ps1 с этим Windows executable и исходным RM-217 Phoenix ZIP. Нужны события BSE slot-table-read вместе с BSE mapper args, static-map entry и guest-stack-read. Следующий анализ должен определить индекс/stride/слот из фактического машинного чтения, а не подбирать формулу по одному marker value.
+
+До появления этой трассы никакие static entries, NOR descriptor, alias bases или occupied-range records не изменять.
