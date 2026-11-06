@@ -6,6 +6,8 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use capstone::arch::arm::ArchMode;
+use capstone::prelude::*;
 use c3emu::fpsx::{Fpsx, Region};
 use c3emu::uc::{new_cpu, HookType, MemType, Prot, RegisterARM, RegisterARMCP, Uc};
 use zip::ZipArchive;
@@ -16,6 +18,14 @@ const MAX_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_MCU_BYTES: u64 = 256 * 1024 * 1024;
 const XIP_MINIMUM_MAP: u64 = 0x0100_0000;
 const NOR0_CAPACITY: usize = 0x0200_0000;
+
+// The firmware trace establishes a 4096-entry BSE table. Each 32-bit slot
+// represents one 1-MiB alias index; this is NOT a 1-MiB-sized table.
+const BSE_SLOT_TABLE_BASE: u32 = 0x1009_0000;
+const BSE_SLOT_INDEX_SHIFT: u32 = 20;
+const BSE_SLOT_COUNT: u32 = 1 << 12;
+const BSE_SLOT_BYTES: u32 = 4;
+const BSE_SLOT_TABLE_BYTES: u32 = BSE_SLOT_COUNT * BSE_SLOT_BYTES;
 // RM-217 Nokia service manual + board schematic: combo memory has 128-Mbit
 // SDRAM (16 MiB). Firmware boot configuration independently reports this
 // exact SDRAM window at 0x10000000..0x11000000.
@@ -51,6 +61,7 @@ struct Options {
     ready_on_read: Vec<(u32, u8)>,
     nor_id: Option<(u16, u16)>,
     watch_pc: Vec<u32>,
+    disasm_thumb: Vec<(u32, u32)>,
     trace_bse_memory: bool,
     legacy_unmapped_as_ram: bool,
     hle_secure_service6: bool,
@@ -138,6 +149,73 @@ fn secure_service6_launch_trampoline(target: u32) -> Vec<u8> {
     code
 }
 
+fn bse_slot_index_from_alias(alias: u32) -> u32 {
+    alias >> BSE_SLOT_INDEX_SHIFT
+}
+
+fn bse_slot_address_from_index(index: u32) -> Option<u32> {
+    if index >= BSE_SLOT_COUNT {
+        return None;
+    }
+    Some(BSE_SLOT_TABLE_BASE + index * BSE_SLOT_BYTES)
+}
+
+fn bse_slot_address_from_alias(alias: u32) -> u32 {
+    BSE_SLOT_TABLE_BASE + bse_slot_index_from_alias(alias) * BSE_SLOT_BYTES
+}
+
+fn bse_slot_index_from_address(address: u32) -> Option<u32> {
+    let offset = address.checked_sub(BSE_SLOT_TABLE_BASE)?;
+    if offset >= BSE_SLOT_TABLE_BYTES || offset % BSE_SLOT_BYTES != 0 {
+        return None;
+    }
+    Some(offset / BSE_SLOT_BYTES)
+}
+
+fn parse_thumb_range(value: &str) -> Result<(u32, u32), String> {
+    let (address, length) = value
+        .split_once(':')
+        .ok_or_else(|| format!("invalid --disasm-thumb={value}; expected ADDRESS:LENGTH"))?;
+    let address = parse_u64(address)?;
+    let length = parse_u64(length)?;
+    if address > u32::MAX as u64 || address & 1 != 0 {
+        return Err("Thumb disassembly address must be a halfword-aligned 32-bit address".to_string());
+    }
+    if length == 0 || length > 0x1000 || length & 1 != 0 {
+        return Err("Thumb disassembly length must be even and between 2 bytes and 0x1000 bytes".to_string());
+    }
+    if address.checked_add(length).is_none_or(|end| end > (u32::MAX as u64) + 1) {
+        return Err("Thumb disassembly range exceeds the 32-bit address space".to_string());
+    }
+    Ok((address as u32, length as u32))
+}
+
+fn disassemble_thumb_window(
+    image: &[u8],
+    image_base: u32,
+    address: u32,
+    length: u32,
+) -> Result<(), Box<dyn Error>> {
+    let offset = address.checked_sub(image_base).ok_or_else(|| {
+        format!("Thumb disassembly address 0x{address:08X} is below image base 0x{image_base:08X}")
+    })? as usize;
+    let end = offset.checked_add(length as usize).ok_or("Thumb disassembly offset overflow")?;
+    let bytes = image.get(offset..end).ok_or_else(|| {
+        format!("Thumb disassembly range 0x{address:08X}+0x{length:X} exceeds MCUSW image")
+    })?;
+    let disassembler = Capstone::new().arm().mode(ArchMode::Thumb).build()?;
+    let instructions = disassembler.disasm_all(bytes, address as u64)?;
+    println!("=== RM-217 MCUSW Thumb disassembly 0x{address:08X}..0x{:08X} ===", address + length);
+    println!("Decoded {} instructions from {} bytes", instructions.len(), bytes.len());
+    for instruction in instructions.iter() {
+        let mnemonic = instruction.mnemonic().unwrap_or("<unknown>");
+        let operands = instruction.op_str().unwrap_or("");
+        let raw = instruction.bytes().iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ");
+        println!("  0x{:08X}: {:<11} {:<8} {}", instruction.address(), raw, mnemonic, operands);
+    }
+    Ok(())
+}
+
 fn parse_watch_pc(value: &str) -> Result<u32, String> {
     let address = parse_u64(value)?;
     if address > u32::MAX as u64 || address & 1 != 0 {
@@ -205,6 +283,7 @@ fn parse_options() -> Result<Options, String> {
     let mut ready_on_read = Vec::new();
     let mut nor_id = None;
     let mut watch_pc = Vec::new();
+    let mut disasm_thumb = Vec::new();
     let mut trace_bse_memory = false;
     let mut legacy_unmapped_as_ram = false;
     let mut hle_secure_service6 = false;
@@ -228,6 +307,8 @@ fn parse_options() -> Result<Options, String> {
             nor_id = Some(parse_nor_id(value)?);
         } else if let Some(value) = arg.strip_prefix("--watch-pc=") {
             watch_pc.push(parse_watch_pc(value)?);
+        } else if let Some(value) = arg.strip_prefix("--disasm-thumb=") {
+            disasm_thumb.push(parse_thumb_range(value)?);
         } else if arg == "--trace-bse-memory" {
             trace_bse_memory = true;
         } else if arg == "--legacy-unmapped-as-ram" {
@@ -264,9 +345,9 @@ fn parse_options() -> Result<Options, String> {
     }
 
     let archive = archive.ok_or_else(|| {
-        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--nor-id=MANUFACTURER:DEVICE] [--watch-pc=ADDRESS ...] [--trace-bse-memory] [--legacy-unmapped-as-ram] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
+        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--nor-id=MANUFACTURER:DEVICE] [--watch-pc=ADDRESS ...] [--disasm-thumb=ADDRESS:LENGTH ...] [--trace-bse-memory] [--legacy-unmapped-as-ram] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
     })?;
-    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, nor_id, watch_pc, trace_bse_memory, legacy_unmapped_as_ram, hle_secure_service6, hle_secure_service6_launch, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
+    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, nor_id, watch_pc, disasm_thumb, trace_bse_memory, legacy_unmapped_as_ram, hle_secure_service6, hle_secure_service6_launch, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
 }
 
 fn read_mcusw_from_archive(path: &PathBuf) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -608,6 +689,9 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     }
     let entry_word = read_u32_le(&entry_region.data, entry_offset)?;
     let xip_base = read_u32_le(&main.data, 0x3D0 + 0x78)?;
+    for (address, length) in &options.disasm_thumb {
+        disassemble_thumb_window(&main.data, xip_base, *address, *length)?;
+    }
     let entry = match options.start_image {
         StartImage::Mcusw => {
             let base = read_u32_le(&main.data, 0x3D0 + 0x78)?;
@@ -1340,10 +1424,11 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     let alias = read(RegisterARM::R2);
                     let map_root_candidate = read_stack_word(cpu, sp, 0x48);
                     println!(
-                        "  [BSE mapper args] caller=0x{caller:08X} phys_base=0x{:08X} length=0x{:08X} bse_alias=0x{alias:08X} alias_slot_1MiB=0x{:X} guest_va_to_pa=0x{physical_alias:08X} SP=0x{sp:08X} SP+48_candidate=0x{map_root_candidate:08X}",
+                        "  [BSE mapper args] caller=0x{caller:08X} phys_base=0x{:08X} length=0x{:08X} bse_alias=0x{alias:08X} alias_slot_1MiB=0x{:X} slot_address=0x{:08X} guest_va_to_pa=0x{physical_alias:08X} SP=0x{sp:08X} SP+48_candidate=0x{map_root_candidate:08X}",
                         read(RegisterARM::R0),
                         read(RegisterARM::R1),
-                        alias >> 20
+                        bse_slot_index_from_alias(alias),
+                        bse_slot_address_from_alias(alias)
                     );
                 }
 
@@ -1379,15 +1464,14 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     }
                 }
 
-                // The static BSE memory map is a 16-byte-entry table. On this
-                // call site r3 points at the current entry, r5 is its loop
-                // index, and r6 is the table root. Dump each raw entry before
-                // the common mapper consumes it; this distinguishes identity
-                // aliases from the later NOR free-range mapping.
+                // The static BSE loop exposes a raw-table cursor in r3. The
+                // firmware trace shows it is one descriptor ahead of the
+                // current r0/r1/r2 mapper arguments, so label it as a cursor
+                // and never claim it generated this exact mapping request.
                 if address == 0xF010_3ECE && read(RegisterARM::LR) == 0xF010_489D {
                     let entry = read(RegisterARM::R3);
                     println!(
-                        "  [watch-pc static-map entry] index={} entry=0x{entry:08X} table-root=0x{:08X} mapped-base=0x{:08X} size=0x{:08X} alias=0x{:08X}",
+                        "  [watch-pc static-map cursor] loop-index={} cursor=0x{entry:08X} table-root=0x{:08X} current-base=0x{:08X} current-size=0x{:08X} current-alias=0x{:08X}",
                         read(RegisterARM::R5),
                         read(RegisterARM::R6),
                         read(RegisterARM::R0),
@@ -1395,7 +1479,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                         read(RegisterARM::R2)
                     );
                     if (0xF010_0000..0xF110_0000).contains(&entry) {
-                        dump_memory_window(cpu, "watch-pc static-map raw entry", entry, 0x10);
+                        dump_memory_window(cpu, "watch-pc static-map cursor bytes", entry, 0x10);
                     }
                 }
 
@@ -1602,14 +1686,14 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     )
     .map_err(|error| std::io::Error::other(format!("mapper stack-read hook failed: {error:?}")))?;
 
-    // The BSE map root is the 1-MiB alias-slot table observed at 0x10090000.
-    // Capture the actual guest reads performed by the lower mapper so the
-    // occupied marker is tied to a concrete VA/PA and not inferred from a dump.
+    // The BSE slot table observed at 0x10090000 contains 4096 u32 entries
+    // (16 KiB total); each entry covers one 1-MiB alias index. Capture the
+    // lower mapper's actual guest reads, not only a post-hoc memory dump.
     let bse_slot_read_count = Rc::new(Cell::new(0usize));
     uc.add_mem_hook(
         HookType::MEM_READ,
-        0x1009_0000,
-        0x1009_FFFF,
+        BSE_SLOT_TABLE_BASE as u64,
+        (BSE_SLOT_TABLE_BASE + BSE_SLOT_TABLE_BYTES - 1) as u64,
         {
             let count = Rc::clone(&bse_slot_read_count);
             move |cpu, _kind, address, size, value| {
@@ -1823,7 +1907,7 @@ fn main() {
             }
         }
         Err(message) if message.is_empty() => {
-            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--nor-id=MANUFACTURER:DEVICE] [--watch-pc=ADDRESS ...] [--trace-bse-memory] [--legacy-unmapped-as-ram] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
+            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--nor-id=MANUFACTURER:DEVICE] [--watch-pc=ADDRESS ...] [--disasm-thumb=ADDRESS:LENGTH ...] [--trace-bse-memory] [--legacy-unmapped-as-ram] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
         }
         Err(message) => {
             eprintln!("{message}");
@@ -1835,6 +1919,55 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bse_alias_slot_table_matches_observed_firmware_addresses() {
+        let cases = [
+            (0x0000_0000, 0x000, 0x1009_0000),
+            (0xFFB0_0000, 0xFFB, 0x1009_3FEC),
+            (0xFF10_0000, 0xFF1, 0x1009_3FC4),
+            (0xFF20_0000, 0xFF2, 0x1009_3FC8),
+            (0xE000_1000, 0xE00, 0x1009_3800),
+            (0xC160_0000, 0xC16, 0x1009_3058),
+        ];
+        for (alias, expected_index, expected_address) in cases {
+            assert_eq!(bse_slot_index_from_alias(alias), expected_index);
+            assert_eq!(bse_slot_address_from_alias(alias), expected_address);
+            assert_eq!(bse_slot_index_from_address(expected_address), Some(expected_index));
+        }
+    }
+
+    #[test]
+    fn bse_slot_table_is_4096_u32_entries_not_a_one_mib_table() {
+        assert_eq!(BSE_SLOT_COUNT, 4096);
+        assert_eq!(BSE_SLOT_BYTES, 4);
+        assert_eq!(BSE_SLOT_TABLE_BYTES, 0x4000);
+        assert_eq!(bse_slot_address_from_index(0), Some(0x1009_0000));
+        assert_eq!(bse_slot_address_from_index(0xFFF), Some(0x1009_3FFC));
+        assert_eq!(bse_slot_address_from_index(0x1000), None);
+        assert_eq!(bse_slot_index_from_address(0x1009_4000), None);
+        assert_eq!(bse_slot_index_from_address(0x1009_0002), None);
+    }
+
+    #[test]
+    fn bse_occupancy_is_keyed_by_alias_not_physical_base() {
+        // The observed static prelude and late NOR allocation both use alias 0.
+        assert_eq!(bse_slot_address_from_alias(0), 0x1009_0000);
+        // A separate physical-base-zero mapping at alias FF100000 uses slot FF1.
+        assert_ne!(bse_slot_address_from_alias(0), bse_slot_address_from_alias(0xFF10_0000));
+        assert_eq!(bse_slot_address_from_alias(0xFF10_0000), 0x1009_3FC4);
+    }
+
+    #[test]
+    fn parses_and_rejects_thumb_disassembly_ranges() {
+        assert_eq!(parse_thumb_range("0xF0104300:0x100").unwrap(), (0xF010_4300, 0x100));
+        assert_eq!(parse_thumb_range("0xF0104800:0x140").unwrap(), (0xF010_4800, 0x140));
+        assert!(parse_thumb_range("0xF0104301:0x100").is_err());
+        assert!(parse_thumb_range("0xF0104300:0").is_err());
+        assert!(parse_thumb_range("0xF0104300:3").is_err());
+        assert!(parse_thumb_range("0xF0104300:0x2000").is_err());
+        assert!(parse_thumb_range("0xFFFFFFFE:4").is_err());
+    }
 
     #[test]
     fn rm217_combo_sdram_capacity_matches_128_mbit_and_does_not_overlap_nor() {
