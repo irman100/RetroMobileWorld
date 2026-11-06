@@ -1244,6 +1244,26 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     read(RegisterARM::SP),
                     read(RegisterARM::LR)
                 );
+                let sp = read(RegisterARM::SP);
+                // Capture caller-frame inputs for every range-mapper invocation.
+                // The previous trace only dumped these words on hit zero, hiding
+                // the stack bounds and map-root arguments on the failing call.
+                if address == 0xF010_3BD8 {
+                    let descriptor = read(RegisterARM::R3);
+                    println!("  [watch-pc descriptor pointer] = 0x{descriptor:08X}");
+                    if (0xF010_0000..0xF110_0000).contains(&descriptor) {
+                        dump_memory_window(cpu, "watch-pc descriptor metadata", descriptor, 0x40);
+                    }
+                    for offset in (0u32..=0x54).step_by(4) {
+                        let mut word = [0u8; 4];
+                        if cpu.mem_read(sp as u64 + offset as u64, &mut word).is_ok() {
+                            println!(
+                                "  [watch-pc frame+0x{offset:02X}] = 0x{:08X}",
+                                u32::from_le_bytes(word)
+                            );
+                        }
+                    }
+                }
                 if hit != 0 {
                     return;
                 }
@@ -1278,19 +1298,6 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     }
                 } else if pointer_r2 != 0 && pointer_r2 <= 0x0FFF_FFFF {
                     dump_memory_window(cpu, "watch-pc r2 target", pointer_r2, 0x100);
-                }
-                let sp = read(RegisterARM::SP);
-                // These stack arguments carry the current descriptor metadata,
-                // memory-map root, and enclosing region bounds. Print them on
-                // every watched call so repeated map operations can be compared.
-                for offset in [0x18u32, 0x1C, 0x20, 0x24, 0x30, 0x34, 0x38, 0x3C, 0x44] {
-                    let mut word = [0u8; 4];
-                    if cpu.mem_read(sp as u64 + offset as u64, &mut word).is_ok() {
-                        println!(
-                            "  [watch-pc stack+0x{offset:02X}] = 0x{:08X}",
-                            u32::from_le_bytes(word)
-                        );
-                    }
                 }
                 let mut stack_argument = [0u8; 4];
                 if cpu.mem_read(sp as u64 + 0x44, &mut stack_argument).is_ok() {
