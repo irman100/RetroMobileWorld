@@ -777,7 +777,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         uc.mmio_map(
             0,
             NOR0_CAPACITY as u64,
-            Some(move |cpu, offset, size| {
+            Some(move |cpu: &mut Uc<'_>, offset: u64, size: usize| {
                 let (value, autoselect) = {
                     let device = read_nor.borrow();
                     (device.read(offset, size), device.autoselect)
@@ -805,7 +805,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                 }
                 value
             }),
-            Some(move |_cpu, offset, size, value| {
+            Some(move |_cpu: &mut Uc<'_>, offset: u64, size: usize, value: u64| {
                 if let Some(mode) = write_nor.borrow_mut().write(offset, size, value) {
                     println!(
                         "  [experimental NOR0 MMIO] {mode} command @0x{offset:08X} size={size} value=0x{value:X}"
