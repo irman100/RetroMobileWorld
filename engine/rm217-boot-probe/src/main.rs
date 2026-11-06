@@ -989,6 +989,10 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             ("boot-tags-read", HookType::MEM_READ, 0x0800_6000u64, 0x0800_607Fu64),
             ("BSE-records-read", HookType::MEM_READ, 0x0800_2F60, 0x0800_301F),
             ("BSE-records-write", HookType::MEM_WRITE, 0x0800_2F60, 0x0800_301F),
+            // The compact occupied/reserved-region list starts at 0x08003008;
+            // it was outside the previous 0x2F60..0x3020 watch window.
+            ("BSE-map-records-read", HookType::MEM_READ, 0x0800_3008, 0x0800_311F),
+            ("BSE-map-records-write", HookType::MEM_WRITE, 0x0800_3008, 0x0800_311F),
             ("BSE-map-read", HookType::MEM_READ, 0x0800_32A0, 0x0800_331F),
             ("BSE-map-write", HookType::MEM_WRITE, 0x0800_32A0, 0x0800_331F),
             // Focused windows avoid losing later non-zero writes after the broad
@@ -1034,8 +1038,21 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             let count = Rc::new(Cell::new(0usize));
             // The focused descriptor/map windows must outlive their initial clear
             // pass; keep enough events to catch the subsequent record construction.
-            let event_limit = if label.contains("map-entry") || label.contains("descriptors") || label.contains("tag-list") || label.contains("boot-config") || label.contains("NOR-candidate") || label.contains("NOR-controller") || label.contains("NOR-interface") || label.contains("NOR-command") || label.contains("NOR-helper-code") {
-                256usize
+            let event_limit = if label.contains("BSE-targets-read") {
+                2048usize
+            } else if label.contains("BSE-map-records")
+                || label.contains("BSE-targets")
+                || label.contains("map-entry")
+                || label.contains("descriptors")
+                || label.contains("tag-list")
+                || label.contains("boot-config")
+                || label.contains("NOR-candidate")
+                || label.contains("NOR-controller")
+                || label.contains("NOR-interface")
+                || label.contains("NOR-command")
+                || label.contains("NOR-helper-code")
+            {
+                512usize
             } else {
                 64usize
             };
