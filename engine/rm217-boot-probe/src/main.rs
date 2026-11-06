@@ -999,10 +999,11 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             // map-clear loop fills the first 64 events with zeros.
             ("BSE-map-entry-read", HookType::MEM_READ, 0x0800_32B0, 0x0800_32EF),
             ("BSE-map-entry-write", HookType::MEM_WRITE, 0x0800_32B0, 0x0800_32EF),
-            // The first missing tag-list lookup observed at F0104172 used this
-            // pointer from SP+0x44. Observe the list pages independently.
-            ("BSE-tag-list-read", HookType::MEM_READ, 0x1009_0000, 0x1009_3FFF),
-            ("BSE-tag-list-write", HookType::MEM_WRITE, 0x1009_0000, 0x1009_3FFF),
+            // MCUSW allocates and clears this first 16-KiB SDRAM buffer,
+            // then reads its first word at F0103C04. Keep it distinct from
+            // the NOLO handoff/config pointer near 0x10FFFF58.
+            ("BSE-alloc-buffer-read", HookType::MEM_READ, 0x1009_0000, 0x1009_3FFF),
+            ("BSE-alloc-buffer-write", HookType::MEM_WRITE, 0x1009_0000, 0x1009_3FFF),
             // This pointer is consumed as the root of the boot-configuration
             // descriptor tree. Trace it separately to establish where type 0
             // should originate; do not infer its contents from the pointer alone.
@@ -1044,7 +1045,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                 || label.contains("BSE-targets")
                 || label.contains("map-entry")
                 || label.contains("descriptors")
-                || label.contains("tag-list")
+                || label.contains("alloc-buffer")
                 || label.contains("boot-config")
                 || label.contains("NOR-candidate")
                 || label.contains("NOR-controller")
@@ -1058,7 +1059,15 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             };
             uc.add_mem_hook(hook_type, begin, end, {
                 let count = Rc::clone(&count);
+                let filter_zero_buffer_clears = label == "BSE-alloc-buffer-write";
                 move |cpu, _kind, address, size, value| {
+                    // The first allocation pass clears 0x4000 bytes. Suppress
+                    // that noise so every later non-zero write into the buffer
+                    // is visible, including the write that produces the 0x3E
+                    // read at the failing validation site.
+                    if filter_zero_buffer_clears && size == 4 && value == 0 {
+                        return true;
+                    }
                     let index = count.get();
                     count.set(index + 1);
                     if index < event_limit {
