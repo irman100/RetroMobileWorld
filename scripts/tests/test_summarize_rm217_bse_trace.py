@@ -83,7 +83,7 @@ Probe exit code: 0
             "idx=0x000 addr=0x10090000 read[PA:value]=[0x10090000:0x0000003E] write[value]=[0x0000003E]",
             summary,
         )
-        self.assertNotIn("other", summary)
+        self.assertNotIn("LR=0xF0104000", summary)
         self.assertIn("Mapper calls parsed: 43", summary)
         self.assertLess(len(summary.splitlines()), 60)
 
