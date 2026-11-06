@@ -30,6 +30,14 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Python for trace-tool tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run RM-217 trace summarizer tests
+        run: python -m unittest discover -s scripts/tests -p "test_*.py"
+
       - name: Run boot-probe unit tests
         run: cargo test --manifest-path engine/rm217-boot-probe/Cargo.toml
 
