@@ -729,6 +729,19 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                 .map_err(|error| std::io::Error::other(format!("cannot snapshot NOLO TOC: {error:?}")))?;
         }
 
+        // The probe previously restored only the first 4 KiB at MCUSW entry.
+        // The rest of the 32-MiB NOR window was still zero-filled sparse RAM,
+        // which is not equivalent to reading the physical flash array. Populate
+        // the complete flash window now, then reapply the temporary NOLO TOC.
+        uc.mem_write(0, flash_image.as_slice())
+            .map_err(|error| std::io::Error::other(format!("cannot stage full NOR image: {error:?}")))?;
+        uc.mem_write(NOLO_TOC_ADDR as u64, &toc_overlay)
+            .map_err(|error| std::io::Error::other(format!("cannot restore NOLO TOC after NOR staging: {error:?}")))?;
+        println!(
+            "  [experimental NOR0] staged full 32-MiB physical array; NOR[0..16]={:02X?}; synthetic NOLO TOC restored at 0x{NOLO_TOC_ADDR:08X}",
+            &flash_image[..16]
+        );
+
         let autoselect = Rc::new(Cell::new(false));
         let command_count = Rc::new(Cell::new(0usize));
         uc.add_mem_hook(HookType::MEM_WRITE, 0, (NOR0_CAPACITY - 1) as u64, {
