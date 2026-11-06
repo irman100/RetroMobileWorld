@@ -453,62 +453,6 @@ fn build_nor_flash_image(firmware: &Fpsx, capacity: usize) -> Result<Vec<u8>, Bo
     Ok(image)
 }
 
-#[derive(Debug)]
-struct DiagnosticNor {
-    image: Vec<u8>,
-    toc_overlay: Vec<u8>,
-    manufacturer: u16,
-    device: u16,
-    autoselect: bool,
-}
-
-impl DiagnosticNor {
-    fn read(&self, offset: u64, size: usize) -> u64 {
-        if size == 0 || size > 8 {
-            return u64::MAX;
-        }
-        if self.autoselect {
-            return match (offset, size) {
-                (0, 2) => self.manufacturer as u64,
-                (2, 2) => self.device as u64,
-                (0, 4) => self.manufacturer as u64 | ((self.device as u64) << 16),
-                // Neutral x16 sector-protection word; not a full protection model.
-                (6, 2) => 0,
-                _ => (1u64 << (size * 8)) - 1,
-            };
-        }
-
-        let mut value = 0u64;
-        for index in 0..size {
-            let address = offset.saturating_add(index as u64);
-            let byte = if nor_read_overlaps_nolo_toc(address as usize, 1) {
-                self.toc_overlay
-                    .get(address.saturating_sub(NOLO_TOC_ADDR as u64) as usize)
-                    .copied()
-                    .unwrap_or(0xFF)
-            } else {
-                self.image.get(address as usize).copied().unwrap_or(0xFF)
-            };
-            value |= (byte as u64) << (index * 8);
-        }
-        value
-    }
-
-    fn write(&mut self, offset: u64, size: usize, value: u64) -> Option<&'static str> {
-        let command = value as u16;
-        if command == 0x90 && (offset == 0 || offset == 0x555 || offset == 0xAAA) {
-            self.autoselect = true;
-            return Some("autoselect");
-        }
-        if command == 0xF0 || (command == 0xFF && offset == 0) {
-            self.autoselect = false;
-            return Some("read-array/reset");
-        }
-        let _ = size;
-        None
-    }
-}
-
 fn image_table_relative_offset(load_address: u32, table_base: u32) -> u32 {
     load_address.wrapping_sub(table_base)
 }
@@ -752,70 +696,109 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     }
 
     if let Some((manufacturer, device)) = options.nor_id {
-        // Preserve the probe-generated NOLO TOC before replacing the first
-        // 32 MiB with an MMIO NOR device. Its callbacks supply bytes for the
-        // current CPU read (unlike MEM_READ hooks, which run after the read).
+        // Keep NOR executable as RAM in this CPU backend: fetch_pa intentionally
+        // rejects MMIO pages. The read-only array itself is staged from FPSX data.
+        // NOLO's JEDEC autoselect response is an explicit, partial diagnostic model.
+        let flash_image = Rc::new(build_nor_flash_image(&firmware, NOR0_CAPACITY)?);
         let mut toc_overlay = vec![0u8; NOLO_TOC_SIZE];
         if options.start_image == StartImage::Nolo {
             uc.mem_read(NOLO_TOC_ADDR as u64, &mut toc_overlay)
                 .map_err(|error| std::io::Error::other(format!("cannot snapshot NOLO TOC: {error:?}")))?;
         }
-        let nor = Rc::new(RefCell::new(DiagnosticNor {
-            image: build_nor_flash_image(&firmware, NOR0_CAPACITY)?,
-            toc_overlay,
-            manufacturer,
-            device,
-            autoselect: false,
-        }));
-        let id_reads = Rc::new(Cell::new(0usize));
-        let array_reads = Rc::new(Cell::new(0usize));
 
-        let read_nor = Rc::clone(&nor);
-        let id_read_count = Rc::clone(&id_reads);
-        let array_read_count = Rc::clone(&array_reads);
-        let write_nor = Rc::clone(&nor);
-        uc.mmio_map(
-            0,
-            NOR0_CAPACITY as u64,
-            Some(move |cpu: &mut Uc<'_>, offset: u64, size: usize| {
-                let (value, autoselect) = {
-                    let device = read_nor.borrow();
-                    (device.read(offset, size), device.autoselect)
+        let autoselect = Rc::new(Cell::new(false));
+        let command_count = Rc::new(Cell::new(0usize));
+        uc.add_mem_hook(HookType::MEM_WRITE, 0, (NOR0_CAPACITY - 1) as u64, {
+            let autoselect = Rc::clone(&autoselect);
+            let command_count = Rc::clone(&command_count);
+            move |cpu, _kind, address, _size, value| {
+                let offset = address as u32;
+                let command = value as u16;
+                let mode = if command == 0x90 && offset <= 0x0001_0000 {
+                    autoselect.set(true);
+                    Some("autoselect")
+                } else if command == 0xF0 || (command == 0xFF && offset == 0) {
+                    autoselect.set(false);
+                    Some("read-array/reset")
+                } else {
+                    None
                 };
-                if autoselect {
-                    let count = id_read_count.get();
-                    id_read_count.set(count + 1);
+                if let Some(mode) = mode {
+                    let count = command_count.get();
+                    command_count.set(count + 1);
                     if count < 16 {
                         println!(
-                            "  [experimental NOR0 MMIO] ID read @0x{offset:08X} size={size} -> 0x{value:X} pc=0x{:08X}",
+                            "  [experimental NOR0] {mode} command @0x{offset:08X} value=0x{value:X} pc=0x{:08X}",
                             cpu.reg_read(RegisterARM::PC).unwrap_or(0) as u32
                         );
                     }
-                } else {
-                    let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0) as u32;
-                    if offset < 0x100 || pc >= 0xF010_0000 {
-                        let count = array_read_count.get();
-                        array_read_count.set(count + 1);
-                        if count < 48 {
-                            println!(
-                                "  [experimental NOR0 MMIO] array read @0x{offset:08X} size={size} -> 0x{value:X} pc=0x{pc:08X}"
-                            );
-                        }
+                }
+                true
+            }
+        })
+        .map_err(|error| std::io::Error::other(format!("NOR write hook failed: {error:?}")))?;
+
+        let id_read_count = Rc::new(Cell::new(0usize));
+        uc.add_mem_hook(HookType::MEM_READ, 0, (NOR0_CAPACITY - 1) as u64, {
+            let autoselect = Rc::clone(&autoselect);
+            let id_read_count = Rc::clone(&id_read_count);
+            move |cpu, _kind, address, size, _value| {
+                if !autoselect.get() {
+                    return true;
+                }
+                let offset = address as u32;
+                let response = match (offset, size) {
+                    (0, 2) => Some(manufacturer),
+                    (2, 2) => Some(device),
+                    (6, 2) => Some(0), // neutral/unprotected x16 sector-protection word
+                    _ => None,
+                };
+                if let Some(word) = response {
+                    // The interpreter's MEM_READ hook runs after the current read.
+                    // NOLO's helper performs the autoselect probe sequence more than
+                    // once; this writeback updates the following probe reads.
+                    let write = cpu.mem_write(address, &word.to_le_bytes());
+                    let count = id_read_count.get();
+                    id_read_count.set(count + 1);
+                    if count < 24 {
+                        println!(
+                            "  [experimental NOR0] ID read @0x{offset:08X} size={size} -> 0x{word:04X} (next-read writeback={}) pc=0x{:08X}",
+                            if write.is_ok() { "ok" } else { "failed" },
+                            cpu.reg_read(RegisterARM::PC).unwrap_or(0) as u32
+                        );
                     }
                 }
-                value
-            }),
-            Some(move |_cpu: &mut Uc<'_>, offset: u64, size: usize, value: u64| {
-                if let Some(mode) = write_nor.borrow_mut().write(offset, size, value) {
-                    println!(
-                        "  [experimental NOR0 MMIO] {mode} command @0x{offset:08X} size={size} value=0x{value:X}"
-                    );
+                true
+            }
+        })
+        .map_err(|error| std::io::Error::other(format!("NOR read hook failed: {error:?}")))?;
+
+        let mcusw_entry = bb5_entry_from_prefix(&main.data[..main.data.len().min(0x500)], xip_base)
+            .ok_or("cannot validate MCUSW BB5 entry for NOR restoration hook")?;
+        let nor_prefix = Rc::new(flash_image[..0x1000].to_vec());
+        let toc_overlay = Rc::new(toc_overlay);
+        let restored = Rc::new(Cell::new(false));
+        uc.add_code_hook(mcusw_entry as u64, mcusw_entry as u64 + 1, {
+            let nor_prefix = Rc::clone(&nor_prefix);
+            let toc_overlay = Rc::clone(&toc_overlay);
+            let restored = Rc::clone(&restored);
+            move |cpu, pc, _size| {
+                if restored.replace(true) {
+                    return;
                 }
-            }),
-        )
-        .map_err(|error| std::io::Error::other(format!("NOR MMIO mapping failed: {error:?}")))?;
+                let flash_result = cpu.mem_write(0, &nor_prefix);
+                let toc_result = cpu.mem_write(NOLO_TOC_ADDR as u64, &toc_overlay);
+                println!(
+                    "  [experimental NOR0] restored NOR first 4 KiB at MCUSW entry 0x{pc:08X} (flash={}, NOLO TOC={})",
+                    if flash_result.is_ok() { "ok" } else { "failed" },
+                    if toc_result.is_ok() { "ok" } else { "failed" }
+                );
+            }
+        })
+        .map_err(|error| std::io::Error::other(format!("NOR restoration hook failed: {error:?}")))?;
+
         println!(
-            "  [experimental NOR0] MMIO mapped 32 MiB at 0x00000000; ID 0x{manufacturer:04X}:0x{device:04X}; 32-MiB read-only FPSX array, missing bytes=0xFF"
+            "  [experimental NOR0] ID candidate 0x{manufacturer:04X}:0x{device:04X}; 32-MiB FPSX array in executable RAM; first 4 KiB restored before MCUSW"
         );
     }
 
@@ -1603,35 +1586,6 @@ mod tests {
         assert_eq!(parse_watch_pc("402759534").unwrap(), 402_759_534);
         assert!(parse_watch_pc("0xF0104173").is_err());
         assert!(parse_watch_pc("0x100000000").is_err());
-    }
-
-    #[test]
-    fn diagnostic_nor_returns_data_for_the_current_read_and_preserves_toc() {
-        let mut image = vec![0xFF; NOR0_CAPACITY];
-        image[0..4].copy_from_slice(&[0x12, 0x34, 0x56, 0x78]);
-        image[0x600..0x604].copy_from_slice(&[0xA1, 0xB2, 0xC3, 0xD4]);
-        let mut toc = vec![0; NOLO_TOC_SIZE];
-        toc[0..4].copy_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
-        let mut nor = DiagnosticNor {
-            image,
-            toc_overlay: toc,
-            manufacturer: 0x00EC,
-            device: 0x2208,
-            autoselect: false,
-        };
-
-        assert_eq!(nor.read(0, 4), 0x7856_3412);
-        assert_eq!(nor.read(0x400, 4), 0xEFBE_ADDE);
-        assert_eq!(nor.read(0x600, 4), 0xD4C3_B2A1);
-        assert_eq!(nor.read(0x700, 2), 0xFFFF);
-
-        assert_eq!(nor.write(0xAAA, 2, 0x90), Some("autoselect"));
-        assert_eq!(nor.read(0, 2), 0x00EC);
-        assert_eq!(nor.read(2, 2), 0x2208);
-        assert_eq!(nor.read(0x400, 2), 0xFFFF);
-        assert_eq!(nor.write(0, 2, 0xF0), Some("read-array/reset"));
-        assert_eq!(nor.read(0, 4), 0x7856_3412);
-        assert_eq!(nor.read(0x400, 4), 0xEFBE_ADDE);
     }
 
     #[test]
