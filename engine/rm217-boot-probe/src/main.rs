@@ -41,6 +41,7 @@ struct Options {
     trace: u64,
     initial_registers: [u32; 4],
     ready_on_read: Vec<(u32, u8)>,
+    nor_id: Option<(u16, u16)>,
     watch_pc: Vec<u32>,
     trace_bse_memory: bool,
     hle_secure_service6: bool,
@@ -151,6 +152,18 @@ fn parse_ready_bit(value: &str) -> Result<(u32, u8), String> {
     Ok((address as u32, bit as u8))
 }
 
+fn parse_nor_id(value: &str) -> Result<(u16, u16), String> {
+    let (manufacturer, device) = value
+        .split_once(':')
+        .ok_or_else(|| format!("invalid --nor-id={value}; expected MANUFACTURER:DEVICE"))?;
+    let manufacturer = parse_u64(manufacturer)?;
+    let device = parse_u64(device)?;
+    if manufacturer > u16::MAX as u64 || device > u16::MAX as u64 {
+        return Err("NOR manufacturer and device IDs must each fit in 16 bits".to_string());
+    }
+    Ok((manufacturer as u16, device as u16))
+}
+
 fn parse_start_image(value: &str) -> Result<StartImage, String> {
     match value {
         "mcusw" => Ok(StartImage::Mcusw),
@@ -181,6 +194,7 @@ fn parse_options() -> Result<Options, String> {
     let mut trace = DEFAULT_TRACE;
     let mut initial_registers = [0u32; 4];
     let mut ready_on_read = Vec::new();
+    let mut nor_id = None;
     let mut watch_pc = Vec::new();
     let mut trace_bse_memory = false;
     let mut hle_secure_service6 = false;
@@ -200,6 +214,8 @@ fn parse_options() -> Result<Options, String> {
             trace = parse_u64(value)?;
         } else if let Some(value) = arg.strip_prefix("--ready-bit=") {
             ready_on_read.push(parse_ready_bit(value)?);
+        } else if let Some(value) = arg.strip_prefix("--nor-id=") {
+            nor_id = Some(parse_nor_id(value)?);
         } else if let Some(value) = arg.strip_prefix("--watch-pc=") {
             watch_pc.push(parse_watch_pc(value)?);
         } else if arg == "--trace-bse-memory" {
@@ -236,9 +252,9 @@ fn parse_options() -> Result<Options, String> {
     }
 
     let archive = archive.ok_or_else(|| {
-        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--watch-pc=ADDRESS ...] [--trace-bse-memory] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
+        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--nor-id=MANUFACTURER:DEVICE] [--watch-pc=ADDRESS ...] [--trace-bse-memory] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
     })?;
-    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, watch_pc, trace_bse_memory, hle_secure_service6, hle_secure_service6_launch, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
+    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, nor_id, watch_pc, trace_bse_memory, hle_secure_service6, hle_secure_service6_launch, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
 }
 
 fn read_mcusw_from_archive(path: &PathBuf) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -977,6 +993,77 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         }
     }
 
+    if let Some((manufacturer, device)) = options.nor_id {
+        // A narrow diagnostic NOR model for the boot-ROM autoselect operation.
+        // It reports only the JEDEC x16 IDs; it does not emulate array data,
+        // programming, erase, timing, protection, or the complete memory controller.
+        let autoselect = Rc::new(Cell::new(false));
+        let command_count = Rc::new(Cell::new(0usize));
+        uc.add_mem_hook(HookType::MEM_WRITE, 0, 0x01FF_FFFF, {
+            let autoselect = Rc::clone(&autoselect);
+            let command_count = Rc::clone(&command_count);
+            move |_cpu, _kind, address, _size, value| {
+                let offset = address as u32;
+                let command = value as u16;
+                if command == 0x90 && offset <= 0x0001_0000 {
+                    autoselect.set(true);
+                    let count = command_count.get();
+                    command_count.set(count + 1);
+                    if count < 8 {
+                        println!("  [experimental NOR0] autoselect command 0x90 @0x{offset:08X}");
+                    }
+                } else if (command == 0xFF && offset == 0) || command == 0xF0 {
+                    autoselect.set(false);
+                    let count = command_count.get();
+                    command_count.set(count + 1);
+                    if count < 8 {
+                        println!("  [experimental NOR0] read-array/reset command 0x{command:04X} @0x{offset:08X}");
+                    }
+                }
+                true
+            }
+        })
+        .map_err(|error| std::io::Error::other(format!("NOR write hook failed: {error:?}")))?;
+
+        let response_count = Rc::new(Cell::new(0usize));
+        uc.add_mem_hook(HookType::MEM_READ, 0, 0x01FF_FFFF, {
+            let autoselect = Rc::clone(&autoselect);
+            let response_count = Rc::clone(&response_count);
+            move |cpu, _kind, address, size, _value| {
+                if !autoselect.get() {
+                    return true;
+                }
+                let offset = address as u32;
+                let response = match (offset, size) {
+                    (0, 2) => Some(manufacturer),
+                    (2, 2) => Some(device),
+                    // x16 autoselect sector-protection word: neutral unprotected value.
+                    (6, 2) => Some(0),
+                    _ => None,
+                };
+                let Some(word) = response else {
+                    return true;
+                };
+                let bytes = word.to_le_bytes();
+                let write = cpu.mem_write(address, &bytes);
+                let count = response_count.get();
+                response_count.set(count + 1);
+                if count < 16 {
+                    println!(
+                        "  [experimental NOR0] ID read @0x{offset:08X} size={size} -> 0x{word:04X} (writeback={})",
+                        if write.is_ok() { "ok" } else { "failed" }
+                    );
+                }
+                true
+            }
+        })
+        .map_err(|error| std::io::Error::other(format!("NOR read hook failed: {error:?}")))?;
+
+        println!(
+            "  [experimental NOR0] ID candidate 0x{manufacturer:04X}:0x{device:04X}; autoselect only, not a complete NOR model"
+        );
+    }
+
     for (address, bit) in options.ready_on_read.iter().copied() {
         let ready_applied = Rc::new(Cell::new(false));
         uc.add_mem_hook(
@@ -1267,7 +1354,7 @@ fn main() {
             }
         }
         Err(message) if message.is_empty() => {
-            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--watch-pc=ADDRESS ...] [--trace-bse-memory] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
+            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--nor-id=MANUFACTURER:DEVICE] [--watch-pc=ADDRESS ...] [--trace-bse-memory] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
         }
         Err(message) => {
             eprintln!("{message}");
@@ -1343,6 +1430,15 @@ mod tests {
         assert_eq!(parse_watch_pc("402759534").unwrap(), 402_759_534);
         assert!(parse_watch_pc("0xF0104173").is_err());
         assert!(parse_watch_pc("0x100000000").is_err());
+    }
+
+    #[test]
+    fn parses_experimental_nor_manufacturer_and_device_ids() {
+        assert_eq!(parse_nor_id("0x00EC:0x2208").unwrap(), (0x00EC, 0x2208));
+        assert_eq!(parse_nor_id("236:8712").unwrap(), (0x00EC, 0x2208));
+        assert!(parse_nor_id("0x10000:0x2208").is_err());
+        assert!(parse_nor_id("0xEC:0x10000").is_err());
+        assert!(parse_nor_id("0xEC").is_err());
     }
 
     #[test]
