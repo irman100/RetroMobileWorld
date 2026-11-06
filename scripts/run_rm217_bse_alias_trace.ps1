@@ -29,6 +29,8 @@ $ProbeArgs = @(
     '--legacy-unmapped-as-ram',
     '--hle-secure-service6-launch',
     '--trace-bse-memory',
+    '--disasm-thumb=0xF0104300:0x100',
+    '--disasm-thumb=0xF0104800:0x140',
     '--watch-pc=0xF0103ECE',
     '--watch-pc=0xF0103C04',
     '--watch-pc=0xF0103C0A',
@@ -40,19 +42,43 @@ $ProbeArgs = @(
     '--watch-pc=0xF01043A0'
 )
 
+$Summary = Join-Path ([Environment]::GetFolderPath('Desktop')) 'rm217-bse-alias-mmuv2.summary.txt'
+$Summarizer = Join-Path $PSScriptRoot 'summarize_rm217_bse_trace.py'
+
 Write-Host '=== RM-217 BSE ALIAS / ARM926 MMU TRACE ==='
 Write-Host "Probe:    $Probe"
 Write-Host "Firmware: $Firmware"
 Write-Host "Log:      $Log"
+Write-Host "Summary:  $Summary"
 Write-Host ''
 Write-Host 'Running diagnostic-only NOR/ASIC overrides; this does not patch the guest memory map.'
+Write-Host 'Full trace is redirected to the log file; only the compact summary will be printed.'
 Write-Host ''
 
-& $Probe @ProbeArgs 2>&1 | Tee-Object -FilePath $Log
+& $Probe @ProbeArgs *> $Log
 $ProbeExit = $LASTEXITCODE
+
+if (Test-Path -LiteralPath $Summarizer -PathType Leaf) {
+    $PythonLauncher = Get-Command py -ErrorAction SilentlyContinue
+    if ($PythonLauncher) {
+        & $PythonLauncher.Source -3 $Summarizer --output $Summary $Log
+    } else {
+        $PythonLauncher = Get-Command python -ErrorAction SilentlyContinue
+        if ($PythonLauncher) {
+            & $PythonLauncher.Source $Summarizer --output $Summary $Log
+        } else {
+            Write-Warning "Python was not found. Manually run: py -3 $Summarizer --output $Summary $Log"
+        }
+    }
+} else {
+    Write-Warning "Summarizer not found beside runner: $Summarizer"
+}
 
 Write-Host ''
 Write-Host "Probe exit code: $ProbeExit"
-Write-Host "Trace saved: $Log"
+Write-Host "Full trace saved: $Log"
+if (Test-Path -LiteralPath $Summary -PathType Leaf) {
+    Write-Host "Compact summary saved: $Summary"
+}
 
 exit $ProbeExit
