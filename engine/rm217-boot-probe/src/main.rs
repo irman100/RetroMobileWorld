@@ -1975,7 +1975,7 @@ mod tests {
         };
 
         assert_eq!(at(0xF010_432A).mnemonic(), Some("bl"));
-        assert!(at(0xF010_432A).op_str().unwrap().contains("F0104976"));
+        assert!(at(0xF010_432A).op_str().unwrap().to_ascii_lowercase().contains("f0104976"));
         assert_eq!(at(0xF010_432E).mnemonic(), Some("ldr"));
         assert_eq!(at(0xF010_4330).mnemonic(), Some("subs"));
         assert_eq!(at(0xF010_4332).mnemonic(), Some("str"));
