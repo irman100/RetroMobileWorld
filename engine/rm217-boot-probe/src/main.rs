@@ -1944,6 +1944,56 @@ mod tests {
     }
 
     #[test]
+    fn capstone_decodes_observed_rm217_allocator_alias_and_type8_instructions() {
+        // Bytes reconstructed from the existing RM-217 trace code window
+        // 0xF010432A..0xF010437A (little-endian 32-bit dump words).
+        let code = [
+            0x00, 0xF0, 0x24, 0xFB, 0x3D, 0x4C, 0x20, 0x1A,
+            0x0E, 0x90, 0x07, 0x90, 0x00, 0x20, 0xA7, 0xE0,
+            0xE8, 0x68, 0x0C, 0x90, 0xA8, 0x68, 0x99, 0xE0,
+            0x00, 0x24, 0x1A, 0xE0, 0xC1, 0x68, 0x0C, 0x9A,
+            0x91, 0x42, 0x08, 0xD1, 0x0C, 0x99, 0x82, 0x68,
+            0x89, 0x18, 0x0C, 0x91, 0x80, 0x68, 0x0D, 0x99,
+            0x08, 0x1A, 0x0D, 0x90, 0x0C, 0xE0, 0x0C, 0x9A,
+            0x91, 0x42, 0x09, 0xD9, 0x0C, 0x9A, 0x0D, 0x9B,
+            0xD2, 0x18, 0x8A, 0x42, 0x04, 0xD9, 0xC0, 0x68,
+            0x0C, 0x99, 0x40, 0x1A, 0x0D, 0x90, 0x07, 0xE0,
+        ];
+        let mut disassembler = Capstone::new()
+            .arm()
+            .mode(ArchMode::Thumb)
+            .endian(Endian::Little)
+            .build()
+            .unwrap();
+        disassembler.set_skipdata(true).unwrap();
+        let instructions = disassembler.disasm_all(&code, 0xF010_432A).unwrap();
+        let at = |address| {
+            instructions
+                .iter()
+                .find(|instruction| instruction.address() == address)
+                .unwrap_or_else(|| panic!("missing Thumb instruction at 0x{address:08X}"))
+        };
+
+        assert_eq!(at(0xF010_432A).mnemonic(), Some("bl"));
+        assert!(at(0xF010_432A).op_str().unwrap().contains("F0104976"));
+        assert_eq!(at(0xF010_432E).mnemonic(), Some("ldr"));
+        assert_eq!(at(0xF010_4330).mnemonic(), Some("subs"));
+        assert_eq!(at(0xF010_4332).mnemonic(), Some("str"));
+        assert!(at(0xF010_4332).op_str().unwrap().contains("#0x38"));
+
+        // The Type-8 scanner loads record.start at +0x0C, compares it with
+        // currentBase, then consumes size at +0x08 or truncates the interval.
+        assert_eq!(at(0xF010_4346).mnemonic(), Some("ldr"));
+        assert_eq!(at(0xF010_434A).mnemonic(), Some("cmp"));
+        assert_eq!(at(0xF010_4350).mnemonic(), Some("ldr"));
+        assert_eq!(at(0xF010_4352).mnemonic(), Some("adds"));
+        assert_eq!(at(0xF010_435A).mnemonic(), Some("subs"));
+        assert_eq!(at(0xF010_436C).mnemonic(), Some("cmp"));
+        assert_eq!(at(0xF010_4374).mnemonic(), Some("subs"));
+        assert_eq!(at(0xF010_4376).mnemonic(), Some("str"));
+    }
+
+    #[test]
     fn bse_alias_slot_table_matches_observed_firmware_addresses() {
         let cases = [
             (0x0000_0000, 0x000, 0x1009_0000),
