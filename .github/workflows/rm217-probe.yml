@@ -73,14 +73,11 @@ jobs:
             'The full trace and compact summary are written to the Desktop.'
             'The NOR ID and ready-bit overrides in this runner are diagnostic hypotheses, not validated hardware configuration.'
           ) | Set-Content -LiteralPath (Join-Path $kit 'README.txt') -Encoding UTF8
-          $zip = Join-Path $env:RUNNER_TEMP 'rm217-windows-trace-kit.zip'
-          Compress-Archive -Path (Join-Path $kit '*') -DestinationPath $zip -Force
-
       - name: Upload Windows BSE trace kit
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: rm217-windows-bse-trace-kit
-          path: ${{ runner.temp }}/rm217-windows-trace-kit.zip
+          path: ${{ runner.temp }}/rm217-windows-trace-kit/
           if-no-files-found: error
           retention-days: 14
