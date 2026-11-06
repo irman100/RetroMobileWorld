@@ -885,7 +885,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                 let r2 = cpu.reg_read(RegisterARM::R2).unwrap_or(0) as u32;
                 let r3 = cpu.reg_read(RegisterARM::R3).unwrap_or(0) as u32;
                 let mut descriptor = [0u8; 16];
-                let descriptor_read = cpu.mem_read(descriptor_ptr as u64, &mut descriptor).is_ok();
+                let descriptor_read = c3emu::mmu::read_virt(cpu, descriptor_ptr, &mut descriptor);
                 let service = if descriptor_read {
                     decode_secure_service(&descriptor)
                 } else {
@@ -904,7 +904,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     }
                     let (stub, description) = if allow_secure_service6_launch {
                         let mut prefix = vec![0u8; 0x500];
-                        if cpu.mem_read(r2 as u64, &mut prefix).is_err() {
+                        if !c3emu::mmu::read_virt(cpu, r2, &mut prefix) {
                             println!("  [NOLO ROM HLE] cannot read BB5 image prefix at 0x{r2:08X}");
                             unhandled_rom_fetch.set(Some((address as u32, pc, 6)));
                             let _ = cpu.emu_stop();
@@ -918,7 +918,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                         };
                         let stack = cpu.reg_read(RegisterARM::SP).unwrap_or(0);
                         let mut saved = [0u8; 16];
-                        if cpu.mem_read(stack, &mut saved).is_err() {
+                        if !c3emu::mmu::read_virt(cpu, stack as u32, &mut saved) {
                             println!("  [NOLO ROM HLE] cannot read four saved startup registers from SP=0x{stack:08X}");
                             unhandled_rom_fetch.set(Some((address as u32, pc, 6)));
                             let _ = cpu.emu_stop();
@@ -1019,13 +1019,11 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     })
     .map_err(|error| std::io::Error::other(format!("CPU exception hook failed: {error:?}")))?;
 
+    // Guest pointers (SP, descriptors, MCUSW tables and BSE roots) are virtual
+    // after SCTLR.M is enabled. Uc::mem_read is physical-only in c3emu, so route
+    // every diagnostic snapshot through the pinned ARMv5 MMU walker.
     fn read_stack_word(cpu: &Uc<'_>, base: u32, offset: u32) -> u32 {
-        let mut bytes = [0u8; 4];
-        if cpu.mem_read(base as u64 + offset as u64, &mut bytes).is_ok() {
-            u32::from_le_bytes(bytes)
-        } else {
-            u32::MAX
-        }
+        c3emu::mmu::virt_word(cpu, base.wrapping_add(offset)).unwrap_or(u32::MAX)
     }
 
     fn dump_memory_window(cpu: &Uc<'_>, label: &str, base: u32, length: u32) {
@@ -1034,7 +1032,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
             let address = base.saturating_add(offset);
             let mut bytes = [0u8; 16];
             let available = (length - offset).min(16) as usize;
-            if cpu.mem_read(address as u64, &mut bytes[..available]).is_err() {
+            if !c3emu::mmu::read_virt(cpu, address, &mut bytes[..available]) {
                 println!("    0x{address:08X}: <unreadable>");
                 continue;
             }
@@ -1086,7 +1084,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         for offset in (0..0x70u32).step_by(4) {
             let address = begin.saturating_add(offset);
             let mut word = [0u8; 4];
-            if cpu.mem_read(address as u64, &mut word).is_ok() {
+            if c3emu::mmu::read_virt(cpu, address, &mut word) {
                 println!(
                     "    stack[0x{address:08X}] = 0x{:08X}",
                     u32::from_le_bytes(word)
@@ -1335,6 +1333,20 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                 );
                 let sp = read(RegisterARM::SP);
 
+                if address == 0xF010_3ECE {
+                    let caller = read(RegisterARM::LR);
+                    let physical_alias = c3emu::mmu::virt_to_phys(cpu, read(RegisterARM::R2))
+                        .unwrap_or(u32::MAX);
+                    let alias = read(RegisterARM::R2);
+                    let map_root_candidate = read_stack_word(cpu, sp, 0x48);
+                    println!(
+                        "  [BSE mapper args] caller=0x{caller:08X} phys_base=0x{:08X} length=0x{:08X} bse_alias=0x{alias:08X} alias_slot_1MiB=0x{:X} guest_va_to_pa=0x{physical_alias:08X} SP=0x{sp:08X} SP+48_candidate=0x{map_root_candidate:08X}",
+                        read(RegisterARM::R0),
+                        read(RegisterARM::R1),
+                        alias >> 20
+                    );
+                }
+
                 if address == 0xF010_3ECE && read(RegisterARM::LR) == 0xF010_43A5 {
                     for (name, crn) in [("SCTLR", 1u32), ("TTBR", 2), ("DACR", 3), ("FCSEIDR", 13)] {
                         let mut cp15 = RegisterARMCP {
@@ -1469,7 +1481,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     dump_memory_window(cpu, "watch-pc live BSE region table", 0x0800_2F40, 0xA0);
                     for offset in (0u32..=0x60).step_by(4) {
                         let mut word = [0u8; 4];
-                        if cpu.mem_read(sp as u64 + offset as u64, &mut word).is_ok() {
+                        if c3emu::mmu::read_virt(cpu, sp.wrapping_add(offset), &mut word) {
                             println!(
                                 "  [watch-pc live mapper frame+0x{offset:02X}] = 0x{:08X}",
                                 u32::from_le_bytes(word)
@@ -1482,7 +1494,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     dump_memory_window(cpu, "watch-pc allocator region table", 0x0800_2F40, 0xA0);
                     for offset in [0x30u32, 0x34, 0x38, 0x3C, 0x40, 0x44, 0x48, 0x4C] {
                         let mut word = [0u8; 4];
-                        if cpu.mem_read(sp as u64 + offset as u64, &mut word).is_ok() {
+                        if c3emu::mmu::read_virt(cpu, sp.wrapping_add(offset), &mut word) {
                             println!(
                                 "  [watch-pc allocator local+0x{offset:02X}] = 0x{:08X}",
                                 u32::from_le_bytes(word)
@@ -1501,7 +1513,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     }
                     for offset in (0u32..=0x54).step_by(4) {
                         let mut word = [0u8; 4];
-                        if cpu.mem_read(sp as u64 + offset as u64, &mut word).is_ok() {
+                        if c3emu::mmu::read_virt(cpu, sp.wrapping_add(offset), &mut word) {
                             println!(
                                 "  [watch-pc frame+0x{offset:02X}] = 0x{:08X}",
                                 u32::from_le_bytes(word)
@@ -1534,7 +1546,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                         0x94,
                     );
                     let mut table_ptr_bytes = [0u8; 4];
-                    if cpu.mem_read(pointer_r2 as u64 + 0x70, &mut table_ptr_bytes).is_ok() {
+                    if c3emu::mmu::read_virt(cpu, pointer_r2.wrapping_add(0x70), &mut table_ptr_bytes) {
                         let table_ptr = u32::from_le_bytes(table_ptr_bytes);
                         println!("  [watch-pc HW-config table pointer] = 0x{table_ptr:08X}");
                         if (0x0002_0000..=0x00FF_FFFF).contains(&table_ptr) {
@@ -1545,7 +1557,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     dump_memory_window(cpu, "watch-pc r2 target", pointer_r2, 0x100);
                 }
                 let mut stack_argument = [0u8; 4];
-                if cpu.mem_read(sp as u64 + 0x44, &mut stack_argument).is_ok() {
+                if c3emu::mmu::read_virt(cpu, sp.wrapping_add(0x44), &mut stack_argument) {
                     let pointer = u32::from_le_bytes(stack_argument);
                     if (0x0800_0000..=0x1FFF_FFFF).contains(&pointer) && hit == 0 {
                         dump_memory_window(cpu, "watch-pc stack+0x44 target", pointer, 0x100);
@@ -1575,9 +1587,12 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                 if (0xF010_4380..=0xF010_4400).contains(&pc) {
                     let n = count.get();
                     count.set(n + 1);
-                    if n < 128 {
+                    if n < 256 {
+                        let guest_va = address as u32;
+                        let physical = c3emu::mmu::virt_to_phys(cpu, guest_va)
+                            .unwrap_or(u32::MAX);
                         println!(
-                            "  [guest-stack-read {n:03}] VA=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
+                            "  [guest-stack-read {n:03}] VA=0x{guest_va:08X} PA=0x{physical:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
                         );
                     }
                 }
