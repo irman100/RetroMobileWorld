@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import codecs
 import re
 from pathlib import Path
 
@@ -65,6 +66,24 @@ def slot_index_from_address(address: int) -> int | None:
 
 def _hex(value: int, width: int = 8) -> str:
     return f"0x{value:0{width}X}"
+
+
+def decode_trace_bytes(data: bytes) -> str:
+    """Decode UTF-8 or Windows PowerShell UTF-16 redirection output."""
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return data.decode("utf-16", errors="replace")
+    if data.startswith(codecs.BOM_UTF8):
+        return data.decode("utf-8-sig", errors="replace")
+    # Windows PowerShell 5.1 may emit UTF-16LE without a BOM in some pipelines.
+    sample = data[:4096]
+    if b"\\x00" in sample:
+        even_nulls = sample[0::2].count(0)
+        odd_nulls = sample[1::2].count(0)
+        if odd_nulls > even_nulls:
+            return data.decode("utf-16-le", errors="replace")
+        if even_nulls > odd_nulls:
+            return data.decode("utf-16-be", errors="replace")
+    return data.decode("utf-8", errors="replace")
 
 
 def build_summary(text: str, source_name: str = "<trace>") -> str:
@@ -273,7 +292,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        raw = args.trace.read_text(encoding="utf-8", errors="replace")
+        raw = decode_trace_bytes(args.trace.read_bytes())
     except OSError as exc:
         parser.error(f"cannot read trace {args.trace}: {exc}")
 
