@@ -1280,15 +1280,26 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     dump_memory_window(cpu, "watch-pc r2 target", pointer_r2, 0x100);
                 }
                 let sp = read(RegisterARM::SP);
+                // These stack arguments carry the current descriptor metadata,
+                // memory-map root, and enclosing region bounds. Print them on
+                // every watched call so repeated map operations can be compared.
+                for offset in [0x18u32, 0x1C, 0x20, 0x24, 0x30, 0x34, 0x38, 0x3C, 0x44] {
+                    let mut word = [0u8; 4];
+                    if cpu.mem_read(sp as u64 + offset as u64, &mut word).is_ok() {
+                        println!(
+                            "  [watch-pc stack+0x{offset:02X}] = 0x{:08X}",
+                            u32::from_le_bytes(word)
+                        );
+                    }
+                }
                 let mut stack_argument = [0u8; 4];
                 if cpu.mem_read(sp as u64 + 0x44, &mut stack_argument).is_ok() {
                     let pointer = u32::from_le_bytes(stack_argument);
-                    println!("  [watch-pc stack+0x44] = 0x{pointer:08X}");
-                    if (0x0800_0000..=0x1FFF_FFFF).contains(&pointer) {
+                    if (0x0800_0000..=0x1FFF_FFFF).contains(&pointer) && hit == 0 {
                         dump_memory_window(cpu, "watch-pc stack+0x44 target", pointer, 0x100);
                     }
                 }
-                if sp != 0 && sp <= 0x0FFF_FFFF {
+                if sp != 0 && sp <= 0x0FFF_FFFF && hit == 0 {
                     dump_memory_window(cpu, "watch-pc stack", sp.saturating_sub(0x10), 0x70);
                 }
             }
