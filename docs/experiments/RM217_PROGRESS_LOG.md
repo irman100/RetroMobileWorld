@@ -4,11 +4,12 @@
 
 **Обновлено:** 6 ноября 2026  
 **Ветка:** `feature/j2me-library-bridge-20261104`  
-**HEAD валидированного probe-кода:** `324719a3b387d596fb96dc5542c48df9795ffbfb`  
-**PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит.  
-**CI для текущего HEAD `304b297`: успешно:**
-- [Android CI #42268498333](https://github.com/irman100/RetroMobileWorld/actions/runs/42268498333)
-- [RM-217 Boot Probe #42268498270](https://github.com/irman100/RetroMobileWorld/actions/runs/42268498270) — Linux и Windows build/test
+**HEAD последнего проверенного probe-кода:** `25b59d4f2d9925710ad821b3b2529c74ccbce17e`  
+**PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит; GitHub показывает `mergeable_state=clean`.  
+**CI для HEAD `25b59d4`: успешно:**
+- [RM-217 Boot Probe #42284063828](https://github.com/irman100/RetroMobileWorld/actions/runs/42284063828) — Linux и Windows tests/build, Windows trace-kit.
+- [Android CI #42284063979](https://github.com/irman100/RetroMobileWorld/actions/runs/42284063979) — success.
+- [Android CI #42284059351](https://github.com/irman100/RetroMobileWorld/actions/runs/42284059351) — success.
 
 Исторические проверки для предыдущих диагностических коммитов сохранены в соответствующих разделах ниже.
 
@@ -614,3 +615,111 @@ slot_address = 0x10090000 + 4 * (alias >> 20)
 - запуск Series 40.
 
 Поэтому этот прогон — важный воспроизводимый breakthrough в причине BSE assertion, но ещё не запуск ОС.
+
+---
+
+## 15. Type-8 occupied tail, предшествующие NOR mappings и источник alias (2026-11-06, commit `25b59d4f2d9925710ad821b3b2529c74ccbce17e`)
+
+### 15.1 Повторный анализ уже полученной трассы
+
+Этот этап основан на ранее переданном пользовательском trace `rm217-bse-alias-mmuv2.txt` (2864 строки). Новый запуск прошивки на телефоне в этом этапе не выполнялся. Исходный trace не добавлялся в GitHub: в репозитории сохраняются только код диагностик, тестовые fixtures и числовые наблюдения.
+
+Подтверждённые mapper-вызовы из того же descriptor walk:
+
+| Caller / LR | Physical base | Length | BSE alias | Alias slot |
+|---|---:|---:|---:|---:|
+| `0xF01041CF` | `0x01600000` | `0x00A00000` | `0xC1600000` | `0xC16` |
+| `0xF01042E1` | `0x00000000` | `0x0000B000` | `0xC0000000` | `0xC00` |
+| `0xF01043A5` | `0x00000000` | `0x01600000` | `0x00000000` | `0x000` |
+
+Первый из этих вызовов отображает физический интервал `[0x01600000, 0x02000000)` — те же границы, которые задаёт Type-8 record. Для него используется отдельный alias `0xC1600000`; trace фиксирует заполнение соответствующих слотов начиная с `0xC16`. Второй вызов отображает небольшой нижний участок `[0, 0xB000)` через alias `0xC0000000`.
+
+Поздний вызов `0xF01043A5` отображает свободный префикс `[0, 0x01600000)` через alias `0`. Именно он повторно обращается к BSE slot 0, ранее занятому static prelude mapping с alias `0`, и получает marker `0x3E`.
+
+Это добавляет важный контекст к разделу 14: перед конфликтующим вызовом firmware уже создаёт отдельные BSE mappings для NOR-tail и небольшого low window. Совпадение physical range первого вызова с Type-8 occupied interval подтверждено значениями trace; точная связь source descriptor с caller `0xF01041CF` пока не доказана. Нельзя автоматически считать `0xC1600000` «правильным alias» для позднего свободного префикса: это другой физический диапазон и другой вызов.
+
+### 15.2 Восстановленная Thumb-логика allocator
+
+Из little-endian code words в старом trace восстановлен Thumb-код окна `0xF010432A..0xF010437A` и декодирован как ARM Thumb. Существенная последовательность:
+
+```text
+0xF010432A  BL    0xF0104976
+0xF010432E  LDR   r4, [pc, #0xF4]
+0xF0104330  SUBS  r0, r4, r0
+0xF0104332  STR   r0, [sp, #0x38]
+0xF0104334  STR   r0, [sp, #0x1C]
+0xF0104336  MOVS  r0, #0
+0xF0104338  B     0xF010448A
+```
+
+Thumb literal load по адресу `0xF010432E` с учётом `PC+4` и word alignment ссылается на literal address `0xF0104424`. Важный установленный факт: значение, которое затем передаётся общему BSE mapper как `r2`, инициализируется вычислением `r4 - r0` и сохраняется в `SP+0x38`. Вызов `0xF0104976` предшествует этому вычислению; вероятно, именно он возвращает один из операндов, но значение его результата в старой трассе не зафиксировано.
+
+Отдельный участок Type-8 scan в том же code window:
+- `0xF0104346`: `LDR r1, [r0, #0xC]` — загрузка start из записи.
+- `0xF0104348`: загрузка текущего free base из `SP+0x30`; далее сравнение.
+- При равенстве start и current base код добавляет descriptor size из `+0x08` к base и вычитает size из оставшейся длины.
+- Если start находится строго внутри текущего free interval, код сокращает оставшуюся длину до `start - current_base`.
+
+Для наблюдаемой записи `0x0800381C`:
+- `record+0x08 = 0x00A00000` (size);
+- `record+0x0C = 0x01600000` (start);
+- occupied interval = `[0x01600000, 0x02000000)`;
+- после scan = `base=0`, `length=0x01600000`;
+- перед mapper `SP+0x38=0`, поэтому фактические args позднего вызова включают `r2=0`.
+
+Это подтверждает работу free-range subtraction и место, откуда берётся mapper alias input. **Не установлено**, почему helper/literal дают нулевой результат для этой конкретной конфигурации. Также не установлено, должен ли статический alias-0 prelude mapping исключаться из free-range list или должен ли поздний allocator выбирать другой alias. Map firmware не менялся.
+
+### 15.3 Что добавлено в код и тесты
+
+В `scripts/summarize_rm217_bse_trace.py`:
+- выделены ключевые mapper calls: static prelude, static alias `FF1`, previous high-range mapping `C16`, previous low window `C00`, late NOR allocator;
+- добавлен разбор pointer Type-8 record, raw descriptor bytes и allocator intervals;
+- вывод `record+0x08/+0x0C`, computed end и интервалов после scan / перед mapper;
+- slot reads/writes объединяются по guest slot, чтобы краткий отчёт не повторял длинный trace.
+
+В `scripts/tests/test_summarize_rm217_bse_trace.py` добавлен synthetic fixture с обоими предыдущими mapper calls, Type-8 raw fields и интервалами. Проверяется, что summary сохраняет ключевые события, считает все 45 synthetic mapper rows и не печатает посторонние mapper details. Тестовый fixture — проверка parser, не новая firmware trace.
+
+В `scripts/run_rm217_bse_alias_trace.ps1` добавлены exact-PC watchpoints:
+- `0xF010432A` — состояние до вызова helper `0xF0104976`;
+- `0xF0104330` — оба операнда непосредственно перед `SUBS r0, r4, r0`;
+- `0xF0104332` — вычисленный alias value перед записью в `SP+0x38`;
+- `0xF0104874`, `0xF0104880`, `0xF0104898` — регистры вокруг начала static-map loop и перед mapper sequence.
+
+Эти точки должны закрыть два пробела: откуда helper получает входное значение и как static-map prelude формируется до первого вызова общего mapper.
+
+### 15.4 Аппаратная документация: подтверждено и остаётся открытым
+
+Nokia Level 3/4 service manual для RM-217/RM-222 указывает BB5.0 с RAPGSM и combo memory `128 Mbit SDRAM + 256 Mbit NOR flash` (D3000). [Service manual PDF](https://usermanual.wiki/Document/nokia6300rm2176300brm222servicemanual34v10.1237121143.pdf).
+
+Схема платы называет D3000 компонентом `K5G5629ATB-SF75` и маркирует combo как `256M NOR + 128M DDR DRAM`. [Service schematic PDF](https://usermanual.wiki/Document/nokia6300rm2176300brm222serviceschematicsv20.673614552.pdf).
+
+Сохраняется терминологическое различие источников: manual пишет SDRAM, схема — DDR DRAM. Точный Samsung datasheet для суффикса `K5G5629ATB-SF75`, его bus timings и доказательство идентичного состава кристалла из доступных материалов здесь не установлены. Нельзя выводить JEDEC ID `0x00EC:0x2208` из одного номера компонента. NOR ID и ASIC ready-bit flags в probe по-прежнему диагностические overrides, а не подтверждённая аппаратная модель.
+
+### 15.5 CI, trace kit и следующий checkpoint
+
+Для HEAD `25b59d4f2d9925710ad821b3b2529c74ccbce17e`:
+- [RM-217 Boot Probe #42284063828](https://github.com/irman100/RetroMobileWorld/actions/runs/42284063828) — success, Windows и Linux tests/build.
+- [Android CI #42284063979](https://github.com/irman100/RetroMobileWorld/actions/runs/42284063979) — success.
+- [Android CI #42284059351](https://github.com/irman100/RetroMobileWorld/actions/runs/42284059351) — success.
+
+Опубликован свежий Windows BSE trace kit:
+- artifact `rm217-windows-bse-trace-kit`, ID `13537156195`;
+- SHA-256 `6da045af2e496956088251af63ca15890bf5c8bfbefc45af4442f2328f21aa3a`;
+- комплект содержит probe executable, PowerShell runner, summarizer и README.
+
+Следующий запуск должен использовать комплект из указанного CI run и исходный RM-217 Phoenix ZIP. Пример PowerShell:
+
+```powershell
+.\run_rm217_bse_alias_trace.ps1 'E:\RM-217.zip'
+```
+
+Runner сохраняет полный trace `Desktop\rm217-bse-alias-mmuv2.txt` и краткую сводку `Desktop\rm217-bse-alias-mmuv2.summary.txt`. Для первичного анализа достаточно прислать summary; полный trace сохранить на случай необходимости проверить конкретные PC windows.
+
+В новом trace проверить:
+1. `PC=0xF010432A`: входные регистры перед helper `0xF0104976`.
+2. `PC=0xF0104330`: `r0` после helper, literal-derived `r4`, вычисляемое `r4-r0`.
+3. `PC=0xF0104332`: `r0` и stack destination `SP+0x38`.
+4. `PC=0xF0104874/4880/4898`: источник static prelude mapping с `(base=0, size=1 MiB, alias=0)` и соответствие cursor/raw table.
+5. Поздний вызов `0xF01043A5`: проверить, что `SP+0x38` без дополнительного преобразования становится `r2=0`.
+
+**Не менять** static table, Type-8 record, NOR base, alias calculation или assertion до этого trace. Не считать host probe exit code 0 прохождением guest BSE. На текущем checkpoint firmware всё ещё останавливается на BSE assertion; stable LCD frame и запуск Series 40 не подтверждены.
