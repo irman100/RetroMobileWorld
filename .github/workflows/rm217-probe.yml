@@ -51,3 +51,36 @@ jobs:
           path: ${{ matrix.binary }}
           if-no-files-found: error
           retention-days: 14
+
+      - name: Assemble Windows BSE trace kit
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $kit = Join-Path $env:RUNNER_TEMP 'rm217-windows-trace-kit'
+          New-Item -ItemType Directory -Force -Path $kit | Out-Null
+          Copy-Item 'engine/rm217-boot-probe/target/release/rm217-boot-probe.exe' $kit
+          Copy-Item 'scripts/run_rm217_bse_alias_trace.ps1' $kit
+          Copy-Item 'scripts/summarize_rm217_bse_trace.py' $kit
+          @(
+            'RM-217 BSE trace kit'
+            ''
+            'Contains the Windows probe, PowerShell runner and compact trace summarizer.'
+            'Requires Python 3 on PATH (py launcher or python command).'
+            ''
+            'Run from PowerShell:'
+            '.\run_rm217_bse_alias_trace.ps1 "E:\RM-217.zip"'
+            ''
+            'The full trace and compact summary are written to the Desktop.'
+            'The NOR ID and ready-bit overrides in this runner are diagnostic hypotheses, not validated hardware configuration.'
+          ) | Set-Content -LiteralPath (Join-Path $kit 'README.txt') -Encoding UTF8
+          $zip = Join-Path $env:RUNNER_TEMP 'rm217-windows-trace-kit.zip'
+          Compress-Archive -Path (Join-Path $kit '*') -DestinationPath $zip -Force
+
+      - name: Upload Windows BSE trace kit
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rm217-windows-bse-trace-kit
+          path: ${{ runner.temp }}/rm217-windows-trace-kit.zip
+          if-no-files-found: error
+          retention-days: 14
