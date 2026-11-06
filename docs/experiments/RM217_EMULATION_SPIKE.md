@@ -328,3 +328,64 @@ write-buffer behaviour, and cycle-accurate bus timing.
 
 This confirms the CPU implementation being used; it does not independently prove
 that the RM-217 RAPGSM silicon contains exactly the same ARM926 revision.
+
+
+## NOR hand-off and BSE low-window overlap (2026-11-06)
+
+The NOLO readiness-loop instruction was rechecked from its Thumb bytes. The
+sequence at `0x00020DF8` loads a status word, executes `LSLS #31`, then
+branches on Z. This tests **bit 0 of the original status word**, not bit 31.
+The prior bit-31 interpretation was wrong. For the CPU-only comparison run,
+the probe now uses the explicit diagnostic overrides
+`--ready-bit=0x20032D80:0`, `--ready-bit=0x20032D20:0` and
+`--ready-bit=0x20032D40:0`. These are test overrides, not a model of the
+ASIC's real ready-state transitions.
+
+With those overrides and the candidate NOR autoselect response
+`0x00EC:0x2208`, NOLO reaches Secure Service 0x06 and launches MCUSW.
+The ID response remains provisional for the exact K5G5629ATB-SF75 device;
+this experiment does not establish a complete NOR-controller model.
+
+### Current BSE assertion path
+
+The most recent full trace reaches a non-empty BSE mapping table. It does not
+fail at `0xF010431A` on this path: the conditional branch at
+`0xF0104318` is taken and skips that call. The active assertion is
+`0xF0103C0A`.
+
+The mapper's first static-table pass is visible at
+`0xF0104898`. Its table begins at `0xF0105AEC` and it calls
+`0xF0103ECE`. The first mapping request is an identity mapping of
+`0x00000000..0x00100000`. The mapper writes `0x3E` into the first
+map slot at `0x10090000` (write at `0xF0103C3E`).
+
+A later BSE region pass calls the same mapping helper from
+`0xF01043A0` (return address `0xF01043A5`). At helper entry, the
+observed arguments are:
+
+- base `0x00000000`
+- length `0x01600000` (22 MiB)
+- destination/alias `0x00000000`
+- descriptor context includes `0x0800382C`, the NOR descriptor record:
+  type `0x24`, size `0x02000000`, base `0x00000000`,
+  manufacturer `0x00EC` and device `0x2208`.
+
+The first mapper slot is already non-zero (`0x3E`). The second call
+reads it at `0xF0103C04`, sees that it is occupied, and calls the
+assert helper at `0xF0103C0A`. This proves a conflict between the
+initial 1-MiB identity mapping and a later 22-MiB mapping starting at the same
+base. It does **not yet prove** whether the second mapping's base should be
+different, whether the initial mapping is intended to be replaced/extended, or
+whether an earlier hardware/boot configuration step should remove the overlap.
+
+The adjacent descriptor at `0x08003820` contains type `0x10`,
+base `0x00A00000` and size `0x01600000`. Its exact role in
+producing the zero-based 22-MiB mapping is not yet established. The next
+investigation is to trace how this record and the NOR descriptor are transformed
+into the call arguments at `0xF01043A0`, then compare that with the
+static low-window mapping table. No mapping values have been patched and the
+assertion has not been suppressed.
+
+This remains a CPU-only diagnostic run with synthetic readiness and NOR-ID
+inputs plus the explicit legacy unmapped-as-RAM fallback. It is not a successful
+phone boot or a verified complete RM-217 hardware model.
