@@ -63,7 +63,7 @@ Probe exit code: 0
         self.assertIn("host probe exit code 0 only means", summary.lower())
 
     def test_summary_coalesces_slot_values_and_omits_unrelated_mapper_details(self):
-        trace = "\\n".join([
+        trace = "\n".join([
             "[BSE mapper args] caller=0xF010489D phys_base=0x00000000 length=0x00100000 bse_alias=0x00000000 alias_slot_1MiB=0x0 slot_address=0x10090000 guest_va_to_pa=0x00000000",
             "[BSE mapper args] caller=0xF010489D phys_base=0x00000000 length=0x00100000 bse_alias=0xFF100000 alias_slot_1MiB=0xFF1 slot_address=0x10093FC4 guest_va_to_pa=0xFF100000",
             "[BSE mapper args] caller=0xF01043A5 phys_base=0x00000000 length=0x01600000 bse_alias=0x00000000 alias_slot_1MiB=0x0 slot_address=0x10090000 guest_va_to_pa=0x00000000",
