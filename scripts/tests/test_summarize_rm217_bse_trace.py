@@ -103,7 +103,7 @@ Probe exit code: 0
             summary,
         )
         self.assertNotIn("LR=0xF0104000", summary)
-        self.assertIn("Mapper calls parsed: 43", summary)
+        self.assertIn("Mapper calls parsed: 45", summary)
         self.assertLess(len(summary.splitlines()), 60)
 
     def test_summary_flags_wrong_logged_slot_index(self):
