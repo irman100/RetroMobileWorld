@@ -1,0 +1,290 @@
+#!/usr/bin/env python3
+"""Create a compact, evidence-only report from an RM-217 BSE probe trace."""
+
+from __future__ import annotations
+
+import argparse
+import re
+from pathlib import Path
+
+BSE_SLOT_BASE = 0x10090000
+BSE_SLOT_COUNT = 0x1000
+BSE_SLOT_BYTES = 4
+BSE_SLOT_END = BSE_SLOT_BASE + BSE_SLOT_COUNT * BSE_SLOT_BYTES
+
+MAPPER_RE = re.compile(
+    r"\[BSE mapper args\]\s+caller=0x([0-9A-Fa-f]+)\s+"
+    r"phys_base=0x([0-9A-Fa-f]+)\s+length=0x([0-9A-Fa-f]+)\s+"
+    r"bse_alias=0x([0-9A-Fa-f]+)\s+alias_slot_1MiB=0x([0-9A-Fa-f]+)"
+    r"(?:\s+slot_address=0x([0-9A-Fa-f]+))?"
+)
+SLOT_READ_RE = re.compile(
+    r"\[BSE slot-table-read\s+(\d+)\]\s+VA=0x([0-9A-Fa-f]+)\s+"
+    r"PA=0x([0-9A-Fa-f]+)\s+size=(\d+)\s+value=0x([0-9A-Fa-f]+)\s+"
+    r"pc=0x([0-9A-Fa-f]+)"
+)
+ALLOC_WRITE_RE = re.compile(
+    r"\[BSE-memory-trace BSE-alloc-buffer-write\s+(\d+)\]\s+"
+    r"addr=0x([0-9A-Fa-f]+)\s+size=(\d+)\s+value=0x([0-9A-Fa-f]+)\s+"
+    r"pc=0x([0-9A-Fa-f]+)"
+)
+MAPPER_WATCH_RE = re.compile(
+    r"\[watch-pc hit=(\d+)\]\s+pc=0xF0103ECE\b.*?"
+    r"\br0=0x([0-9A-Fa-f]+)\s+r1=0x([0-9A-Fa-f]+)\s+"
+    r"r2=0x([0-9A-Fa-f]+).*?\blr=0x([0-9A-Fa-f]+)"
+)
+ASSERT_WATCH_RE = re.compile(
+    r"\[watch-pc hit=\d+\]\s+pc=0xF0103C0A\b.*?\br0=0x([0-9A-Fa-f]+)"
+)
+CURSOR_RE = re.compile(
+    r"\[watch-pc static-map (?:cursor|entry)\]\s+"
+    r"(?:loop-index|index)=(\d+)\s+(?:cursor|entry)=0x([0-9A-Fa-f]+)"
+)
+EXIT_RE = re.compile(r"Probe exit code:\s*(-?\d+)")
+STOP_RE = re.compile(r"(?m)^=== PROBE STOP ===\s*\n([^\r\n]+)")
+
+
+def bse_slot_index(alias: int) -> int:
+    """Return the 1-MiB alias slot index used by the observed firmware."""
+    return alias >> 20
+
+
+def bse_slot_address(alias: int) -> int:
+    """Return the address of the u32 slot in the observed BSE table."""
+    return BSE_SLOT_BASE + bse_slot_index(alias) * BSE_SLOT_BYTES
+
+
+def slot_index_from_address(address: int) -> int | None:
+    offset = address - BSE_SLOT_BASE
+    if offset < 0 or offset >= BSE_SLOT_COUNT * BSE_SLOT_BYTES:
+        return None
+    if offset % BSE_SLOT_BYTES:
+        return None
+    return offset // BSE_SLOT_BYTES
+
+
+def _hex(value: int, width: int = 8) -> str:
+    return f"0x{value:0{width}X}"
+
+
+def build_summary(text: str, source_name: str = "<trace>") -> str:
+    lines = text.splitlines()
+    mapper_calls: list[dict[str, int]] = []
+    slot_reads: list[dict[str, int]] = []
+    slot_writes: list[dict[str, int]] = []
+    cursor_rows: list[tuple[int, int]] = []
+    warnings: list[str] = []
+
+    for line in lines:
+        match = MAPPER_RE.search(line)
+        if match:
+            caller, phys, length, alias, logged_index, logged_address = match.groups()
+            record = {
+                "caller": int(caller, 16),
+                "phys": int(phys, 16),
+                "length": int(length, 16),
+                "alias": int(alias, 16),
+                "logged_index": int(logged_index, 16),
+            }
+            record["index"] = bse_slot_index(record["alias"])
+            record["slot_address"] = bse_slot_address(record["alias"])
+            if logged_address is not None:
+                record["logged_address"] = int(logged_address, 16)
+                if record["logged_address"] != record["slot_address"]:
+                    warnings.append(
+                        f"mapper caller {_hex(record['caller'])}: logged slot address "
+                        f"{_hex(record['logged_address'])} != formula {_hex(record['slot_address'])}"
+                    )
+            if record["logged_index"] != record["index"]:
+                warnings.append(
+                    f"mapper caller {_hex(record['caller'])}: logged alias index "
+                    f"{_hex(record['logged_index'], 3)} != formula {_hex(record['index'], 3)}"
+                )
+            mapper_calls.append(record)
+
+        match = SLOT_READ_RE.search(line)
+        if match:
+            sequence, va, pa, size, value, pc = match.groups()
+            address = int(va, 16)
+            slot_reads.append({
+                "sequence": int(sequence),
+                "va": address,
+                "pa": int(pa, 16),
+                "size": int(size),
+                "value": int(value, 16),
+                "pc": int(pc, 16),
+                "index": slot_index_from_address(address),
+            })
+
+        match = ALLOC_WRITE_RE.search(line)
+        if match:
+            sequence, address, size, value, pc = match.groups()
+            address_value = int(address, 16)
+            if BSE_SLOT_BASE <= address_value < BSE_SLOT_END:
+                slot_writes.append({
+                    "sequence": int(sequence),
+                    "address": address_value,
+                    "size": int(size),
+                    "value": int(value, 16),
+                    "pc": int(pc, 16),
+                    "index": slot_index_from_address(address_value),
+                })
+
+        match = CURSOR_RE.search(line)
+        if match:
+            cursor_rows.append((int(match.group(1)), int(match.group(2), 16)))
+
+    exit_match = EXIT_RE.search(text)
+    stop_match = STOP_RE.search(text)
+    assertion_values = [int(x, 16) for x in ASSERT_WATCH_RE.findall(text)]
+    assertion_formatter = "assertion-format-output" in text
+
+    static_zero = [
+        call for call in mapper_calls
+        if call["caller"] == 0xF010489D
+        and call["alias"] == 0
+        and call["length"] == 0x00100000
+    ]
+    nor_zero = [
+        call for call in mapper_calls
+        if call["caller"] == 0xF01043A5
+        and call["alias"] == 0
+        and call["length"] == 0x01600000
+    ]
+    marker_reads = [
+        read for read in slot_reads
+        if read["va"] == BSE_SLOT_BASE and read["value"] == 0x3E
+    ]
+    marker_writes = [
+        write for write in slot_writes
+        if write["address"] == BSE_SLOT_BASE and write["value"] == 0x3E
+    ]
+
+    out = [
+        "RM-217 BSE TRACE SUMMARY",
+        f"Source: {source_name}",
+        f"Lines scanned: {len(lines)}",
+        f"Mapper calls parsed: {len(mapper_calls)}",
+        f"Slot-table reads parsed: {len(slot_reads)}",
+        f"Slot-table writes parsed: {len(slot_writes)}",
+    ]
+
+    if exit_match:
+        out.append(f"Host probe exit code: {exit_match.group(1)}")
+    if stop_match:
+        out.append(f"Probe stop: {stop_match.group(1)}")
+
+    out.append("")
+    out.append("MAPPER CALLS (caller / base / length / alias / index / slot)")
+    for call in mapper_calls:
+        if call["caller"] == 0xF010489D:
+            role = "static"
+        elif call["caller"] == 0xF01043A5:
+            role = "NOR allocator"
+        else:
+            role = "other"
+        out.append(
+            f"- {role:12s} LR={_hex(call['caller'])} "
+            f"base={_hex(call['phys'])} len={_hex(call['length'])} "
+            f"alias={_hex(call['alias'])} index={_hex(call['index'], 3)} "
+            f"slot={_hex(call['slot_address'])}"
+        )
+
+    out.append("")
+    out.append("BSE SLOT READS")
+    for read in slot_reads[:32]:
+        index = "outside-table" if read["index"] is None else _hex(read["index"], 3)
+        out.append(
+            f"- #{read['sequence']:03d} VA={_hex(read['va'])} "
+            f"PA={_hex(read['pa'])} index={index} value={_hex(read['value'])} "
+            f"PC={_hex(read['pc'])}"
+        )
+    if len(slot_reads) > 32:
+        out.append(f"- ... {len(slot_reads) - 32} additional reads omitted")
+
+    out.append("")
+    out.append("BSE SLOT WRITES")
+    for write in slot_writes[:32]:
+        index = "outside-table" if write["index"] is None else _hex(write["index"], 3)
+        out.append(
+            f"- #{write['sequence']:03d} addr={_hex(write['address'])} "
+            f"index={index} value={_hex(write['value'])} PC={_hex(write['pc'])}"
+        )
+    if len(slot_writes) > 32:
+        out.append(f"- ... {len(slot_writes) - 32} additional writes omitted")
+
+    out.append("")
+    out.append("TRACE SIGNATURES")
+    if static_zero:
+        out.append("FOUND: static/prelude mapper requests alias 0 for a 1-MiB range.")
+    else:
+        out.append("NOT FOUND: expected static/prelude alias-0 mapping was not parsed.")
+    if nor_zero:
+        out.append("FOUND: late NOR allocator requests alias 0 for a 0x01600000 range.")
+    else:
+        out.append("NOT FOUND: expected late NOR alias-0 allocator call was not parsed.")
+    if marker_writes:
+        out.append("FOUND: guest writes marker 0x3E to BSE slot 0 (0x10090000).")
+    else:
+        out.append("NOT FOUND: marker write 0x3E to BSE slot 0 was not parsed.")
+    if marker_reads:
+        out.append("FOUND: guest later reads marker 0x3E from BSE slot 0.")
+    else:
+        out.append("NOT FOUND: marker read 0x3E from BSE slot 0 was not parsed.")
+    if assertion_values:
+        out.append(
+            "Observed PC 0xF0103C0A register r0 values: "
+            + ", ".join(_hex(value) for value in assertion_values)
+        )
+    if assertion_formatter:
+        out.append("Observed: guest assertion formatter path was entered.")
+
+    out.append("")
+    out.append("VALIDATION")
+    if static_zero and nor_zero and marker_writes and marker_reads:
+        out.append(
+            "Alias-0 collision signature is present: the static/prelude call and "
+            "late NOR allocator resolve to the same BSE slot, and marker 0x3E "
+            "is written then read there."
+        )
+    else:
+        out.append(
+            "The complete alias-0 collision signature is NOT present in the parsed "
+            "trace; inspect the missing section before drawing a conclusion."
+        )
+    if warnings:
+        for warning in warnings:
+            out.append(f"WARNING: {warning}")
+    else:
+        out.append("No mismatch found between parsed alias indices and the slot formula.")
+
+    out.append("")
+    out.append(
+        "IMPORTANT: host probe exit code 0 only means the probe process completed; "
+        "it is not evidence that the guest firmware booted successfully."
+    )
+    return "\n".join(out) + "\n"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("trace", type=Path, help="full rm217-bse-alias trace text file")
+    parser.add_argument("--output", type=Path, help="also write the compact summary to this path")
+    args = parser.parse_args()
+
+    try:
+        raw = args.trace.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        parser.error(f"cannot read trace {args.trace}: {exc}")
+
+    report = build_summary(raw, str(args.trace))
+    print(report, end="")
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(report, encoding="utf-8")
+        print(f"Summary saved: {args.output}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
