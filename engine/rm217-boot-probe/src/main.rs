@@ -988,6 +988,20 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     })
     .map_err(|error| std::io::Error::other(format!("unmapped hook failed: {error:?}")))?;
 
+    // The pinned c3emu ARM926 interpreter reports SWI/abort/breakpoint events
+    // through an interrupt hook without performing architectural vector entry.
+    // Stop explicitly at this boundary until the RM-217 exception path is modeled.
+    uc.add_intr_hook(|cpu, exception_code| {
+        let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0) as u32;
+        let cpsr = cpu.reg_read(RegisterARM::CPSR).unwrap_or(0) as u32;
+        let lr = cpu.reg_read(RegisterARM::LR).unwrap_or(0) as u32;
+        println!(
+            "  [CPU exception boundary] backend_code={exception_code} pc=0x{pc:08X} cpsr=0x{cpsr:08X} lr=0x{lr:08X}; architectural vector entry is not implemented"
+        );
+        let _ = cpu.emu_stop();
+    })
+    .map_err(|error| std::io::Error::other(format!("CPU exception hook failed: {error:?}")))?;
+
     fn dump_memory_window(cpu: &Uc<'_>, label: &str, base: u32, length: u32) {
         println!("  [{label}] 0x{base:08X}..0x{:08X}", base.saturating_add(length));
         for offset in (0..length).step_by(16) {
