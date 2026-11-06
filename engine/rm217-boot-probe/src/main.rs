@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use c3emu::fpsx::{Fpsx, Region};
-use c3emu::uc::{new_cpu, HookType, MemType, Prot, RegisterARM, Uc};
+use c3emu::uc::{new_cpu, HookType, MemType, Prot, RegisterARM, RegisterARMCP, Uc};
 use zip::ZipArchive;
 
 const DEFAULT_INSTRUCTIONS: u64 = 1_000_000;
@@ -1328,6 +1328,38 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                 );
                 let sp = read(RegisterARM::SP);
 
+                if address == 0xF010_3ECE && read(RegisterARM::LR) == 0xF010_43A5 {
+                    for (name, crn) in [("SCTLR", 1u32), ("TTBR", 2), ("DACR", 3), ("FCSEIDR", 13)] {
+                        let mut cp15 = RegisterARMCP {
+                            cp: 15,
+                            is64: 0,
+                            sec: 0,
+                            crn,
+                            crm: 0,
+                            opc1: 0,
+                            opc2: 0,
+                            val: 0,
+                        };
+                        let value = cpu
+                            .reg_read_arm_coproc(&mut cp15)
+                            .map(|_| cp15.val as u32)
+                            .unwrap_or(u32::MAX);
+                        println!("  [watch-pc CP15 {name}] = 0x{value:08X}");
+                    }
+                    println!(
+                        "  [watch-pc dynamic mapper inputs] r0=0x{:08X} r1=0x{:08X} r2=0x{:08X} sp=0x{sp:08X}",
+                        read(RegisterARM::R0),
+                        read(RegisterARM::R1),
+                        read(RegisterARM::R2)
+                    );
+                    for offset in [0x30u32, 0x34, 0x38] {
+                        println!(
+                            "  [watch-pc physical stack+0x{offset:02X}] = 0x{:08X}",
+                            read_stack_word(cpu, sp, offset)
+                        );
+                    }
+                }
+
                 // The static BSE memory map is a 16-byte-entry table. On this
                 // call site r3 points at the current entry, r5 is its loop
                 // index, and r6 is the table root. Dump each raw entry before
@@ -1519,6 +1551,34 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         })
         .map_err(|error| std::io::Error::other(format!("watch-pc hook failed at 0x{address:08X}: {error:?}")))?;
     }
+
+    // The BSE caller uses Thumb LDMIA with SP-relative words. In the
+    // c3emu backend, mem_read() is a physical-memory API, while CPU loads pass
+    // through the MMU. Observe the actual guest virtual reads and CP15 state so
+    // a physical stack dump cannot be mistaken for what the CPU loaded.
+    let mapper_stack_read_count = Rc::new(Cell::new(0usize));
+    uc.add_mem_hook(
+        HookType::MEM_READ,
+        0x0800_2EF8,
+        0x0800_2F03,
+        {
+            let count = Rc::clone(&mapper_stack_read_count);
+            move |cpu, _kind, address, size, value| {
+                let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0) as u32;
+                if (0xF010_4380..=0xF010_4400).contains(&pc) {
+                    let n = count.get();
+                    count.set(n + 1);
+                    if n < 128 {
+                        println!(
+                            "  [guest-stack-read {n:03}] VA=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
+                        );
+                    }
+                }
+                true
+            }
+        },
+    )
+    .map_err(|error| std::io::Error::other(format!("mapper stack-read hook failed: {error:?}")))?;
 
     let asic_register_access_count = Rc::new(Cell::new(0usize));
     for (begin, end) in [
