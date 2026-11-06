@@ -4,7 +4,7 @@
 
 **Обновлено:** 6 ноября 2026  
 **Ветка:** `feature/j2me-library-bridge-20261104`  
-**HEAD на момент обновления:** `304b297868d10ba31b8bbf2405b2ce6ad848c9b8`  
+**HEAD валидированного probe-кода:** `304b297868d10ba31b8bbf2405b2ce6ad848c9b8`  
 **PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит.  
 **CI для текущего HEAD `304b297`: успешно:**
 - [Android CI #42268498333](https://github.com/irman100/RetroMobileWorld/actions/runs/42268498333)
@@ -444,6 +444,12 @@ Linux executable проверен локальным запуском --help; Wi
 3. Совпадает ли r2 >> 20 позднего allocator с alias slots 0x000 или 0xFF1; не подменять BSE alias значением PA, полученным ARM926 MMU walk.
 4. Какой именно guest virtual slot read в районе 0xF0103C04 вернул marker 0x3E; сохранить PC, адрес чтения и значение.
 5. После установления slot formula сверить её с map-root и static record. До этого не менять map base/size, alias или raw table.
+
+### 12.6 Повторяемый PowerShell runner
+
+В репозиторий добавлен scripts/run_rm217_bse_alias_trace.ps1 (commit 52b42a86486f54437c251b3be22d7a5d4de4c3c5). Скрипт проверяет, что probe и firmware ZIP существуют как файлы, запускает согласованный набор diagnostic flags, сохраняет полный вывод в Desktop\rm217-bse-alias-mmuv2.txt и возвращает exit code probe.
+
+Windows artifact для запуска нужно распаковать рядом со скриптом так, чтобы rm217-boot-probe.exe находился в той же папке. Путь к Phoenix ZIP можно передать первым аргументом; значение по умолчанию — E:\RM-217.zip.
 
 ### 12.5 Чего этот commit не решает
 
