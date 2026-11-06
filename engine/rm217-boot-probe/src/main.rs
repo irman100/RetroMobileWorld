@@ -15,6 +15,7 @@ const DEFAULT_TRACE: u64 = 96;
 const MAX_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_MCU_BYTES: u64 = 256 * 1024 * 1024;
 const XIP_MINIMUM_MAP: u64 = 0x0100_0000;
+const NOR0_CAPACITY: usize = 0x0200_0000;
 
 const BOOT_TAGS_ADDR: u32 = 0x0800_6000;
 const IMAGE_TABLE_ADDR: u32 = 0x0800_6400;
@@ -385,6 +386,62 @@ fn build_boot_tag_list(
     }
     append_tag(&mut tags, 2, &[]); // end
     tags
+}
+
+/// Copy one FPSX payload into the candidate physical NOR image.
+fn write_nor_payload(image: &mut [u8], address: u32, payload: &[u8]) -> Result<(), String> {
+    if address == u32::MAX {
+        return Ok(());
+    }
+    let start = address as usize;
+    let end = start
+        .checked_add(payload.len())
+        .ok_or_else(|| "NOR payload address overflow".to_string())?;
+    if end > image.len() {
+        return Err(format!(
+            "NOR payload 0x{address:08X}..0x{end:08X} exceeds modeled capacity 0x{:08X}",
+            image.len()
+        ));
+    }
+    image[start..end].copy_from_slice(payload);
+    Ok(())
+}
+
+/// Construct a read-only diagnostic NOR array from the known physical FPSX regions.
+/// Missing physical bytes are left erased (0xFF); this is not a dump of the full chip.
+fn build_nor_flash_image(firmware: &Fpsx, capacity: usize) -> Result<Vec<u8>, Box<dyn Error>> {
+    let mut image = vec![0xFF; capacity];
+    let mut named: BTreeMap<String, &Region> = BTreeMap::new();
+    let mut unnamed: Vec<&Region> = Vec::new();
+
+    for region in &firmware.regions {
+        if region.addr == u32::MAX {
+            continue;
+        }
+        if let Some(name) = region.name.as_deref() {
+            let replace = named
+                .get(name)
+                .map(|current| region.data.len() > current.data.len())
+                .unwrap_or(true);
+            if replace {
+                named.insert(name.to_string(), region);
+            }
+        } else {
+            unnamed.push(region);
+        }
+    }
+
+    for region in named.values().copied().chain(unnamed.into_iter()) {
+        write_nor_payload(&mut image, region.addr, &region.data)
+            .map_err(std::io::Error::other)?;
+        println!(
+            "  [experimental NOR0 array] staged {} at 0x{:08X} ({} bytes)",
+            region.name.as_deref().unwrap_or("(unnamed)"),
+            region.addr,
+            region.data.len()
+        );
+    }
+    Ok(image)
 }
 
 fn image_table_relative_offset(load_address: u32, table_base: u32) -> u32 {
@@ -994,19 +1051,24 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     }
 
     if let Some((manufacturer, device)) = options.nor_id {
-        // A narrow diagnostic NOR model for the boot-ROM autoselect operation.
-        // It reports only the JEDEC x16 IDs; it does not emulate array data,
-        // programming, erase, timing, protection, or the complete memory controller.
+        // Build a separate read-only 32-MiB NOR array from the physical regions
+        // present in the supplied FPSX. Unrepresented bytes stay erased (0xFF).
+        // The ID and array reads are diagnostic approximations, not a full NOR/
+        // controller model (no erase, program, timing, status, or protection logic).
+        let flash_image = Rc::new(build_nor_flash_image(&firmware, NOR0_CAPACITY)?);
         let autoselect = Rc::new(Cell::new(false));
+        let array_mode = Rc::new(Cell::new(false));
         let command_count = Rc::new(Cell::new(0usize));
-        uc.add_mem_hook(HookType::MEM_WRITE, 0, 0x01FF_FFFF, {
+        uc.add_mem_hook(HookType::MEM_WRITE, 0, (NOR0_CAPACITY - 1) as u64, {
             let autoselect = Rc::clone(&autoselect);
+            let array_mode = Rc::clone(&array_mode);
             let command_count = Rc::clone(&command_count);
             move |_cpu, _kind, address, _size, value| {
                 let offset = address as u32;
                 let command = value as u16;
                 if command == 0x90 && offset <= 0x0001_0000 {
                     autoselect.set(true);
+                    array_mode.set(false);
                     let count = command_count.get();
                     command_count.set(count + 1);
                     if count < 8 {
@@ -1014,6 +1076,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     }
                 } else if (command == 0xFF && offset == 0) || command == 0xF0 {
                     autoselect.set(false);
+                    array_mode.set(true);
                     let count = command_count.get();
                     command_count.set(count + 1);
                     if count < 8 {
@@ -1026,32 +1089,55 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         .map_err(|error| std::io::Error::other(format!("NOR write hook failed: {error:?}")))?;
 
         let response_count = Rc::new(Cell::new(0usize));
-        uc.add_mem_hook(HookType::MEM_READ, 0, 0x01FF_FFFF, {
+        let array_read_count = Rc::new(Cell::new(0usize));
+        uc.add_mem_hook(HookType::MEM_READ, 0, (NOR0_CAPACITY - 1) as u64, {
             let autoselect = Rc::clone(&autoselect);
+            let array_mode = Rc::clone(&array_mode);
+            let flash_image = Rc::clone(&flash_image);
             let response_count = Rc::clone(&response_count);
+            let array_read_count = Rc::clone(&array_read_count);
             move |cpu, _kind, address, size, _value| {
-                if !autoselect.get() {
+                let offset = address as usize;
+                let width = size as usize;
+                if autoselect.get() {
+                    let response = match (offset, size) {
+                        (0, 2) => Some(manufacturer),
+                        (2, 2) => Some(device),
+                        // x16 autoselect sector-protection word: neutral unprotected value.
+                        (6, 2) => Some(0),
+                        _ => None,
+                    };
+                    if let Some(word) = response {
+                        let bytes = word.to_le_bytes();
+                        let write = cpu.mem_write(address, &bytes);
+                        let count = response_count.get();
+                        response_count.set(count + 1);
+                        if count < 16 {
+                            println!(
+                                "  [experimental NOR0] ID read @0x{offset:08X} size={size} -> 0x{word:04X} (writeback={})",
+                                if write.is_ok() { "ok" } else { "failed" }
+                            );
+                        }
+                    }
                     return true;
                 }
-                let offset = address as u32;
-                let response = match (offset, size) {
-                    (0, 2) => Some(manufacturer),
-                    (2, 2) => Some(device),
-                    // x16 autoselect sector-protection word: neutral unprotected value.
-                    (6, 2) => Some(0),
-                    _ => None,
-                };
-                let Some(word) = response else {
+                if !array_mode.get() || width == 0 || offset.saturating_add(width) > flash_image.len() {
                     return true;
-                };
-                let bytes = word.to_le_bytes();
-                let write = cpu.mem_write(address, &bytes);
-                let count = response_count.get();
-                response_count.set(count + 1);
-                if count < 16 {
+                }
+
+                let bytes = &flash_image[offset..offset + width];
+                let write = cpu.mem_write(address, bytes);
+                let count = array_read_count.get();
+                array_read_count.set(count + 1);
+                if count < 32 {
+                    let mut word = [0xFFu8; 4];
+                    let shown = width.min(word.len());
+                    word[..shown].copy_from_slice(&bytes[..shown]);
                     println!(
-                        "  [experimental NOR0] ID read @0x{offset:08X} size={size} -> 0x{word:04X} (writeback={})",
-                        if write.is_ok() { "ok" } else { "failed" }
+                        "  [experimental NOR0 array] read @0x{offset:08X} size={width} -> 0x{:08X} (writeback={}) pc=0x{:08X}",
+                        u32::from_le_bytes(word),
+                        if write.is_ok() { "ok" } else { "failed" },
+                        cpu.reg_read(RegisterARM::PC).unwrap_or(0) as u32
                     );
                 }
                 true
@@ -1060,7 +1146,7 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
         .map_err(|error| std::io::Error::other(format!("NOR read hook failed: {error:?}")))?;
 
         println!(
-            "  [experimental NOR0] ID candidate 0x{manufacturer:04X}:0x{device:04X}; autoselect only, not a complete NOR model"
+            "  [experimental NOR0] ID candidate 0x{manufacturer:04X}:0x{device:04X}; 32-MiB read-only array from known FPSX regions, missing bytes=0xFF"
         );
     }
 
@@ -1434,6 +1520,17 @@ mod tests {
         assert_eq!(parse_watch_pc("402759534").unwrap(), 402_759_534);
         assert!(parse_watch_pc("0xF0104173").is_err());
         assert!(parse_watch_pc("0x100000000").is_err());
+    }
+
+    #[test]
+    fn writes_nor_payloads_at_physical_flash_offsets() {
+        let mut image = vec![0xFF; 0x1000];
+        write_nor_payload(&mut image, 0x0200, &[0x12, 0x34, 0x56]).unwrap();
+        assert_eq!(&image[0x0200..0x0203], &[0x12, 0x34, 0x56]);
+        assert_eq!(image[0x01FF], 0xFF);
+        assert_eq!(image[0x0203], 0xFF);
+        assert!(write_nor_payload(&mut image, 0x0FFF, &[1, 2]).is_err());
+        assert!(write_nor_payload(&mut image, 0xFFFF_FFFF, &[1, 2]).is_ok());
     }
 
     #[test]
