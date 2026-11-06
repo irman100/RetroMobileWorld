@@ -76,7 +76,7 @@ def decode_trace_bytes(data: bytes) -> str:
         return data.decode("utf-8-sig", errors="replace")
     # Windows PowerShell 5.1 may emit UTF-16LE without a BOM in some pipelines.
     sample = data[:4096]
-    if b"\\x00" in sample:
+    if b"\x00" in sample:
         even_nulls = sample[0::2].count(0)
         odd_nulls = sample[1::2].count(0)
         if odd_nulls > even_nulls:
