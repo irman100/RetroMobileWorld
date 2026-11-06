@@ -1602,6 +1602,36 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     )
     .map_err(|error| std::io::Error::other(format!("mapper stack-read hook failed: {error:?}")))?;
 
+    // The BSE map root is the 1-MiB alias-slot table observed at 0x10090000.
+    // Capture the actual guest reads performed by the lower mapper so the
+    // occupied marker is tied to a concrete VA/PA and not inferred from a dump.
+    let bse_slot_read_count = Rc::new(Cell::new(0usize));
+    uc.add_mem_hook(
+        HookType::MEM_READ,
+        0x1009_0000,
+        0x1009_FFFF,
+        {
+            let count = Rc::clone(&bse_slot_read_count);
+            move |cpu, _kind, address, size, value| {
+                let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0) as u32;
+                if (0xF010_3B00..=0xF010_3C20).contains(&pc) {
+                    let n = count.get();
+                    count.set(n + 1);
+                    if n < 256 {
+                        let guest_va = address as u32;
+                        let physical = c3emu::mmu::virt_to_phys(cpu, guest_va)
+                            .unwrap_or(u32::MAX);
+                        println!(
+                            "  [BSE slot-table-read {n:03}] VA=0x{guest_va:08X} PA=0x{physical:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
+                        );
+                    }
+                }
+                true
+            }
+        },
+    )
+    .map_err(|error| std::io::Error::other(format!("BSE slot-table read hook failed: {error:?}")))?;
+
     let asic_register_access_count = Rc::new(Cell::new(0usize));
     for (begin, end) in [
         (0x2003_2C00u64, 0x2003_2DFFu64),
