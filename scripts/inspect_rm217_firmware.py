@@ -187,6 +187,17 @@ def _midlet_field(fragment: bytes, label: bytes) -> str:
     return match.group(1).decode("ascii", "replace").strip() if match else "unknown"
 
 
+def compare_component_crc(data: bytes, zip_crc: int, expected_vpl_crc: int | None) -> dict:
+    """Separate ZIP-entry consistency from VPL manifest agreement."""
+    actual_crc = zlib.crc32(data) & 0xFFFFFFFF
+    return {
+        "actual_crc": actual_crc,
+        "zip_matches": actual_crc == zip_crc,
+        "vpl_matches": expected_vpl_crc is not None and actual_crc == expected_vpl_crc,
+        "vpl_present": expected_vpl_crc is not None,
+    }
+
+
 def inspect_archive(path: str, product_code: str) -> int:
     with zipfile.ZipFile(path, "r") as archive:
         infos = archive.infolist()
@@ -249,19 +260,30 @@ def inspect_archive(path: str, product_code: str) -> int:
                 continue
 
             data = archive.read(info)
-            actual_crc = zlib.crc32(data) & 0xFFFFFFFF
             expected_crc = manifest["files"].get(name.lower())
+            crc = compare_component_crc(data, info.CRC, expected_crc)
+            actual_crc = crc["actual_crc"]
             print(name)
             print(f"  size: {len(data):,} bytes")
             print(f"  SHA-256: {hashlib.sha256(data).hexdigest()}")
             print(f"  ZIP CRC-32: {info.CRC:08X}")
             print(f"  VPL CRC-32: {expected_crc:08X}" if expected_crc is not None else "  VPL CRC-32: MISSING")
             print(f"  Actual CRC-32: {actual_crc:08X}")
-            if expected_crc is None or actual_crc != expected_crc or info.CRC != actual_crc:
-                print("  Integrity: MISMATCH")
+            print(f"  ZIP entry consistency: {'MATCH' if crc['zip_matches'] else 'MISMATCH'}")
+            if not crc["vpl_present"]:
+                print("  VPL component checksum: MISSING")
+            else:
+                print(f"  VPL component checksum: {'MATCH' if crc['vpl_matches'] else 'MISMATCH'}")
+            if not crc["zip_matches"] or not crc["vpl_matches"]:
+                if crc["zip_matches"] and crc["vpl_present"]:
+                    print("  Integrity: ZIP entry is self-consistent; component does NOT match selected VPL")
+                elif not crc["zip_matches"]:
+                    print("  Integrity: ZIP entry CRC does NOT match decompressed component bytes")
+                else:
+                    print("  Integrity: selected VPL has no checksum for this component")
                 failures += 1
             else:
-                print("  Integrity: MATCH")
+                print("  Integrity: MATCH (ZIP entry and selected VPL)")
             result[name] = data
 
             try:
