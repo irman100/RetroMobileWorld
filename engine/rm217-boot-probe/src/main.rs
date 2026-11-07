@@ -63,6 +63,7 @@ struct Options {
     nor_id: Option<(u16, u16)>,
     watch_pc: Vec<u32>,
     disasm_thumb: Vec<(u32, u32)>,
+    dump_image: Vec<(u32, u32)>,
     trace_bse_memory: bool,
     legacy_unmapped_as_ram: bool,
     hle_secure_service6: bool,
@@ -191,6 +192,52 @@ fn parse_thumb_range(value: &str) -> Result<(u32, u32), String> {
     Ok((address as u32, length as u32))
 }
 
+fn parse_image_dump_range(value: &str) -> Result<(u32, u32), String> {
+    let (address, length) = value
+        .split_once(':')
+        .ok_or_else(|| format!("invalid --dump-image={value}; expected ADDRESS:LENGTH"))?;
+    let address = parse_u64(address)?;
+    let length = parse_u64(length)?;
+    if address > u32::MAX as u64 {
+        return Err("image dump address must be a 32-bit address".to_string());
+    }
+    if length == 0 || length > 0x1000 {
+        return Err("image dump length must be between 1 byte and 0x1000 bytes".to_string());
+    }
+    if address.checked_add(length).is_none_or(|end| end > (u32::MAX as u64) + 1) {
+        return Err("image dump range exceeds the 32-bit address space".to_string());
+    }
+    Ok((address as u32, length as u32))
+}
+
+fn format_image_dump(address: u32, bytes: &[u8]) -> String {
+    let hex = bytes.iter().map(|byte| format!("{byte:02X}")).collect::<Vec<_>>().join(" ");
+    let words = bytes.chunks_exact(4).map(|chunk| {
+        u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
+    }).map(|word| format!("0x{word:08X}")).collect::<Vec<_>>().join(" ");
+    format!(
+        "[image-dump] VA=0x{address:08X} length=0x{:X} bytes=[{hex}] words_le=[{words}]",
+        bytes.len()
+    )
+}
+
+fn dump_image_window(
+    image: &[u8],
+    image_base: u32,
+    address: u32,
+    length: u32,
+) -> Result<(), Box<dyn Error>> {
+    let offset = address.checked_sub(image_base).ok_or_else(|| {
+        format!("image dump address 0x{address:08X} is below image base 0x{image_base:08X}")
+    })? as usize;
+    let end = offset.checked_add(length as usize).ok_or("image dump offset overflow")?;
+    let bytes = image.get(offset..end).ok_or_else(|| {
+        format!("image dump range 0x{address:08X}+0x{length:X} exceeds MCUSW image")
+    })?;
+    println!("{}", format_image_dump(address, bytes));
+    Ok(())
+}
+
 fn disassemble_thumb_window(
     image: &[u8],
     image_base: u32,
@@ -290,6 +337,7 @@ fn parse_options() -> Result<Options, String> {
     let mut nor_id = None;
     let mut watch_pc = Vec::new();
     let mut disasm_thumb = Vec::new();
+    let mut dump_image = Vec::new();
     let mut trace_bse_memory = false;
     let mut legacy_unmapped_as_ram = false;
     let mut hle_secure_service6 = false;
@@ -315,6 +363,8 @@ fn parse_options() -> Result<Options, String> {
             watch_pc.push(parse_watch_pc(value)?);
         } else if let Some(value) = arg.strip_prefix("--disasm-thumb=") {
             disasm_thumb.push(parse_thumb_range(value)?);
+        } else if let Some(value) = arg.strip_prefix("--dump-image=") {
+            dump_image.push(parse_image_dump_range(value)?);
         } else if arg == "--trace-bse-memory" {
             trace_bse_memory = true;
         } else if arg == "--legacy-unmapped-as-ram" {
@@ -351,9 +401,9 @@ fn parse_options() -> Result<Options, String> {
     }
 
     let archive = archive.ok_or_else(|| {
-        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--nor-id=MANUFACTURER:DEVICE] [--watch-pc=ADDRESS ...] [--disasm-thumb=ADDRESS:LENGTH ...] [--trace-bse-memory] [--legacy-unmapped-as-ram] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
+        "usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--nor-id=MANUFACTURER:DEVICE] [--watch-pc=ADDRESS ...] [--disasm-thumb=ADDRESS:LENGTH ...] [--dump-image=ADDRESS:LENGTH ...] [--trace-bse-memory] [--legacy-unmapped-as-ram] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]".to_string()
     })?;
-    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, nor_id, watch_pc, disasm_thumb, trace_bse_memory, legacy_unmapped_as_ram, hle_secure_service6, hle_secure_service6_launch, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
+    Ok(Options { archive, start_image, instructions, trace, initial_registers, ready_on_read, nor_id, watch_pc, disasm_thumb, dump_image, trace_bse_memory, legacy_unmapped_as_ram, hle_secure_service6, hle_secure_service6_launch, no_handoff, pokes, memory_tag0, ram_tag4, ram_tag5 })
 }
 
 fn read_mcusw_from_archive(path: &PathBuf) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -697,6 +747,9 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     let xip_base = read_u32_le(&main.data, 0x3D0 + 0x78)?;
     for (address, length) in &options.disasm_thumb {
         disassemble_thumb_window(&main.data, xip_base, *address, *length)?;
+    }
+    for (address, length) in &options.dump_image {
+        dump_image_window(&main.data, xip_base, *address, *length)?;
     }
     let entry = match options.start_image {
         StartImage::Mcusw => {
@@ -1913,7 +1966,7 @@ fn main() {
             }
         }
         Err(message) if message.is_empty() => {
-            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--nor-id=MANUFACTURER:DEVICE] [--watch-pc=ADDRESS ...] [--disasm-thumb=ADDRESS:LENGTH ...] [--trace-bse-memory] [--legacy-unmapped-as-ram] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
+            println!("Usage: rm217-boot-probe <RM-217.zip> [--entry=mcusw|nolo] [--instructions=1000000] [--trace=96] [--ready-bit=ADDRESS:BIT ...] [--nor-id=MANUFACTURER:DEVICE] [--watch-pc=ADDRESS ...] [--disasm-thumb=ADDRESS:LENGTH ...] [--dump-image=ADDRESS:LENGTH ...] [--trace-bse-memory] [--legacy-unmapped-as-ram] [--hle-secure-service6] [--hle-secure-service6-launch] [--poke=ADDRESS:VALUE] [--memory-tag0=BASE:SIZE] [--ram-tag4=BASE:SIZE] [--ram-tag5=BASE:SIZE] [--no-handoff] [--r0=0] [--r1=0] [--r2=0] [--r3=0]");
         }
         Err(message) => {
             eprintln!("{message}");
@@ -2029,6 +2082,24 @@ mod tests {
         // A separate physical-base-zero mapping at alias FF100000 uses slot FF1.
         assert_ne!(bse_slot_address_from_alias(0), bse_slot_address_from_alias(0xFF10_0000));
         assert_eq!(bse_slot_address_from_alias(0xFF10_0000), 0x1009_3FC4);
+    }
+
+    #[test]
+    fn parses_and_rejects_image_dump_ranges() {
+        assert_eq!(parse_image_dump_range("0xF0104424:0x10").unwrap(), (0xF010_4424, 0x10));
+        assert_eq!(parse_image_dump_range("0xF0100001:4").unwrap(), (0xF010_0001, 4));
+        assert!(parse_image_dump_range("0xF0104424:0").is_err());
+        assert!(parse_image_dump_range("0xF0104424:0x1001").is_err());
+        assert!(parse_image_dump_range("0x1_0000_0000:4").is_err());
+    }
+
+    #[test]
+    fn image_dump_formats_little_endian_words() {
+        let bytes = [0x24, 0x44, 0x10, 0xF0, 0x76, 0x49, 0x10, 0xF0];
+        let formatted = format_image_dump(0xF010_4424, &bytes);
+        assert!(formatted.contains("VA=0xF0104424"));
+        assert!(formatted.contains("words_le=[0xF0104424 0xF0104976]"));
+        assert!(formatted.contains("24 44 10 F0 76 49 10 F0"));
     }
 
     #[test]
