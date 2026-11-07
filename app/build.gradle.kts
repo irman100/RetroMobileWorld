@@ -10,7 +10,7 @@ android {
     compileSdk = 36
 
     sourceSets["main"].assets.srcDir("$rootDir/profiles")
-    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/c3emuAssets"))
+    sourceSets["main"].assets.srcDir("$buildDir/generated/c3emuAssets")
 
     defaultConfig {
         applicationId = "org.retromobile.world"
