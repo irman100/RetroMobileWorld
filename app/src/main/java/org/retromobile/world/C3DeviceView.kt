@@ -267,7 +267,7 @@ class C3DeviceView @JvmOverloads constructor(
 
     private fun decodePhoto(context: Context): Bitmap? = runCatching {
         val options = BitmapFactory.Options().apply { inSampleSize = 2 }
-        context.assets.open("c3emu/dienthoai.jpg").use { input ->
+        context.assets.open("c3emu/75-205-263-02.png").use { input ->
             BitmapFactory.decodeStream(input, null, options)
         }
     }.getOrNull()
