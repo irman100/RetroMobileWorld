@@ -4,8 +4,8 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.database.Cursor
-import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
@@ -15,301 +15,161 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
 import android.view.Gravity
+import android.view.Menu
 import android.view.MotionEvent
 import android.view.View
-import android.widget.Button
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.ScrollView
+import android.widget.FrameLayout
+import android.widget.PopupMenu
 import android.widget.TextView
+import android.widget.Toast
 import java.io.File
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.ceil
 
 /**
- * Dedicated Nokia C3-00 / RM-614 emulator screen. Its landscape LCD and QWERTY
- * keypad are intentionally separate from the RM-217 candybar profile.
+ * Nokia C3-00 / RM-614. The device photograph is the complete physical shell;
+ * the guest LCD and all key input are rendered/hit-tested in that same geometry.
  */
 class C3EmuActivity : Activity() {
     private lateinit var library: C3FirmwareLibrary
-    private lateinit var statusView: TextView
-    private lateinit var screenView: ImageView
-    private lateinit var bootButton: Button
-    private lateinit var importZipButton: Button
-    private lateinit var importCoreButton: Button
-    private lateinit var importPpmButton: Button
-    private lateinit var importImageButton: Button
+    private lateinit var deviceView: C3DeviceView
+    private lateinit var menuView: TextView
 
     private val engine = C3EmuEngine()
-    private val workExecutor = Executors.newSingleThreadExecutor { task ->
-        Thread(task, "c3emu-android-ui").apply { isDaemon = true }
+    private val fileExecutor = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "c3emu-files").apply { isDaemon = true }
     }
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val runInFlight = AtomicBoolean(false)
-    private var audioTrack: AudioTrack? = null
-    private var latestBitmap: Bitmap? = null
-    private var pendingPickerKind: FirmwareImageKind? = null
+
+    @Volatile private var audioTrack: AudioTrack? = null
     private var runningLoop = false
+    private var cycleInFlight = false
     private var destroyed = false
 
     private val loopRunnable = object : Runnable {
         override fun run() {
-            if (!runningLoop || destroyed) return
-            if (runInFlight.compareAndSet(false, true)) {
-                workExecutor.execute {
-                    try {
-                        val step = engine.runSlice(12_000)
-                        val frame = if (step.frameChanged) engine.latestFrame() else null
-                        val audio = engine.drainAudio()
-                        if (audio != null && audio.samples.isNotEmpty()) {
+            if (!runningLoop || destroyed || cycleInFlight) return
+            cycleInFlight = true
+            engine.runCycleAsync(CPU_BUDGET_MICROS) { result ->
+                // Audio is handed to AudioTrack away from the UI thread.
+                result.getOrNull()?.audio?.samples?.let { samples ->
+                    if (samples.isNotEmpty()) {
+                        runCatching {
                             audioTrack?.write(
-                                audio.samples,
+                                samples,
                                 0,
-                                audio.samples.size,
+                                samples.size,
                                 AudioTrack.WRITE_BLOCKING
                             )
                         }
-                        runOnUiThread {
-                            frame?.let(::renderFrame)
-                            if (step.state == PhoneMachineState.FAILED) {
-                                stopRunLoop()
-                                setImportControlsEnabled(true)
-                                bootButton.isEnabled = library.find(FirmwareImageKind.CORE) != null
-                                statusView.text = "ОСТАНОВЛЕНО: ${step.diagnostic ?: "ошибка эмулятора"}"
-                            } else if (step.state == PhoneMachineState.RUNNING) {
-                                statusView.text = "NOKIA C3-00 · SERIES 40 · ${engine.id}"
-                            }
-                        }
-                    } catch (error: Exception) {
-                        runOnUiThread {
+                    }
+                }
+                runOnUiThread {
+                    cycleInFlight = false
+                    if (destroyed) return@runOnUiThread
+
+                    result.onSuccess { cycle ->
+                        cycle.frame?.let(deviceView::showFrame)
+                        if (cycle.step.state == PhoneMachineState.FAILED) {
                             stopRunLoop()
-                            setImportControlsEnabled(true)
-                            statusView.text = "ОШИБКА: ${error.message ?: error.javaClass.simpleName}"
+                            stopAudio()
+                            showMessage("Эмулятор остановлен: " + (cycle.step.diagnostic ?: "ошибка"))
+                        } else if (runningLoop) {
+                            val delay = if (cycle.waitMillis > 0.0) {
+                                ceil(cycle.waitMillis).toLong().coerceIn(1L, 1000L)
+                            } else {
+                                0L
+                            }
+                            mainHandler.postDelayed(loopRunnable, delay)
                         }
-                    } finally {
-                        runInFlight.set(false)
+                    }.onFailure { error ->
+                        stopRunLoop()
+                        showMessage("Ошибка эмулятора: " + (error.message ?: error.javaClass.simpleName))
                     }
                 }
             }
-            mainHandler.postDelayed(this, 16L)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.statusBarColor = Color.BLACK
+        window.navigationBarColor = Color.BLACK
         library = C3FirmwareLibrary(this)
-        buildUi()
+        buildDeviceUi()
         refreshFirmwareStatus()
     }
 
-    private fun buildUi() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(8, 15, 22))
-            setPadding(dp(10), dp(8), dp(10), dp(12))
+    private fun buildDeviceUi() {
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(Color.rgb(13, 16, 19))
         }
 
-        val header = TextView(this).apply {
-            text = "NOKIA C3-00  ·  RM-614"
-            textSize = 19f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            setPadding(0, dp(4), 0, dp(2))
-        }
-        root.addView(header, matchWrap())
-
-        val subtitle = TextView(this).apply {
-            text = "Series 40 · ARM926EJ-S · 320 × 240"
-            textSize = 12f
-            setTextColor(Color.LTGRAY)
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, dp(8))
-        }
-        root.addView(subtitle, matchWrap())
-
-        screenView = ImageView(this).apply {
-            setBackgroundColor(Color.BLACK)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            adjustViewBounds = true
-            contentDescription = "Nokia C3-00 emulated LCD"
-        }
-        root.addView(screenView, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            dp(205)
-        ))
-
-        statusView = TextView(this).apply {
-            textSize = 11f
-            setTextColor(Color.rgb(176, 206, 222))
-            gravity = Gravity.CENTER
-            setPadding(0, dp(6), 0, dp(8))
-        }
-        root.addView(statusView, matchWrap())
-
-        importZipButton = actionButton("ИМПОРТ PHOENIX ZIP (RM-614)") {
-            pendingPickerKind = null
-            openPicker()
-        }
-        root.addView(importZipButton, matchWrap())
-
-        val componentRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        importCoreButton = compactButton("MCUSW") {
-            pendingPickerKind = FirmwareImageKind.CORE
-            openPicker()
-        }
-        importPpmButton = compactButton("PPM") {
-            pendingPickerKind = FirmwareImageKind.LANGUAGE_PACK
-            openPicker()
-        }
-        importImageButton = compactButton("IMAGE") {
-            pendingPickerKind = FirmwareImageKind.CONTENT_PACK
-            openPicker()
-        }
-        listOf(importCoreButton, importPpmButton, importImageButton).forEach {
-            componentRow.addView(it, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
-                setMargins(dp(2), dp(4), dp(2), dp(4))
-            })
-        }
-        root.addView(componentRow, matchWrap())
-
-        bootButton = actionButton("ЗАПУСТИТЬ SERIES 40") { bootFirmware() }
-        root.addView(bootButton, matchWrap())
-
-        val controlLabel = TextView(this).apply {
-            text = "КЛАВИАТУРА C3-00"
-            textSize = 11f
-            setTextColor(Color.LTGRAY)
-            gravity = Gravity.CENTER
-            setPadding(0, dp(10), 0, dp(4))
-        }
-        root.addView(controlLabel, matchWrap())
-
-        addKeyRow(root, listOf(
-            "Q" to 0, "W" to 1, "E" to 2, "R" to 3, "T" to 4,
-            "Y" to 5, "U" to 6, "I" to 24, "O" to 25, "P" to 26
-        ))
-        addKeyRow(root, listOf(
-            "A" to 8, "S" to 9, "D" to 10, "F" to 11, "G" to 12,
-            "H" to 13, "J" to 14, "K" to 32, "L" to 33
-        ))
-        addKeyRow(root, listOf(
-            "Z" to 16, "X" to 17, "C" to 18, "V" to 19,
-            "B" to 20, "N" to 21, "M" to 22, "⌫" to 34
-        ))
-        addKeyRow(root, listOf(
-            "SHIFT" to 35, "SYM" to 48, "SPACE" to 49, "FN" to 50, "ENTER" to 42
-        ))
-
-        val navRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        listOf(
-            "CALL" to 30, "↑" to 56, "↓" to 57, "←" to 58,
-            "OK" to 60, "→" to 59, "END" to 255
-        ).forEach { (label, index) ->
-            navRow.addView(keyButton(label, index), LinearLayout.LayoutParams(0, dp(42), 1f).apply {
-                setMargins(dp(2), dp(3), dp(2), dp(3))
-            })
-        }
-        root.addView(navRow, matchWrap())
-
-        val softRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        listOf("LEFT" to 29, "CONTACTS" to 38, "MESSAGES" to 52, "RIGHT" to 43).forEach { (label, index) ->
-            softRow.addView(keyButton(label, index), LinearLayout.LayoutParams(0, dp(40), 1f).apply {
-                setMargins(dp(2), dp(2), dp(2), dp(2))
-            })
-        }
-        root.addView(softRow, matchWrap())
-
-        val stopButton = compactButton("СТОП / ПАУЗА") {
-            stopRunLoop()
-            workExecutor.execute {
-                engine.stop()
-                runOnUiThread {
-                    stopAudio()
-                    setImportControlsEnabled(true)
-                    bootButton.isEnabled = library.find(FirmwareImageKind.CORE) != null
-                    statusView.text = "ЭМУЛЯТОР ОСТАНОВЛЕН · ВИРТУАЛЬНАЯ ПАМЯТЬ СОХРАНЕНА"
-                }
+        deviceView = C3DeviceView(this).apply {
+            onMatrixKey = { index, pressed ->
+                engine.sendMatrixKeyAsync(index, pressed)
             }
         }
-        root.addView(stopButton, matchWrap())
+        root.addView(
+            deviceView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
 
-        val scroll = ScrollView(this).apply {
-            isFillViewport = false
-            addView(root)
+        // One unobtrusive menu replaces the debug/import/keypad button wall.
+        menuView = TextView(this).apply {
+            text = "⋮"
+            textSize = 27f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.argb(190, 18, 25, 31))
+                setStroke(dp(1), Color.argb(120, 230, 240, 245))
+            }
+            elevation = dp(8).toFloat()
+            contentDescription = "Меню Nokia C3-00"
+            setOnClickListener { showDeviceMenu() }
         }
-        setContentView(scroll)
+        root.addView(
+            menuView,
+            FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP or Gravity.END).apply {
+                setMargins(0, dp(12), dp(12), 0)
+            }
+        )
+        setContentView(root)
     }
 
-    private fun addKeyRow(parent: LinearLayout, keys: List<Pair<String, Int>>) {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        keys.forEach { (label, index) ->
-            row.addView(keyButton(label, index), LinearLayout.LayoutParams(0, dp(38), 1f).apply {
-                setMargins(dp(1), dp(2), dp(1), dp(2))
-            })
-        }
-        parent.addView(row, matchWrap())
-    }
-
-    private fun keyButton(label: String, matrixIndex: Int): Button =
-        Button(this).apply {
-            text = label
-            textSize = when {
-                label.length > 5 -> 7f
-                label.length > 2 -> 8f
-                else -> 11f
-            }
-            minWidth = 0
-            minHeight = 0
-            setPadding(dp(1), 0, dp(1), 0)
-            setTextColor(Color.WHITE)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(38, 58, 72))
-            setOnTouchListener { _, event ->
-                when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        sendKey(matrixIndex, true)
+    private fun showDeviceMenu() {
+        PopupMenu(this, menuView).apply {
+            menu.add(Menu.NONE, MENU_IMPORT, Menu.NONE, "Импорт Phoenix ZIP (RM-614)…")
+            menu.add(Menu.NONE, MENU_BOOT, Menu.NONE, "Запустить / перезапустить")
+            menu.add(Menu.NONE, MENU_STOP, Menu.NONE, "Остановить и сохранить")
+            setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    MENU_IMPORT -> {
+                        openPicker()
                         true
                     }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        sendKey(matrixIndex, false)
+                    MENU_BOOT -> {
+                        bootFirmware()
                         true
                     }
-                    else -> true
+                    MENU_STOP -> {
+                        stopFirmware()
+                        true
+                    }
+                    else -> false
                 }
             }
+            show()
         }
-
-    private fun actionButton(label: String, action: () -> Unit): Button =
-        Button(this).apply {
-            text = label
-            textSize = 11f
-            setOnClickListener { action() }
-        }
-
-    private fun compactButton(label: String, action: () -> Unit): Button =
-        actionButton(label, action).apply { textSize = 9f }
+    }
 
     private fun sendKey(index: Int, pressed: Boolean) {
-        if (engine.state !in setOf(
-                PhoneMachineState.READY,
-                PhoneMachineState.RUNNING,
-                PhoneMachineState.PAUSED
-            )
-        ) return
-        workExecutor.execute {
-            runCatching { engine.sendMatrixKey(index, pressed) }
-        }
+        engine.sendMatrixKeyAsync(index, pressed)
     }
 
     private fun openPicker() {
@@ -329,44 +189,33 @@ class C3EmuActivity : Activity() {
         try {
             startActivityForResult(intent, REQUEST_IMPORT_C3_FIRMWARE)
         } catch (error: ActivityNotFoundException) {
-            statusView.text = "Не удалось открыть системный выбор файлов."
+            showMessage("Не удалось открыть системный выбор файлов.")
         }
     }
 
     @Deprecated("Uses the platform activity-result callback for broad Android compatibility.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_IMPORT_C3_FIRMWARE) return
-        if (resultCode != RESULT_OK) return
+        if (requestCode != REQUEST_IMPORT_C3_FIRMWARE || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         val displayName = queryDisplayName(uri)
-        val selectedKind = pendingPickerKind
-        setImportControlsEnabled(false)
-        bootButton.isEnabled = false
-        statusView.text = "Импортирую ${displayName}…"
+        menuView.isEnabled = false
+        showMessage("Импортирую Phoenix ZIP…")
 
-        workExecutor.execute {
+        fileExecutor.execute {
             val result = runCatching {
-                if (displayName.endsWith(".zip", ignoreCase = true)) {
-                    require(selectedKind == null) {
-                        "Для импорта отдельного компонента выбери сам файл, а не ZIP."
-                    }
-                    library.importArchiveFromUri(uri, displayName)
-                } else {
-                    val record = library.importComponentFromUri(uri, displayName)
-                    require(selectedKind == null || record.metadata.kind == selectedKind) {
-                        "Выбран файл другого типа. Проверь расширение."
-                    }
-                    listOf(record)
+                require(displayName.endsWith(".zip", ignoreCase = true)) {
+                    "Выбери Phoenix ZIP с прошивкой RM-614."
                 }
+                library.importArchiveFromUri(uri, displayName)
             }
             runOnUiThread {
-                setImportControlsEnabled(true)
+                menuView.isEnabled = true
                 result.onSuccess { records ->
-                    statusView.text = "Импортировано: ${records.joinToString { it.metadata.originalFileName }}"
+                    showMessage("Импортировано компонентов: " + records.size)
                     refreshFirmwareStatus()
                 }.onFailure { error ->
-                    statusView.text = "ОШИБКА ИМПОРТА: ${error.message}"
+                    showMessage("Ошибка импорта: " + (error.message ?: error.javaClass.simpleName))
                     refreshFirmwareStatus()
                 }
             }
@@ -374,14 +223,12 @@ class C3EmuActivity : Activity() {
     }
 
     private fun bootFirmware() {
-        bootButton.isEnabled = false
-        setImportControlsEnabled(false)
-        statusView.text = "ПРОВЕРЯЮ КОМПОНЕНТЫ RM-614…"
-
-        workExecutor.execute {
+        menuView.isEnabled = false
+        showMessage("Запускаю Nokia Series 40…")
+        fileExecutor.execute {
             val result = runCatching {
                 val core = library.find(FirmwareImageKind.CORE)
-                    ?: error("Сначала загрузи RM-614 MCUSW или Phoenix ZIP.")
+                    ?: error("Сначала импортируй Phoenix ZIP для Nokia C3-00 / RM-614.")
                 val firmware = PhoneFirmwareSet(
                     core = core,
                     languagePack = library.find(FirmwareImageKind.LANGUAGE_PACK),
@@ -390,20 +237,29 @@ class C3EmuActivity : Activity() {
                 engine.boot(firmware, File(filesDir, "c3emu-storage"))
             }
             runOnUiThread {
-                bootButton.isEnabled = true
+                menuView.isEnabled = true
                 result.onSuccess { step ->
                     if (step.state == PhoneMachineState.FAILED) {
-                        statusView.text = "ЗАГРУЗКА НЕ УДАЛАСЬ: ${step.diagnostic}"
-                        setImportControlsEnabled(true)
+                        showMessage("Загрузка не удалась: " + (step.diagnostic ?: "ошибка"))
                     } else {
-                        statusView.text = "ПРОШИВКА ПРИНЯТА. ВЫПОЛНЯЕТСЯ ARM926…"
                         startAudio()
                         startRunLoop()
+                        showMessage("Nokia C3-00 загружается")
                     }
                 }.onFailure { error ->
-                    statusView.text = "ОШИБКА ЗАПУСКА: ${error.message}"
-                    setImportControlsEnabled(true)
+                    showMessage("Ошибка запуска: " + (error.message ?: error.javaClass.simpleName))
                 }
+            }
+        }
+    }
+
+    private fun stopFirmware() {
+        stopRunLoop()
+        fileExecutor.execute {
+            engine.stop()
+            runOnUiThread {
+                stopAudio()
+                if (!destroyed) showMessage("Эмулятор остановлен. Память сохранена.")
             }
         }
     }
@@ -420,30 +276,9 @@ class C3EmuActivity : Activity() {
         mainHandler.removeCallbacks(loopRunnable)
     }
 
-    private fun renderFrame(frame: PhoneMachineFrame) {
-        val pixels = frame.pixels
-        if (pixels.size < frame.width * frame.height * 4) return
-        val bitmap = Bitmap.createBitmap(frame.width, frame.height, Bitmap.Config.ARGB_8888)
-        val colors = IntArray(frame.width * frame.height)
-        var offset = 0
-        for (i in colors.indices) {
-            val red = pixels[offset].toInt() and 0xFF
-            val green = pixels[offset + 1].toInt() and 0xFF
-            val blue = pixels[offset + 2].toInt() and 0xFF
-            val alpha = pixels[offset + 3].toInt() and 0xFF
-            colors[i] = (alpha shl 24) or (red shl 16) or (green shl 8) or blue
-            offset += 4
-        }
-        bitmap.setPixels(colors, 0, frame.width, 0, 0, frame.width, frame.height)
-        val old = latestBitmap
-        latestBitmap = bitmap
-        screenView.setImageBitmap(bitmap)
-        old?.recycle()
-    }
-
     private fun startAudio() {
         stopAudio()
-        val minBuffer = AudioTrack.getMinBufferSize(
+        val minimum = AudioTrack.getMinBufferSize(
             C3EmuEngine.AUDIO_SAMPLE_RATE,
             AudioFormat.CHANNEL_OUT_STEREO,
             AudioFormat.ENCODING_PCM_16BIT
@@ -462,7 +297,7 @@ class C3EmuActivity : Activity() {
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                     .build()
             )
-            .setBufferSizeInBytes(minBuffer * 2)
+            .setBufferSizeInBytes(minimum * 2)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
             .apply { play() }
@@ -479,37 +314,27 @@ class C3EmuActivity : Activity() {
     }
 
     private fun refreshFirmwareStatus() {
-        workExecutor.execute {
-            val images = library.listImages()
-            val core = images.firstOrNull { it.metadata.kind == FirmwareImageKind.CORE }
-            val ppm = images.firstOrNull { it.metadata.kind == FirmwareImageKind.LANGUAGE_PACK }
-            val content = images.firstOrNull { it.metadata.kind == FirmwareImageKind.CONTENT_PACK }
-            val status = buildString {
-                append("MCUSW: ${core?.metadata?.originalFileName ?: "НЕТ"}\n")
-                append("PPM: ${ppm?.metadata?.originalFileName ?: "необязательно"}\n")
-                append("IMAGE: ${content?.metadata?.originalFileName ?: "необязательно"}")
-            }
+        fileExecutor.execute {
+            val hasCore = library.find(FirmwareImageKind.CORE) != null
             runOnUiThread {
                 if (destroyed || isFinishing) return@runOnUiThread
-                statusView.text = status
-                if (engine.state == PhoneMachineState.STOPPED || engine.state == PhoneMachineState.FAILED) {
-                    bootButton.isEnabled = core != null
+                menuView.contentDescription = if (hasCore) {
+                    "Меню Nokia C3-00. Прошивка импортирована."
+                } else {
+                    "Меню Nokia C3-00. Требуется импорт Phoenix ZIP."
                 }
             }
         }
     }
 
-    private fun setImportControlsEnabled(enabled: Boolean) {
-        importZipButton.isEnabled = enabled
-        importCoreButton.isEnabled = enabled
-        importPpmButton.isEnabled = enabled
-        importImageButton.isEnabled = enabled
-    }
-
     private fun queryDisplayName(uri: Uri): String {
         var displayName: String? = null
         val cursor: Cursor? = contentResolver.query(
-            uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null
         )
         cursor?.use {
             if (it.moveToFirst()) {
@@ -522,12 +347,12 @@ class C3EmuActivity : Activity() {
             ?: "rm614-firmware.zip"
     }
 
-    private fun matchWrap() = LinearLayout.LayoutParams(
-        LinearLayout.LayoutParams.MATCH_PARENT,
-        LinearLayout.LayoutParams.WRAP_CONTENT
-    )
+    private fun showMessage(message: String) {
+        if (!destroyed) Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
 
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
 
     override fun onPause() {
         stopRunLoop()
@@ -550,7 +375,7 @@ class C3EmuActivity : Activity() {
     @Suppress("DEPRECATION")
     override fun onBackPressed() {
         stopRunLoop()
-        workExecutor.execute { engine.stop() }
+        fileExecutor.execute { engine.stop() }
         super.onBackPressed()
     }
 
@@ -558,15 +383,16 @@ class C3EmuActivity : Activity() {
         destroyed = true
         stopRunLoop()
         stopAudio()
-        val bitmap = latestBitmap
-        latestBitmap = null
-        bitmap?.recycle()
-        workExecutor.execute { engine.close() }
-        workExecutor.shutdown()
+        fileExecutor.execute { engine.close() }
+        fileExecutor.shutdown()
         super.onDestroy()
     }
 
     companion object {
         private const val REQUEST_IMPORT_C3_FIRMWARE = 6140
+        private const val MENU_IMPORT = 1
+        private const val MENU_BOOT = 2
+        private const val MENU_STOP = 3
+        private const val CPU_BUDGET_MICROS = 12_000L
     }
 }

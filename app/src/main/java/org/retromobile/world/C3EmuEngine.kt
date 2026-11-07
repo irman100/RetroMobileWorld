@@ -4,6 +4,7 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.TimeZone
+import android.os.SystemClock
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -14,6 +15,13 @@ import java.util.concurrent.TimeUnit
  * c3emu-web keeps emulator state in thread-local storage. Every native call is
  * serialized through this engine's dedicated worker thread.
  */
+data class C3EmuCycle(
+    val step: PhoneMachineStep,
+    val frame: PhoneMachineFrame?,
+    val audio: PhoneMachineAudio?,
+    val waitMillis: Double
+)
+
 class C3EmuEngine : PhoneSystemEngine {
     override val id: String = "c3emu-rm614"
     override val deviceOsFamily: DeviceOsFamily = DeviceOsFamily.NOKIA_S40
@@ -29,6 +37,8 @@ class C3EmuEngine : PhoneSystemEngine {
     private var storageDirectory: File? = null
     @Volatile private var cachedFrame: PhoneMachineFrame? = null
     private var frameSerial = -1
+    private var nextWaitMillis = 0.0
+    private var lastStorageFlushAtMs = 0L
     private var pendingAudio: ShortArray? = null
     private var closed = false
 
@@ -106,12 +116,14 @@ class C3EmuEngine : PhoneSystemEngine {
             "The C3-00 machine is not ready to run (state=$state)."
         }
 
-        val diagnostic = C3EmuNative.nativeRun(
+        nextWaitMillis = C3EmuNative.nativeRun(
             budgetMicros.coerceIn(250L, 50_000L) / 1000.0
         )
-        if (diagnostic.isNotBlank()) {
+        if (!nextWaitMillis.isFinite() || nextWaitMillis < 0.0) {
+            val diagnostic = C3EmuNative.nativeResultText()
+                .ifBlank { "c3emu остановил эмулятор без диагностического сообщения." }
             state = PhoneMachineState.FAILED
-            persistDirtyStorage()
+            persistDirtyStorageIfDue(force = true)
             return@onNativeThread PhoneMachineStep(state, false, false, diagnostic)
         }
         state = PhoneMachineState.RUNNING
@@ -138,12 +150,54 @@ class C3EmuEngine : PhoneSystemEngine {
             val previous = pendingAudio
             pendingAudio = if (previous == null || previous.isEmpty()) audio else previous + audio
         }
-        persistDirtyStorage()
+        persistDirtyStorageIfDue()
         PhoneMachineStep(state, frameChanged, pendingAudio?.isNotEmpty() == true)
     }
 
     override fun sendKey(key: CanonicalKey, pressed: Boolean) {
         matrixIndexFor(key)?.let { sendMatrixKey(it, pressed) }
+    }
+
+    /**
+     * Run, fetch the changed LCD frame and drain audio in one queue operation.
+     * This keeps the thread-local native session on its single owner thread and
+     * avoids a second executor hop for every 12 ms emulator slice.
+     */
+    fun runCycleAsync(
+        budgetMicros: Long,
+        callback: (Result<C3EmuCycle>) -> Unit
+    ) {
+        executor.execute {
+            nativeThread = Thread.currentThread()
+            val result = runCatching {
+                val step = runSlice(budgetMicros)
+                val frame = if (step.frameChanged) latestFrame() else null
+                val audio = drainAudio()
+                C3EmuCycle(step, frame, audio, nextWaitMillis)
+            }
+            callback(result)
+        }
+    }
+
+    /** Queue touch/key edges directly on the native session's owner thread. */
+    fun sendMatrixKeyAsync(index: Int, pressed: Boolean) {
+        if (index !in 0..255 || closed || state !in setOf(
+                PhoneMachineState.READY,
+                PhoneMachineState.RUNNING,
+                PhoneMachineState.PAUSED
+            )
+        ) return
+        executor.execute {
+            nativeThread = Thread.currentThread()
+            if (!closed && state in setOf(
+                    PhoneMachineState.READY,
+                    PhoneMachineState.RUNNING,
+                    PhoneMachineState.PAUSED
+                )
+            ) {
+                C3EmuNative.nativeKey(index, if (pressed) 1 else 0)
+            }
+        }
     }
 
     /** Send one C3-00 physical keyboard matrix index. */
@@ -184,7 +238,7 @@ class C3EmuEngine : PhoneSystemEngine {
         if (state != PhoneMachineState.STOPPED) {
             runCatching {
                 onNativeThread {
-                    persistDirtyStorage()
+                    persistDirtyStorageIfDue(force = true)
                     C3EmuNative.nativeStop()
                 }
             }
@@ -226,6 +280,13 @@ class C3EmuEngine : PhoneSystemEngine {
                         .requireNativeSuccess("restore flash chunk")
                 }
             }
+    }
+
+    private fun persistDirtyStorageIfDue(force: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+        if (!force && now - lastStorageFlushAtMs < STORAGE_FLUSH_INTERVAL_MS) return
+        persistDirtyStorage()
+        lastStorageFlushAtMs = now
     }
 
     private fun persistDirtyStorage() {
@@ -283,6 +344,7 @@ class C3EmuEngine : PhoneSystemEngine {
         private const val FRAME_BYTES = LCD_WIDTH * LCD_HEIGHT * 4
         private const val CHUNK_BYTES = 64 * 1024
         private const val DISK_RECORD_HEADER_BYTES = 4 + 8 + 4 + 8
+        private const val STORAGE_FLUSH_INTERVAL_MS = 250L
 
         /** C3-00 matrix positions documented in the upstream c3emu KEYMAP. */
         fun matrixIndexFor(key: CanonicalKey): Int? = when (key) {

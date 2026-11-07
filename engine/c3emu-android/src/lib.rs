@@ -80,13 +80,19 @@ pub extern "system" fn Java_org_retromobile_world_C3EmuNative_nativeBoot(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_retromobile_world_C3EmuNative_nativeRun(
-    env: JNIEnv<'_>,
+    _env: JNIEnv<'_>,
     _receiver: JObject<'_>,
     budget_ms: jdouble,
+) -> jdouble {
+    c3emu_web::c3_run(budget_ms.max(0.1))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_retromobile_world_C3EmuNative_nativeResultText(
+    env: JNIEnv<'_>,
+    _receiver: JObject<'_>,
 ) -> jstring {
-    let wait_ms = c3emu_web::c3_run(budget_ms.max(0.1));
-    let message = if wait_ms < 0.0 { result_text() } else { String::new() };
-    make_string(env, &message)
+    make_string(env, &result_text())
 }
 
 #[unsafe(no_mangle)]
