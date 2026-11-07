@@ -48,7 +48,7 @@ val fetchC3ProfilePhoto = tasks.register("fetchC3ProfilePhoto") {
             setRequestProperty("User-Agent", "RetroMobileWorld/0.3 (profile asset retrieval)")
         }
         val bytes = connection.getInputStream().use { it.readBytes() }
-        val gitHeader = "blob ${bytes.size}\\u0000".toByteArray(Charsets.UTF_8)
+        val gitHeader = ("blob ${bytes.size}" + 0.toChar()).toByteArray(Charsets.UTF_8)
         val digest = MessageDigest.getInstance("SHA-1")
         digest.update(gitHeader)
         val actualGitBlobSha1 = digest.digest(bytes)
