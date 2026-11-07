@@ -4,9 +4,10 @@
 
 **Обновлено:** 7 ноября 2026  
 **Ветка:** `feature/j2me-library-bridge-20261104`  
-**Последний полностью проверенный кодовый checkpoint:** `bf148e501034eb7191ad8678d2abd24dc5b60308`  
-**CI для него успешно:** [RM-217 Boot Probe #42376324182](https://github.com/irman100/RetroMobileWorld/actions/runs/42376324182) — Windows + Linux, trace summarizer tests, Rust tests, release builds и Windows trace-kit; [Android PR #42376324180](https://github.com/irman100/RetroMobileWorld/actions/runs/42376324180) и [Android push #42376320051](https://github.com/irman100/RetroMobileWorld/actions/runs/42376320051) — success, APK собраны.  
-**Новый Windows trace-kit:** ID `13575474418`, SHA-256 `42eb81956414bb5852fbdd15a85f76db3691657b596798f0a05f26f53b49ac44`, размер 1,303,618 bytes; expires 2026-11-21 13:20:06 UTC.  
+**Последний полностью проверенный кодовый checkpoint:** `8d049de7d59017084f8e249f3ba81079b2cf0b61`  
+**CI для него успешно:** [RM-217 Boot Probe #42379564262](https://github.com/irman100/RetroMobileWorld/actions/runs/42379564262) — Windows + Linux, trace summarizer tests, Rust tests, release builds и Windows trace-kit; [Android PR #42379564321](https://github.com/irman100/RetroMobileWorld/actions/runs/42379564321) и [Android push #42379559302](https://github.com/irman100/RetroMobileWorld/actions/runs/42379559302) — success, APK собраны.  
+**Свежий Windows trace-kit:** ID `13577250544`, SHA-256 `a98694d3af681199f39c4d5ba1743cdc03ec5ab8c8e3cfc8097aa0f5ac5034a3`, размер 1,304,228 bytes; expires 2026-11-21 14:03:12 UTC.  
+**Android debug APK:** PR artifact `13577136887` (SHA-256 `059d16e012eca85a35d644a14241e869b92e4c013987dd051c13a4b4961f1bc2`); push artifact `13577331086` (SHA-256 `e4a9bb91bf1b6b05d0e989a4c5c9ca213e04bf1c711bc278746981db328328d2`).  
 **PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит; ветка допускает merge.
 
 Исторические проверки для предыдущих диагностических коммитов сохранены в соответствующих разделах ниже.
@@ -1232,8 +1233,27 @@ The mapper does not assert on this repeated row in the observed run. Treat it as
 
 The probe stopped on guest write `[0x20032D14] <- 0x00000002` at PC `0xF0103A48`. The guest assertion formatter was separately observed at `0xF0103C0A` with r0=`0x3E`. The supplied compact summary does not establish whether the reset request is a direct consequence of the assertion or a later boot policy response.
 
-### 22.5 Diagnostic report improvement in progress
+### 22.5 Reset endpoint lies inside static BSE row 05
 
-The current compact summarizer did not include the new ASIC window read/write lines, despite the full trace recording them. A code change is being prepared to include a bounded chronological sample and exact reset-endpoint accesses in future compact summaries. The addresses remain labelled unclassified; no CBUS/GENIO interpretation is inferred from the window base alone.
+Static row 05 defines physical base `0x20030000`, size `0x7000` and BSE alias base `0xFFD30000`. Its physical interval is `[0x20030000, 0x20037000)`. The observed reset write address `0x20032D14` lies inside this interval at offset `0x2D14`; the corresponding address inside this row's alias view is `0xFFD32D14`.
 
-Raw evidence needed to complete the CBUS step is the full local file `rm217-bse-alias-mmuv2.txt` (the 6,643-line trace), not the 213-line console summary.
+This is a geometry-derived alias address. The supplied summary confirms the direct physical write at `0x20032D14`; it does not prove that the guest also performed a write through `0xFFD32D14`, nor does it identify this window as CBUS GPIO.
+
+### 22.6 ASIC accesses are now present in compact summaries
+
+The trace summarizer now parses `[ASIC-read NNN]` and `[ASIC-write NNN]` events. It reports counts and a bounded chronological sample: all events when there are at most 64, otherwise the first 32 and last 32. Each row includes address, access size, value and guest PC. The report separately highlights accesses at `0x20032D14` and `0xFFD32D14`.
+
+The section is deliberately titled **UNCLASSIFIED ASIC CONTROL-WINDOW ACCESSES** and explicitly says it does not identify these registers as CBUS or GENIO. The full raw trace is still required to correlate GPIO transitions, instructions and the first CBUS frames.
+
+### 22.7 Validation of the updated summarizer
+
+Code checkpoint `8d049de7d59017084f8e249f3ba81079b2cf0b61` passed:
+- [RM-217 Boot Probe #42379564262](https://github.com/irman100/RetroMobileWorld/actions/runs/42379564262) — Windows/Linux summarizer tests, Rust tests, release builds and Windows trace-kit.
+- [Android PR #42379564321](https://github.com/irman100/RetroMobileWorld/actions/runs/42379564321) — success, debug APK assembled.
+- [Android push #42379559302](https://github.com/irman100/RetroMobileWorld/actions/runs/42379559302) — success, debug APK assembled.
+
+Latest Windows trace-kit: artifact `13577250544`, SHA-256 `a98694d3af681199f39c4d5ba1743cdc03ec5ab8c8e3cfc8097aa0f5ac5034a3`, 1,304,228 bytes, expires 2026-11-21 14:03:12 UTC.
+
+Android debug APK artifacts: PR `13577136887`, SHA-256 `059d16e012eca85a35d644a14241e869b92e4c013987dd051c13a4b4961f1bc2`; push `13577331086`, SHA-256 `e4a9bb91bf1b6b05d0e989a4c5c9ca213e04bf1c711bc278746981db328328d2`.
+
+Raw evidence needed to finish CBUS reconstruction remains the full local file `rm217-bse-alias-mmuv2.txt` (6,643 lines), not the 213-line console summary. The compact report can now show ASIC read/write events, but the full trace is required to inspect the instruction-by-instruction context around them.

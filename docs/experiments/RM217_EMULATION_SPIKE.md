@@ -534,4 +534,8 @@ Static rows 06 and 07 duplicate physical 0x20040000, size 0x3000, alias 0xFFD400
 
 The guest stop is reset request 0x20032D14 <- 2 at PC 0xF0103A48. The assertion formatter is seen separately at PC 0xF0103C0A with r0=0x3E; the compact summary alone does not prove direct control-flow causality.
 
-The supplied attachment was the 213-line compact summary, not the full 6,643-line trace. It therefore does not expose the newly instrumented ASIC-read/ASIC-write events. The summarizer is being extended to include a bounded chronological sample of those accesses and their PC values, while retaining the unclassified address label.
+The supplied attachment was the 213-line compact summary, not the full 6,643-line trace. It therefore did not expose the newly instrumented ASIC-read/ASIC-write events. The summarizer now parses those events and reports counts plus the first/last 32 chronological accesses when the event count exceeds 64; each event includes address, size, value and PC. It separately highlights accesses at the observed reset endpoint. The address window remains unclassified and is not identified as CBUS/GENIO.
+
+The reset endpoint `0x20032D14` lies at offset `0x2D14` within static BSE row 05, physical range `[0x20030000,0x20037000)`, whose BSE alias base is `0xFFD30000`. The corresponding alias-view address is `0xFFD32D14`. The compact summary confirms the physical reset write, not a guest write through the alias.
+
+The corrected summarizer, tests and reports passed CI on `8d049de7d59017084f8e249f3ba81079b2cf0b61`: Windows/Linux probe #42379564262 and Android PR/push #42379564321 / #42379559302. Latest Windows trace kit: artifact `13577250544`, SHA-256 `a98694d3af681199f39c4d5ba1743cdc03ec5ab8c8e3cfc8097aa0f5ac5034a3`.
