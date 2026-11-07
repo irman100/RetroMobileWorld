@@ -119,8 +119,11 @@ object FirmwareImageInspector {
                     require(dataOffset + dataLength <= fileLength) {
                         "FPSX data block extends beyond the file."
                     }
-                    // BB5 uses 0xFFFFFFFF for special unmapped blocks such as PAPUBKEYS.
-                    // That sentinel is not a normal flash address and must not be range-checked.
+                    // FPSX stores the target as a 32-bit flash address. Do not apply
+                    // an 8 MiB / 23-bit controller window to the container parser:
+                    // the selected device's physical map is a separate validation layer.
+                    // BB5 uses 0xFFFFFFFF for special unmapped blocks such as PAPUBKEYS;
+                    // that sentinel is not a normal flash address and must not be range-checked.
                     require(
                         flashAddress == UNMAPPED_FLASH_ADDRESS ||
                             flashAddress + dataLength <= 0x1_0000_0000L
