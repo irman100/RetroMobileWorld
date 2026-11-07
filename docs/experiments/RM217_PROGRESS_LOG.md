@@ -776,3 +776,49 @@ For these CRC-inspector changes, commits are `81084b67260d8988282e4ee31348551e9a
 5. Do not conflate this PPM issue with the still-open BSE allocator problem. Continue the BSE investigation using the MCUSW; preserve the PPM warning as a separate boot-completeness gate.
 
 **Current conclusion:** the ZIP container is structurally valid; the MCU and IMAGE match the selected VPL; the PPM component is internally consistent with the ZIP but mismatches the selected VPL. This proves package-level inconsistency for PPM, not that the entire firmware dump is corrupt.
+
+---
+
+## 17. Automated allocator alias derivation and refreshed trace checkpoint (2026-11-07)
+
+### 17.1 What changed
+
+The previous trace identified the allocator instruction sequence but did not capture the helper's returned value. The compact summarizer now reconstructs the arithmetic from the exact-PC register snapshots:
+
+| PC | Checkpoint | Required observation |
+|---|---|---|
+| `0xF010432A` | immediately before `BL 0xF0104976` | helper input registers |
+| `0xF0104976` | helper entry | entry register state |
+| `0xF010432E` | returned from helper, before literal `LDR` | helper return value in `r0` |
+| `0xF0104330` | after literal `LDR`, before `SUBS` | helper result in `r0`, literal in `r4` |
+| `0xF0104332` | after `SUBS r0,r4,r0`, before `STR [sp,#0x38]` | computed alias in `r0` |
+
+The summarizer calculates `(r4 - r0) & 0xFFFFFFFF`, compares it with post-instruction `r0`, checks that the helper return survives the intervening literal load, and compares the arithmetic result with the allocator's captured `SP+0x38` value immediately before the mapper call. It prints explicit MATCH/MISMATCH states and warnings. This is trace interpretation only; it does not modify guest registers, memory, mappings or assertion behaviour.
+
+Two synthetic tests cover both a consistent register/stack flow and an intentionally inconsistent result. They test the diagnostic logic, not a new firmware execution.
+
+### 17.2 CI and refreshed Windows trace kit
+
+The code checkpoint is `558c35bb48e4cd2719146ce998f4d0668a23638c`.
+
+- [RM-217 Boot Probe run 42366177923](https://github.com/irman100/RetroMobileWorld/actions/runs/42366177923) — success on Ubuntu and Windows. Both platforms passed the trace summarizer tests, Rust unit tests and release build. The Windows job also assembled and uploaded the trace kit.
+- [Android CI pull-request run 42366177892](https://github.com/irman100/RetroMobileWorld/actions/runs/42366177892) — success, including Android unit tests, debug APK assembly and artifact upload.
+- [Android CI push run 42366175996](https://github.com/irman100/RetroMobileWorld/actions/runs/42366175996) — success.
+- Fresh Windows artifact: `rm217-windows-bse-trace-kit`, ID `13571579203`, SHA-256 `49b79d8234405d1ee57f9032eef7176a8fd5018799c0ff96d1e4217df3b91ec6`. It belongs to run 42366177923 and expires 2026-11-21 11:00:30 UTC.
+- Android debug APK artifact: `retro-mobile-world-debug`, ID `13572130229`, SHA-256 `0dc3669aa719730bea53f5fefabb6e98418b5df05782e2c6ac203717291d363f`. This is the firmware-intake Android application build; it is not an APK with the original Series 40 OS running.
+
+### 17.3 What this does not establish
+
+No new run of the user's firmware archive was performed for this checkpoint. The source evidence for the alias-0 collision remains the previously supplied 2864-line trace. The new tests prove that the summarizer can validate the upcoming register arithmetic when those observations are present; they do not prove what the helper returns on the actual firmware run.
+
+The BSE alias-0 collision and assertion at `0xF0103C0A` therefore remain unresolved. No stable LCD frame, successful MCUSW continuation, or Series 40 startup is confirmed. The PPM/VPL CRC discrepancy remains a separate package-integrity issue and is not part of this allocator calculation.
+
+### 17.4 Next evidence checkpoint
+
+Download the Windows trace kit from [run 42366177923](https://github.com/irman100/RetroMobileWorld/actions/runs/42366177923), extract its flat files together, and run from PowerShell with the same user-supplied archive:
+
+```powershell
+.\\run_rm217_bse_alias_trace.ps1 'E:\\RM-217.zip'
+```
+
+Inspect the generated `rm217-bse-alias-mmuv2.summary.txt` first. The decisive values are the helper return at `0xF010432E`, `r4` and `r0` at `0xF0104330`, the post-`SUBS` `r0` at `0xF0104332`, and the captured `SP+0x38` before mapper. If the arithmetic and stack value both match but remain zero, the next investigation stays on the provenance of the zero result and the prelude/static-map construction around `0xF0104874`, `0xF0104880` and `0xF0104898`. Do not change Type-8 records, NOR base, alias policy or firmware bytes from the trace alone.

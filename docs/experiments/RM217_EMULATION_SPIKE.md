@@ -403,3 +403,28 @@ assertion has not been suppressed.
 This remains a CPU-only diagnostic run with synthetic readiness and NOR-ID
 inputs plus the explicit legacy unmapped-as-RAM fallback. It is not a successful
 phone boot or a verified complete RM-217 hardware model.
+
+---
+
+## Allocator alias derivation and validated trace checkpoint (2026-11-07)
+
+The Type-8 scan and BSE alias observations recorded in the progress log establish the current failure mechanism more precisely than the earlier initial region-map report:
+
+- The Type-8 record at `0x0800381C` contains size `0x00A00000` at `+0x08` and start `0x01600000` at `+0x0C), describing occupied interval `[0x01600000, 0x02000000)`.
+- The observed allocator subtracts that tail from candidate interval `[0, 0x02000000)`, leaving `[0, 0x01600000)`. Before the late mapper call, the saved alias input at `SP+0x38` is zero.
+- Earlier mapper calls in the same trace include physical interval `[0x01600000, 0x02000000)` through alias `0xC1600000` (slot `0xC16`) and low interval `[0, 0xB000)` through alias `0xC0000000` (slot `0xC00`). These occupy different BSE slots.
+- The static prelude's identity mapping of the first 1 MiB already marks slot 0 with `0x3E`. The late NOR allocator then requests alias 0 for a 22-MiB mapping and encounters that marker at `0x10090000`, entering the assertion at `0xF0103C0A`.
+
+The observed range subtraction is not itself proven incorrect. The open question is why the helper/literal calculation supplies alias zero and whether the static prelude mapping and allocator free-range list are intended to share this address space. The raw descriptor pointer observed alongside a mapper call is one descriptor ahead of the arguments in the old trace; it must not be treated as the source of the current mapping without a new direct correlation.
+
+The Windows trace runner now captures the helper entry/return and the adjacent Thumb arithmetic checkpoints. Its summarizer calculates the expected 32-bit `r4-r0` result, checks the post-`SUBS` register, and compares that result with the captured `SP+0x38` value before the mapper. Synthetic tests cover both matching and mismatching traces.
+
+The updated diagnostic tooling and Android application build passed CI for checkpoint `558c35bb48e4cd2719146ce998f4d0668a23638c`:
+
+- [RM-217 Boot Probe — Windows and Linux](https://github.com/irman100/RetroMobileWorld/actions/runs/42366177923)
+- [Android CI — pull request](https://github.com/irman100/RetroMobileWorld/actions/runs/42366177892)
+- [Android CI — push](https://github.com/irman100/RetroMobileWorld/actions/runs/42366175996)
+
+The refreshed [Windows BSE trace kit](https://github.com/irman100/RetroMobileWorld/actions/runs/42366177923) is artifact `13571579203` (SHA-256 `49b79d8234405d1ee57f9032eef7176a8fd5018799c0ff96d1e4217df3b91ec6`). The tests and CI builds validate the diagnostic code only. No new guest-firmware trace was captured in this checkpoint; the BSE assertion remains open, no stable LCD frame is available, and Series 40 has not booted. Do not alter the firmware memory map or suppress the assertion until the new register trace explains the alias source.
+
+The PPM/VPL CRC-32 mismatch is independent of this BSE allocator issue. The matching MCU and IMAGE checksums remain unchanged, and the PPM warning remains a separate integrity gate before a complete-OS claim.
