@@ -328,7 +328,7 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
             out.append("- ARM MMU state is unknown for these slot-table reads because SCTLR was not captured.")
     if slot_zero_pairs:
         rendered = ", ".join(f"VA={_hex(va)} PA={_hex(pa)}" for va, pa in slot_zero_pairs)
-        out.append(f"- BSE slot-0 accesses: {rendered}.")
+        out.append(f"- BSE slot-0 CPU memory accesses: {rendered}.")
 
     out.append("")
     out.append("STATIC BSE TABLE RECORDS")
