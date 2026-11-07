@@ -834,3 +834,95 @@ The last fully tested runtime/tooling checkpoint is 75ae7edc0f37eef4b8f79c6504bc
 - Latest Windows trace kit: artifact 13571708963, SHA-256 ef99d059acab360556713f6b3693797510e53c30248a6acee704364680def20c, 1,299,370 bytes, expires 2026-11-21 11:06:08 UTC. This newer artifact supersedes artifact 13571579203 above.
 
 The next unresolved dependency is still a fresh run on the user's original local firmware ZIP. The runtime diagnosis must not advance from synthetic fixtures alone.
+---
+
+## 18. Новая фактическая трасса: физическая память, ARM MMU и BSE alias (2026-11-07)
+
+### 18.1 Полученный пользовательский trace
+
+Пользователь передал Desktop.zip с тремя файлами:
+- rm217-bse-alias-mmuv2.txt — полный Windows PowerShell trace, 5 427 строк, 843 752 bytes;
+- rm217-bse-alias-mmuv2.summary.txt — краткая сводка, 17 980 bytes;
+- log.txt — хвост PowerShell-сессии, 18 798 bytes.
+
+SHA-256 исходных файлов:
+- Desktop.zip: f556881898cf0f8d7c44af9f38b034b7c06c640d88e2857d9673762fa83b22e8
+- full trace: f4df7484c49294f8d87a898fc3d25fd6237f92de109bb825efb987eecce25ef6
+- summary: 949bf98eaa3c1f7a91c3397814e09786628d4db720376331cefe36c83d5c1384
+- PowerShell tail: 855c7bf7184d4e0cfb38ad7d2f8321b1061ec27a91e6c4814de12cd808022da9
+
+Этот trace содержит 19 mapper calls, 16 BSE slot-table reads и 37 BSE slot-table writes. Полный trace и firmware archive остаются вне Git; здесь сохраняются только проверенные числа и методика.
+
+### 18.2 Три разных адресных сущности
+
+Предыдущее замечание в разделах 10 и 12 было правильным: физический API Uc::mem_read() нельзя смешивать с guest-virtual CPU loads, когда ARM MMU включена. Но новую трассу нужно интерпретировать отдельно, не переносить на неё старую оговорку автоматически.
+
+На точке позднего mapper 0xF0103ECE получены:
+- CP15 SCTLR = 0x0009117C; bit 0 (M) = 0;
+- TTBR = 0x00000000;
+- DACR = 0x00000000;
+- FCSEIDR = 0x00000000.
+
+Следовательно, ARM MMU address translation выключена именно на sampled late-mapper hook. BSE slot-table access для slot 0 записан VA=PA=0x10090000. Это означает, что различие CPU virtual vs physical stack reads, важное в старых MMU-enabled diagnostics, не объясняет повторное чтение slot 0 в этой трассе. Не следует обобщать этот M=0 на все стадии boot: он установлен только для данной точки.
+
+Третий уровень — BSE alias. Это отдельный аргумент firmware mapper (r2), выбирающий слот собственной alias table по alias >> 20. Это не CPU virtual address и не результат CP15 VA-to-PA translation. Поле guest_va_to_pa в диагностике относится к отдельному CPU-адресному преобразованию.
+
+### 18.3 Разные физические memory windows и текущая коллизия
+
+В live descriptor cluster различимы два разных физических memory windows:
+- NOR descriptor type 0x24: base 0x00000000, size 0x02000000 (32 MiB), manufacturer/device fields 0x00EC:0x2208 — кандидат ID остаётся диагностическим, не подтверждённым datasheet;
+- SDRAM descriptor type 0x04: base 0x10000000, size 0x01000000 (16 MiB).
+
+Таким образом, физическая NOR и SDRAM действительно разные виды памяти и имеют разные базовые адреса. Но пара, которая вызывает текущий assertion, не является NOR-vs-SDRAM collision: оба конфликтующих mapper requests используют physical base 0 и BSE alias 0.
+
+| Mapper caller | Physical base (r0) | Length (r1) | BSE alias (r2) | BSE slot |
+|---|---:|---:|---:|---:|
+| Static prelude 0xF010489D | 0x00000000 | 0x00100000 | 0x00000000 | 0x000 |
+| Late NOR allocator 0xF01043A5 | 0x00000000 | 0x01600000 | 0x00000000 | 0x000 |
+
+Static prelude reads empty slot 0x10090000, then writes marker 0x3E. The later allocator reads the same slot and gets 0x3E. Different range lengths do not change the fact that both requests select the same BSE alias slot.
+
+### 18.4 Откуда теперь доказанно берётся нулевой alias
+
+Новая трасса закрывает прежний пробел о helper return:
+
+1. 0xF0104328 loads r0 from PC-relative literal address 0xF0104424.
+2. BL 0xF0104976 returns; at 0xF010432E, r0=0xF0100000.
+3. LDR r4 at 0xF010432E references the same literal address 0xF0104424; at 0xF0104330, r4=0xF0100000.
+4. SUBS r0,r4,r0 produces r0=0 at 0xF0104332.
+5. The value is stored at SP+0x38; before the mapper that stack field remains zero, and caller 0xF01043A5 passes r2=0.
+
+The helper at 0xF0104976 performs a PC-relative adjustment on its input. In this observed call it returns the input XIP base unchanged (0xF0100000). The caller's two operands therefore match, and the subtraction is correct. The current trace does not indicate register corruption or a failed stack store.
+
+The Type-8 record at 0x0800381C still removes the occupied NOR tail [0x01600000, 0x02000000) from candidate interval [0, 0x02000000), leaving the allocator's free prefix [0, 0x01600000). That confirms the range subtraction observed earlier, but does not answer whether the static 1-MiB prelude must be reserved from this free prefix or whether the BSE mapper supports extending a same-origin mapping.
+
+### 18.5 Что доказано и что остаётся открытым
+
+Доказано:
+- ARM MMU выключена на точке позднего mapper;
+- slot-table read для slot 0 проходит по VA=PA=0x10090000;
+- оба конфликтующих запроса используют physical base 0, BSE alias 0;
+- нулевой alias получается из корректного вычитания двух одинаковых XIP-base operands;
+- Type-8 occupied-range scan оставляет свободный физический префикс [0, 0x01600000).
+
+Не доказано:
+- что именно семантически представляет собой static prelude mapping первой 1 MiB;
+- должен ли prelude mapping быть исключён из allocator free-range list;
+- поддерживает ли firmware безопасное расширение уже занятого BSE slot для того же physical origin;
+- какая из этих структур является источником intended reservation policy.
+
+Не менять firmware bytes, NOR base, Type-8 data, alias policy или assertion без дополнительного доказательства.
+
+### 18.6 Изменение диагностической сводки
+
+В scripts/summarize_rm217_bse_trace.py добавлено отдельное пояснение CPU MMU vs BSE alias:
+- парсинг SCTLR/TTBR/DACR/FCSEIDR;
+- интерпретация SCTLR.M bit;
+- показ фактических VA/PA для slot-0 reads;
+- явное отделение mapper BSE alias (r2) от ARM VA-to-PA translation.
+
+В scripts/tests/test_summarize_rm217_bse_trace.py добавлены synthetic cases для MMU disabled и MMU enabled. Они проверяют интерпретацию адресных пространств и не заменяют реальный firmware trace. CI для коммитов этой диагностической правки ещё необходимо проверить; до результата не считать её green.
+
+### 18.7 Следующий точечный шаг
+
+Разобрать 16-byte static-table record, который предшествует raw cursor 0xF0105AF8, и выяснить назначение prelude mapping (physical=0, size=1 MiB, BSE alias=0). Для этого можно добавить только read-only dump всей таблицы начиная с 0xF0105AEC, не меняя её contents. Затем сопоставить static entry с NOR descriptor и Type-8 reservation list.

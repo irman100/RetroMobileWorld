@@ -441,3 +441,18 @@ The last fully tested runtime/tooling checkpoint is 75ae7edc0f37eef4b8f79c6504bc
 The newest Windows trace kit is artifact 13571708963 from run 42366626010 (SHA-256: ef99d059acab360556713f6b3693797510e53c30248a6acee704364680def20c; 1,299,370 bytes; expires 2026-11-21 11:06:08 UTC). It supersedes the earlier trace-kit artifact referenced in the prior progress checkpoint.
 
 Run the kit against the same local RM-217 Phoenix ZIP and retain both the compact summary and full trace. The summary should show whether the helper's returned r0 survives the literal load, whether post-SUBS r0 equals (r4-r0), and whether SP+0x38 carries that same computed value into the BSE mapper. This is still a diagnostic experiment; no new guest-firmware trace has yet been captured and the Series 40 OS is not running.
+## Physical memory, ARM MMU and BSE alias: the new trace (7 November 2026)
+
+The newly supplied full trace contains 5,427 lines. It confirms that the earlier distinction between physical Uc::mem_read() and guest-virtual CPU loads remains important when ARM MMU is enabled, but it does not explain the current BSE collision:
+
+- At the late mapper hook 0xF0103ECE, CP15 SCTLR is 0x0009117C; M bit 0 is clear. TTBR, DACR and FCSEIDR are zero.
+- The slot-0 table read is observed as VA=PA=0x10090000.
+- The mapper's BSE alias argument (r2) selects a slot by alias >> 20. It is a separate firmware-managed alias namespace, not the ARM MMU's CPU VA-to-PA translation.
+
+The descriptor cluster distinguishes NOR (type 0x24, base 0, size 32 MiB) from SDRAM (type 0x04, base 0x10000000, size 16 MiB). The current conflicting pair is not a NOR-versus-SDRAM overlap: both mapper requests use physical base 0 and BSE alias 0.
+
+The static prelude requests (physical=0, length=1 MiB, BSE alias=0); the late NOR allocator requests (physical=0, length=22 MiB, BSE alias=0). The first request writes marker 0x3E to slot 0x10090000; the second sees that marker and asserts. This is a repeated BSE alias-slot request with different range lengths.
+
+The zero is now explained by the actual register flow. The caller loads r0 from literal 0xF0104424; the helper at 0xF0104976 returns 0xF0100000 unchanged in this execution; the subsequent LDR r4 reads the same literal 0xF0100000; and SUBS r0,r4,r0 correctly computes zero. The same value reaches SP+0x38 and mapper r2. No register corruption is indicated.
+
+The remaining question is no longer why the arithmetic returns zero. It is why the static prelude's first MiB and the later NOR allocator's 22-MiB free prefix both claim the same BSE alias slot, and whether the mapper supports extending a same-origin mapping. The next step is to inspect the complete static table beginning at 0xF0105AEC, especially the entry before the observed raw cursor at 0xF0105AF8. Do not change the firmware map or suppress the assertion.
