@@ -45,6 +45,19 @@ class FirmwareImageInspectorTest {
     }
 
     @Test
+    fun acceptsRm614PpmFlashAddressBeyond23Bits() {
+        // RM-614's PPM image may be addressed above the 8 MiB / 23-bit boundary.
+        // The FPSX parser must preserve the 32-bit target address instead of
+        // rejecting a valid physical flash offset at container-inspection time.
+        val file = fixtureFile(".ppm_c", fpsx("PPM", 0x01E0_0000L))
+        val metadata = FirmwareImageInspector.inspect(file)
+
+        assertTrue("PPM" in metadata.namedRegions)
+        assertEquals(1, metadata.blockCount)
+        file.delete()
+    }
+
+    @Test
     fun stillRejectsOverflowForMappedFlashAddresses() {
         val file = fixtureFile(".ppm_c", fpsx("PPM", 0xFFFF_FFFEL))
         assertFalse(runCatching { FirmwareImageInspector.inspect(file) }.isSuccess)
