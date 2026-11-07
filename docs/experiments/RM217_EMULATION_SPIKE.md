@@ -521,3 +521,5 @@ These are strong leads, not a confirmed RM-217 protocol. The Linux source itself
 The separate Nokia E7 reverse-engineering project shows a useful methodology for recovering a phone's GPIO/pinmux map from its own firmware, but it targets Broadcom BCM2727B1/ARM1176 RAPU, not RM-217 RAPGSM/ARM926; none of its GPIO addresses should be copied.
 
 The current ASIC windows 0x20032C00..0x20032DFF and 0xFFD32C00..0xFFD32DFF remain unclassified. The new diagnostic patch logs reads as well as writes and adds disassembly/watchpoints around the reset request at 0xF0103A48. No CBUS semantics are assigned to those windows yet.
+
+The CBUS-candidate instrumentation is now CI-validated on `bf148e501034eb7191ad8678d2abd24dc5b60308`: Windows/Linux probe tests and builds passed, as did Android PR/push CI. Latest Windows trace kit: artifact `13575474418`, SHA-256 `42eb81956414bb5852fbdd15a85f76db3691657b596798f0a05f26f53b49ac44`. It records reads as well as writes in the unclassified ASIC windows and disassembles the reset path around `0xF0103A48`; no CBUS register mapping is assumed.

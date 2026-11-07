@@ -4,10 +4,9 @@
 
 **Обновлено:** 7 ноября 2026  
 **Ветка:** `feature/j2me-library-bridge-20261104`  
-**Последний полностью проверенный кодовый checkpoint:** `31055f7be730639d429bb8309f377a915843209b`  
-**CI для него успешно:** [RM-217 Boot Probe #42375394611](https://github.com/irman100/RetroMobileWorld/actions/runs/42375394611) — Windows + Linux, trace summarizer tests, Rust tests, release builds и Windows trace-kit; [Android PR #42375394604](https://github.com/irman100/RetroMobileWorld/actions/runs/42375394604) и [Android push #42375390710](https://github.com/irman100/RetroMobileWorld/actions/runs/42375390710) — success.  
-**Windows artifact:** `rm217-windows-bse-trace-kit`, ID `13575965094`, SHA-256 `13affb7017900e17d13d86effbb1ea21ce366bd18e79e85db7c1f139473d2c7b`.  
-**Текущий диагностический патч ожидает CI.**  
+**Последний полностью проверенный кодовый checkpoint:** `bf148e501034eb7191ad8678d2abd24dc5b60308`  
+**CI для него успешно:** [RM-217 Boot Probe #42376324182](https://github.com/irman100/RetroMobileWorld/actions/runs/42376324182) — Windows + Linux, trace summarizer tests, Rust tests, release builds и Windows trace-kit; [Android PR #42376324180](https://github.com/irman100/RetroMobileWorld/actions/runs/42376324180) и [Android push #42376320051](https://github.com/irman100/RetroMobileWorld/actions/runs/42376320051) — success, APK собраны.  
+**Новый Windows trace-kit:** ID `13575474418`, SHA-256 `42eb81956414bb5852fbdd15a85f76db3691657b596798f0a05f26f53b49ac44`, размер 1,303,618 bytes; expires 2026-11-21 13:20:06 UTC.  
 **PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит; ветка допускает merge.
 
 Исторические проверки для предыдущих диагностических коммитов сохранены в соответствующих разделах ниже.
@@ -1160,7 +1159,7 @@ The NOR-profile, source-comment, README, third-party notice and research-documen
 
 
 
-## RETU/TAHVO CBUS: RM-217 wiring and candidate protocol (2026-11-07)
+## 21. RETU/TAHVO CBUS: RM-217 wiring and candidate protocol (2026-11-07)
 
 ### RM-217 schematic evidence
 
@@ -1189,3 +1188,12 @@ The Nokia E7-00 project https://github.com/apoage/nokia-e7-linux recovered pinmu
 ### Current probe instrumentation boundary
 
 The existing watched ranges 0x20032C00..0x20032DFF and 0xFFD32C00..0xFFD32DFF are still unclassified ASIC/control windows; the reset register was observed at 0x20032D14. The current patch adds read logging to those ranges and captures the surrounding reset routine at 0xF0103A48. This is only to obtain PC/register context. The ranges are not identified as CBUS GPIO registers yet.
+
+### 21.1.1 Validation of the CBUS-candidate read instrumentation
+
+The code checkpoint `bf148e501034eb7191ad8678d2abd24dc5b60308` passed all CI:
+- [RM-217 Boot Probe #42376324182](https://github.com/irman100/RetroMobileWorld/actions/runs/42376324182) — Linux and Windows; all summarizer/Rust tests, both release builds and Windows trace-kit succeeded.
+- [Android PR #42376324180](https://github.com/irman100/RetroMobileWorld/actions/runs/42376324180) — success; debug APK artifact `13575374480`, SHA-256 `d8c4f1f443f26ba9f18babf241df8e6c7995bb6801b13e557bf5ff2c18406148`.
+- [Android push #42376320051](https://github.com/irman100/RetroMobileWorld/actions/runs/42376320051) — success; debug APK artifact `13575594078`, SHA-256 `aaac5d6c89d9ebd878b985642a063312ccff1e95749af5ede1fa8e7a49f37791`.
+
+The new [Windows trace kit](https://github.com/irman100/RetroMobileWorld/actions/runs/42376324182) is artifact `13575474418`, SHA-256 `42eb81956414bb5852fbdd15a85f76db3691657b596798f0a05f26f53b49ac44`. It adds read watchpoints over the same unclassified ASIC windows as the existing write watch and includes Thumb disassembly/watchpoints around reset request PC `0xF0103A48`. This is diagnostic only; those addresses have not been proven to be the GENIO/CBUS block.
