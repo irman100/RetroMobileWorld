@@ -52,7 +52,20 @@ ALLOCATOR_INTERVAL_RE = re.compile(
 )
 MEMORY_WORDS_RE = re.compile(r"^\s*(0x[0-9A-Fa-f]+):\s+((?:[0-9A-Fa-f]{8}\s*)+)$")
 EXIT_RE = re.compile(r"Probe exit code:\s*(-?\d+)")
-STOP_RE = re.compile(r"(?m)^=== PROBE STOP ===\s*\n([^\r\n]+)")
+STOP_RE = re.compile(r"(?m)^=== PROBE STOP ===\\s*\\n([^\\r\\n]+)")
+WATCH_PC_RE = re.compile(
+    r"\\[watch-pc hit=\\d+\\]\\s+pc=0x(?P<pc>[0-9A-Fa-f]+).*?"
+    r"\\br0=0x(?P<r0>[0-9A-Fa-f]+)\\s+r1=0x(?P<r1>[0-9A-Fa-f]+)\\s+"
+    r"r2=0x(?P<r2>[0-9A-Fa-f]+)\\s+r3=0x(?P<r3>[0-9A-Fa-f]+)\\s+"
+    r"r4=0x(?P<r4>[0-9A-Fa-f]+)\\s+r5=0x(?P<r5>[0-9A-Fa-f]+)\\s+"
+    r"r6=0x(?P<r6>[0-9A-Fa-f]+)\\s+r7=0x(?P<r7>[0-9A-Fa-f]+)\\s+"
+    r"sp=0x(?P<sp>[0-9A-Fa-f]+)\\s+lr=0x(?P<lr>[0-9A-Fa-f]+)"
+)
+IMAGE_DUMP_RE = re.compile(
+    r"\\[image-dump\\] VA=0x(?P<address>[0-9A-Fa-f]+) "
+    r"length=0x(?P<length>[0-9A-Fa-f]+) bytes=\\[(?P<bytes>[^]]*)\\] "
+    r"words_le=\\[(?P<words>[^]]*)\\]"
+)
 
 
 def bse_slot_index(alias: int) -> int:
@@ -105,6 +118,8 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
     type8_pointers: list[int] = []
     allocator_intervals: list[dict[str, int | str]] = []
     memory_words: dict[int, int] = {}
+    watch_snapshots: list[dict[str, int]] = []
+    image_dumps: list[dict[str, int | str]] = []
     warnings: list[str] = []
 
     for line in lines:
@@ -183,6 +198,25 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
                 "map_root": int(map_root, 16),
             })
 
+        match = WATCH_PC_RE.search(line)
+        if match:
+            snapshot = {name: int(value, 16) for name, value in match.groupdict().items()}
+            if snapshot["pc"] in {
+                0xF010432A, 0xF010432E, 0xF0104330, 0xF0104332,
+                0xF0104874, 0xF0104880, 0xF0104898, 0xF0104976,
+            }:
+                watch_snapshots.append(snapshot)
+
+        match = IMAGE_DUMP_RE.search(line)
+        if match:
+            dump = match.groupdict()
+            image_dumps.append({
+                "address": int(dump["address"], 16),
+                "length": int(dump["length"], 16),
+                "bytes": dump["bytes"],
+                "words": dump["words"],
+            })
+
         match = MEMORY_WORDS_RE.match(line)
         if match:
             address, words = match.groups()
@@ -259,6 +293,28 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
         )
     if not key_calls:
         out.append("- No expected static-prelude, alias-FF1 or late NOR mapper calls parsed.")
+
+    out.append("")
+    out.append("ALIAS SOURCE REGISTER SNAPSHOTS")
+    for snapshot in watch_snapshots:
+        out.append(
+            f"- PC={_hex(snapshot['pc'])} r0={_hex(snapshot['r0'])} r1={_hex(snapshot['r1'])} "
+            f"r2={_hex(snapshot['r2'])} r3={_hex(snapshot['r3'])} r4={_hex(snapshot['r4'])} "
+            f"r5={_hex(snapshot['r5'])} r6={_hex(snapshot['r6'])} r7={_hex(snapshot['r7'])} "
+            f"SP={_hex(snapshot['sp'])} LR={_hex(snapshot['lr'])}"
+        )
+    if not watch_snapshots:
+        out.append("- No alias-source register snapshots parsed.")
+
+    out.append("")
+    out.append("MCUSW IMAGE LITERAL DUMPS")
+    for dump in image_dumps:
+        out.append(
+            f"- VA={_hex(int(dump['address']))} len={_hex(int(dump['length']))} "
+            f"bytes=[{dump['bytes']}] words_le=[{dump['words']}]"
+        )
+    if not image_dumps:
+        out.append("- No requested MCUSW image literal dumps parsed.")
 
     out.append("")
     out.append("TYPE-8 OCCUPIED RANGE / FREE INTERVAL")
