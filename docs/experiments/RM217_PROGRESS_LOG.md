@@ -727,3 +727,52 @@ Runner сохраняет полный trace `Desktop\rm217-bse-alias-mmuv2.txt`
 5. Поздний вызов `0xF01043A5`: проверить, что `SP+0x38` без дополнительного преобразования становится `r2=0`.
 
 **Не менять** static table, Type-8 record, NOR base, alias calculation или assertion до этого trace. Не считать host probe exit code 0 прохождением guest BSE. На текущем checkpoint firmware всё ещё останавливается на BSE assertion; stable LCD frame и запуск Series 40 не подтверждены.
+
+---
+
+## 16. PPM CRC-32 discrepancy: ZIP entry is self-consistent, selected VPL is not (2026-11-07)
+
+### 16.1 Exact archived component evidence
+
+The previously inspected user-supplied archive is product code `0537625`, VPL `RM217_0537625_07.30_018.vpl`, software version `07.30`, variant `RM-217 6300 EURO-C TR Turkey, Latin, black-silver`.
+
+| Component | File size | ZIP central-directory CRC | Recalculated CRC-32 | Selected VPL CRC-32 | SHA-256 |
+|---|---:|---:|---:|---:|---|
+| MCU | 15,204,164 | `01C45DB7` | `01C45DB7` | `01C45DB7` | `80172266f517180ace7a0065d0167619c174ec3fc1aa181fdc9b9f6fc0c2e17d` |
+| PPM | 4,525,730 | `613D565F` | `613D565F` | `C585B71C` | `166ee371be01e8fa070a60202bae085171a169e970e73e782e8e5730ac99276d` |
+| IMAGE | 3,674,450 | `5008F91F` | `5008F91F` | `5008F91F` | `15f2a47216bd7deae8223e62d2579005edd9b0f26f244f469aa269c2f61b818b` |
+
+The archive passes `zipfile.testzip()`. For PPM, the ZIP CRC and an independently recalculated `zlib.crc32(decompressed_component_bytes)` are both `613D565F`; they differ from the VPL's `C585B71C`. Therefore the bytes currently stored in this ZIP are self-consistent with the ZIP container, but are not the bytes expected by the selected VPL manifest. This is not evidence of accidental damage during ZIP reading/decompression. It remains possible that PPM was wrong/substituted/damaged before the ZIP was assembled, or that the manifest metadata is stale/incorrect.
+
+All six VPL files in this ZIP reference the same PPM filename and expected checksum `C585B71C`; the ZIP has one matching PPM entry. The PPM FPSX header is readable and labels language-pack version `07.30`, but a matching version string and parseable structure do not prove exact package/variant identity.
+
+### 16.2 Scope and relevance to the BSE failure
+
+MCU CRC matches the ZIP entry and selected VPL; IMAGE does too. This makes accidental corruption of MCU bytes less likely, though CRC-32 is not an authenticity guarantee and no independently trusted SHA-256 baseline for this precise package has been obtained.
+
+The present CPU/BSE probe loads and executes the MCU component. It does not consume or execute the PPM during the investigated NOLO/MCUSW/BSE initialization. Therefore the PPM mismatch does **not** explain the observed static-prelude alias-0 collision, the `0x3E` marker, or assertion at `0xF0103C0A`. It remains a separate integrity blocker before claiming a complete Series 40 boot, because PPM is a firmware component that may be used later for language/resource data.
+
+### 16.3 Historical reports are only weak corroboration
+
+Older user reports in Nokia repair forums mention `Corrupted Flash File` or PPM reinstall errors with RM-217 / software `07.30`, including `rm217__07.30.ppm_c`. These are anecdotal reports, not Nokia documentation, and are not verified to be the same product code, VPL or archive. They do not prove this archive's PPM is the same damaged file:
+
+- [Unlockers archive: PPM_C 07.30 reported as a corrupted flash file](https://www.unlockers.ru/archive/index.php/t-15828.html)
+- [Unlockers archive: RM-217 07.30 PPM reinstall reports](https://www.unlockers.ru/archive/index.php/t-37017.html)
+
+### 16.4 Firmware inspector clarification and tests
+
+`scripts/inspect_rm217_firmware.py` now reports two independent dimensions: `ZIP entry consistency` and `VPL component checksum`. For the PPM mismatch it explicitly reports that the ZIP entry is self-consistent but does not match the selected VPL, rather than presenting the generic word `MISMATCH` without context.
+
+`scripts/tests/test_inspect_rm217_firmware.py` now tests four cases: all CRCs match; ZIP entry matches its own data while VPL differs; ZIP entry CRC differs while VPL matches; and the VPL checksum is missing. This protects the distinction between container integrity and manifest agreement.
+
+For these CRC-inspector changes, commits are `81084b67260d8988282e4ee31348551e9a652e2a` and `7e0b7fb549c460d1b2395d7c0b485b49f8f03ab2`; follow-up explanation is in `88a97c15a35aca33cb1206fee95e34941c3f8321`. At the moment this section was written, the corresponding RM-217 Boot Probe and Android CI runs were still in progress. Do not mark those runs successful until their conclusions are checked.
+
+### 16.5 Required PPM verification before complete-OS claim
+
+1. Keep the matching MCU and IMAGE components unchanged; both currently pass the three-way CRC check.
+2. Obtain an independently sourced PPM for this exact product code/VPL/variant, or an independent copy of the original package, and calculate SHA-256 and CRC-32 again.
+3. A candidate PPM is accepted as matching this VPL only when its decompressed component CRC-32 equals `C585B71C`; also inspect FPSX structure and language/variant metadata.
+4. If an independent copy of the exact same VPL/package still contains PPM CRC `613D565F`, investigate whether the VPL's `C585B71C` is stale or the package was published inconsistently. Do not silently rewrite the VPL checksum.
+5. Do not conflate this PPM issue with the still-open BSE allocator problem. Continue the BSE investigation using the MCUSW; preserve the PPM warning as a separate boot-completeness gate.
+
+**Current conclusion:** the ZIP container is structurally valid; the MCU and IMAGE match the selected VPL; the PPM component is internally consistent with the ZIP but mismatches the selected VPL. This proves package-level inconsistency for PPM, not that the entire firmware dump is corrupt.
