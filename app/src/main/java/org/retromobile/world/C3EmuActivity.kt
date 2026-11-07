@@ -46,7 +46,7 @@ class C3EmuActivity : Activity() {
     private var cycleInFlight = false
     private var destroyed = false
 
-    private val loopRunnable = object : Runnable {
+    private val loopRunnable: Runnable = object : Runnable {
         override fun run() {
             if (!runningLoop || destroyed || cycleInFlight) return
             cycleInFlight = true
