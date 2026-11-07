@@ -269,6 +269,38 @@ Probe exit code: 0
         self.assertIn("record+0x0C (the fourth word of the same 16-byte row)", summary)
         self.assertIn("End marker 0xFFFFFFFF follows row 01", summary)
 
+    def test_summary_groups_multiple_subranges_in_one_bse_window(self):
+        trace = "\n".join([
+            "[watch-pc static-map cursor] loop-index=3 cursor=0xF0105B28 table-root=0xF0105AEC current-base=0x20010000 current-size=0x00001000 current-alias=0xFFD10000",
+            "0xF0105B28: 00000005",
+            "[watch-pc static-map cursor] loop-index=4 cursor=0xF0105B38 table-root=0xF0105AEC current-base=0x20020000 current-size=0x00007000 current-alias=0xFFD20000",
+            "0xF0105B38: 00000405",
+            "[watch-pc static-map cursor] loop-index=5 cursor=0xF0105B48 table-root=0xF0105AEC current-base=0x20030000 current-size=0x00007000 current-alias=0xFFD30000",
+            "0xF0105B48: 00000405",
+            "[watch-pc static-map cursor] loop-index=6 cursor=0xF0105B58 table-root=0xF0105AEC current-base=0x20040000 current-size=0x00003000 current-alias=0xFFD40000",
+            "0xF0105B58: 00000405",
+            "[watch-pc static-map cursor] loop-index=7 cursor=0xF0105B68 table-root=0xF0105AEC current-base=0x20040000 current-size=0x00003000 current-alias=0xFFD40000",
+            "0xF0105B68: 00000405",
+            "[watch-pc static-map cursor] loop-index=8 cursor=0xF0105B78 table-root=0xF0105AEC current-base=0x20050000 current-size=0x00003000 current-alias=0xFFD50000",
+            "0xF0105B78: 00000405",
+        ])
+
+        summary = build_summary(trace)
+
+        self.assertIn(
+            "slot-index=0xFFD slot=0x10093FF4 1-MiB alias-window=0xFFD00000 "
+            "shared by rows 03, 04, 05, 06, 07, 08",
+            summary,
+        )
+        self.assertIn("row 03: alias=0xFFD10000 offset=0x00010000", summary)
+        self.assertIn("row 08: alias=0xFFD50000 offset=0x00050000", summary)
+        self.assertIn(
+            "exact duplicate alias mapping: rows 06/07 "
+            "alias-range=[0xFFD40000, 0xFFD43000)",
+            summary,
+        )
+        self.assertNotIn("WARNING: overlapping alias mappings", summary)
+
     def test_summary_flags_wrong_logged_slot_index(self):
         trace = (
             "[BSE mapper args] caller=0xF010489D phys_base=0x00000000 "

@@ -368,6 +368,73 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
     else:
         out.append("- No detailed static-map cursor rows were captured.")
 
+    # A BSE slot represents a complete 1-MiB alias window. Different alias
+    # addresses inside that window share the slot intentionally; only
+    # overlapping alias intervals need further scrutiny.
+    out.append("")
+    out.append("BSE ALIAS WINDOWS / SHARED SLOTS")
+    rows_by_slot: dict[int, list[dict[str, int]]] = {}
+    for row in static_map_rows:
+        rows_by_slot.setdefault(bse_slot_index(row["alias"]), []).append(row)
+
+    for slot_index, rows in sorted(rows_by_slot.items()):
+        if len(rows) < 2:
+            continue
+        slot_address = BSE_SLOT_BASE + slot_index * BSE_SLOT_BYTES
+        window_base = slot_index << 20
+        row_labels = ", ".join(
+            f"{row['index']:02d}" for row in sorted(rows, key=lambda item: item["index"])
+        )
+        out.append(
+            f"- slot-index={_hex(slot_index, 3)} slot={_hex(slot_address)} "
+            f"1-MiB alias-window={_hex(window_base)} shared by rows {row_labels}."
+        )
+        for row in sorted(rows, key=lambda item: item["index"]):
+            alias_offset = row["alias"] & 0x000FFFFF
+            out.append(
+                f"  row {row['index']:02d}: alias={_hex(row['alias'])} "
+                f"offset={_hex(alias_offset)} physical={_hex(row['base'])} "
+                f"size={_hex(row['length'])}."
+            )
+
+        ordered = sorted(rows, key=lambda item: (item["alias"], item["index"]))
+        for left_index, left in enumerate(ordered):
+            left_start = left["alias"]
+            left_end = left_start + left["length"]
+            for right in ordered[left_index + 1:]:
+                right_start = right["alias"]
+                right_end = right_start + right["length"]
+                overlap_start = max(left_start, right_start)
+                overlap_end = min(left_end, right_end)
+                if overlap_start >= overlap_end:
+                    continue
+                left_flags = memory_words.get(left["cursor"])
+                right_flags = memory_words.get(right["cursor"])
+                is_exact_duplicate = (
+                    left_start == right_start
+                    and left["base"] == right["base"]
+                    and left["length"] == right["length"]
+                    and left_flags == right_flags
+                )
+                if is_exact_duplicate:
+                    out.append(
+                        f"- exact duplicate alias mapping: rows {left['index']:02d}/{right['index']:02d} "
+                        f"alias-range=[{_hex(overlap_start)}, {_hex(overlap_end)}) "
+                        f"physical-range=[{_hex(left['base'])}, "
+                        f"{_hex(left['base'] + left['length'])}) "
+                        f"raw+0C={_hex(left_flags) if left_flags is not None else 'not captured'}."
+                    )
+                else:
+                    warnings.append(
+                        f"static rows {left['index']:02d}/{right['index']:02d} overlap inside "
+                        f"BSE alias slot {_hex(slot_index, 3)}: "
+                        f"[{_hex(overlap_start)}, {_hex(overlap_end)})"
+                    )
+                    out.append(
+                        f"- WARNING: overlapping alias mappings rows {left['index']:02d}/{right['index']:02d} "
+                        f"range=[{_hex(overlap_start)}, {_hex(overlap_end)})."
+                    )
+
     static_zero_call = next(iter(static_zero), None)
     nor_zero_call = next(iter(nor_zero), None)
     if static_zero_call and nor_zero_call:

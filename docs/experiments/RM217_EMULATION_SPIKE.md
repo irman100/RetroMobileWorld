@@ -487,3 +487,13 @@ Rows 0 and 11 of the static table both describe physical base `0x00000000`, leng
 Both intervals lie within the type-0x24 NOR descriptor (base 0, size 32 MiB). This is direct evidence for multiple BSE alias views of the same physical NOR region, not evidence that the ARM CPU MMU folds two virtual addresses together. The currently failing allocator still uses alias 0 and collides with row 0; row 11's alias `0xFF100000` is a distinct slot and must not be substituted without proving firmware policy.
 
 Current validated tooling checkpoint `9635ce53c942523c59c5a386f6e3bc109a5aad51` passed Windows/Linux probe CI and both Android CI paths. The newest Windows trace kit is artifact 13574875706 (SHA-256 983061ac50f66e87538f0d69cb0c2309395af4694d38eee55f4bb1b67473f989). The runner now preserves previous Desktop trace/summary files under timestamped backup names before writing a new run.
+
+## New trace finding: 1-MiB BSE slots are shared by multiple subrange mappings (7 November 2026)
+
+Rows 3-8 all select BSE slot index 0xFFD because alias >> 20 discards the low 20 bits. Their aliases (0xFFD10000 through 0xFFD50000) are different offsets within the same 1-MiB window beginning at 0xFFD00000. These records therefore share one BSE slot/page-table root by design; repeated slot address alone is not a collision. Their requested subranges occupy different alias offsets. The summary shows FFD-slot writes involving 0x10094400, 0x10094430 and 0x10094431, consistent with page-table-backed setup, but the full disassembly is needed to assign exact meanings.
+
+Rows 6 and 7 are exact duplicates: physical 0x20040000, size 0x3000, alias 0xFFD40000, raw fourth word 0x405. Treat this as duplicate registration/data pending analysis, not proof of a corrupt dump.
+
+Separate from this legitimate FFD window sharing, row 0 (physical 0, 1 MiB, alias 0) still writes marker 0x3E; the late allocator's 22-MiB alias-0 request reads the same marker and enters the assertion path.
+
+The new 6,318-line summary also reports a guest hardware-reset request at PC 0xF0103A48 (0x20032D14 <- 2). It also records the assertion formatter at 0xF0103C0A with r0=0x3E; the summarized output does not prove the exact control-flow relation. The run is not a successful OS boot.

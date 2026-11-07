@@ -4,12 +4,10 @@
 
 **Обновлено:** 7 ноября 2026  
 **Ветка:** `feature/j2me-library-bridge-20261104`  
-**HEAD последнего проверенного checkpoint:** `9635ce53c942523c59c5a386f6e3bc109a5aad51`  
+**HEAD последнего полностью проверенного checkpoint:** `9635ce53c942523c59c5a386f6e3bc109a5aad51`  
+**HEAD последнего изменения:** `a1385778a1d10fb9a8883a27cf254fa7f6909d62` (журнал dual-alias).  
 **PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит; GitHub показывает, что ветка допускает merge.  
-**CI для HEAD `9635ce5`: успешно:**
-- [RM-217 Boot Probe #42373012663](https://github.com/irman100/RetroMobileWorld/actions/runs/42373012663) — Windows и Linux; summarizer tests, Rust tests, release builds и Windows trace-kit.
-- [Android CI #42373012770](https://github.com/irman100/RetroMobileWorld/actions/runs/42373012770) — success, pull request; APK собран.
-- [Android CI #42373008184](https://github.com/irman100/RetroMobileWorld/actions/runs/42373008184) — success, push.
+**Последний полностью зелёный CI:** [RM-217 Boot Probe #42373012663](https://github.com/irman100/RetroMobileWorld/actions/runs/42373012663), [Android PR #42373012770](https://github.com/irman100/RetroMobileWorld/actions/runs/42373012770), [Android push #42373008184](https://github.com/irman100/RetroMobileWorld/actions/runs/42373008184). Последующее документальное изменение пока не требовало нового probe build.
 
 Исторические проверки для предыдущих диагностических коммитов сохранены в соответствующих разделах ниже.
 
@@ -1071,3 +1069,46 @@ For current checkpoint `9635ce53c942523c59c5a386f6e3bc109a5aad51`:
 - Latest Windows artifact: `rm217-windows-bse-trace-kit`, ID `13574875706`, SHA-256 `983061ac50f66e87538f0d69cb0c2309395af4694d38eee55f4bb1b67473f989`, 1,301,440 bytes; expires 2026-11-21 12:35:21 UTC.
 
 The summarizer now correlates the allocator's `0xF0104976` helper entry by `LR=0xF010432F`, preventing a later logging call to the same helper from being mistaken for the NOR allocator invocation. The runner now copies pre-existing Desktop trace and summary files to timestamped `.previous-...` names before starting a new run, then writes the new trace/summary to the stable filenames. The expanded BSE disassembly and static-table dump remain read-only diagnostics; no guest mapping, firmware bytes or assertion behaviour were changed.
+
+### 19.8 New 6,318-line trace: BSE window sharing and reset endpoint (2026-11-07)
+
+User-provided runner output summary:
+- 6,318 lines scanned; 19 mapper calls; 16 slot-table reads; 37 slot-table writes.
+- ARM CP15 SCTLR remains 0x0009117C at the late mapper hook (M=0); all 15 listed slot-table VA/PA pairs are identical in this run.
+- The static table dump is present in the summary and repeats the 14 rows plus 0xFFFFFFFF terminator.
+- The trace reports the guest requested a hardware reset: write 0x00000002 to 0x20032D14 at PC 0xF0103A48.
+- The assertion formatter path is also observed at 0xF0103C0A, with r0=0x3E; the summary confirms the alias-0 marker 0x3E was written and later read. The summary does not by itself prove the exact control-flow edge between assertion formatting and the reset request. Host probe exit code 0 only means the probe stopped cleanly; it is not evidence of OS boot.
+- Uploaded summary text file SHA-256: 5524fc6110ec286b62cb93c7e1b6eed0377315644ae6777e2288918d2cdb6e14 (23,369 bytes, 200 lines as stored).
+
+#### 19.8.1 Important distinction: same 1-MiB BSE slot is expected for several subranges
+
+bse_slot_index(alias) = alias >> 20 selects the 1-MiB alias window, not an individual 64-KiB subrange. The low 20 bits of the alias are the offset inside that window.
+
+The new trace makes this explicit for rows 3-8:
+- row 3: alias 0xFFD10000, offset 0x00010000, physical 0x20010000, size 0x1000;
+- row 4: alias 0xFFD20000, offset 0x00020000, physical 0x20020000, size 0x7000;
+- row 5: alias 0xFFD30000, offset 0x00030000, physical 0x20030000, size 0x7000;
+- rows 6 and 7: both alias 0xFFD40000, offset 0x00040000, physical 0x20040000, size 0x3000;
+- row 8: alias 0xFFD50000, offset 0x00050000, physical 0x20050000, size 0x3000.
+
+All six records share BSE slot index 0xFFD, table word address 0x10093FF4, and 1-MiB alias window [0xFFD00000, 0xFFE00000). The distinct low-20-bit offsets place their requested subranges at different positions within that window. Therefore, repeated slot address for rows 3-8 is not itself a collision. The BSE slot can be the page-table root for the entire 1-MiB alias window, with individual mappings occupying different offsets within it. The slot log shows writes associated with the FFD slot at 0x10094400, 0x10094430 and 0x10094431, consistent with setup of a page-table-backed alias window; the full trace/disassembly is still needed before assigning exact structure semantics.
+
+Rows 6 and 7 are an exact duplicate mapping request across all four observed words: same physical base, size, alias and raw +0x0C (0x405). It may be intentional repeat registration or redundant table data; do not call it corruption without examining mapper's repeated-PTE path.
+
+This corrects any interpretation that treated every repeated 1-MiB slot as a conflict. The alias-0 situation remains a separate special case: row 0 maps (physical 0, size 1 MiB, alias 0), writes marker 0x3E into slot 0, and the late NOR allocator then requests (physical 0, size 22 MiB, alias 0) and reads the same marker.
+
+#### 19.8.2 Same physical memory, alternate alias stays valid
+
+Rows 0 and 11 still demonstrate the same physical first MiB of the NOR descriptor registered via separate 1-MiB BSE windows: row 0 uses alias 0 and slot 0x000; row 11 uses alias 0xFF100000 and slot 0xFF1.
+
+The new run confirms slot 0xFF1 receives 0x472; slot 0x000 receives 0x3E. These are separate alias windows, unlike rows 3-8, which share one BSE slot but use distinct offsets within that window.
+
+#### 19.8.3 Probe endpoint
+
+This run does not establish OS boot. It ends when firmware writes the guest hardware-reset request (0x20032D14 <- 2) at PC 0xF0103A48. The assertion formatter observation at PC 0xF0103C0A/r0=0x3E and reset request are both present, but the summarized output alone is insufficient to prove which code path caused the reset.
+
+#### 19.8.4 Diagnostic tooling follow-up
+
+The summarizer now needs to render alias_offset = alias & 0x000FFFFF, group static rows by alias >> 20, and distinguish shared 1-MiB alias window with non-overlapping subranges, exact duplicate rows (6/7), and genuinely overlapping alias intervals that differ in physical range or attributes.
+
+This prevents treating legitimate page-table sharing as a BSE collision. No firmware bytes, memory map or assertion behaviour were changed.
