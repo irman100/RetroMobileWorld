@@ -818,7 +818,7 @@ The BSE alias-0 collision and assertion at `0xF0103C0A` therefore remain unresol
 Download the Windows trace kit from [run 42366177923](https://github.com/irman100/RetroMobileWorld/actions/runs/42366177923), extract its flat files together, and run from PowerShell with the same user-supplied archive:
 
 ```powershell
-.\\run_rm217_bse_alias_trace.ps1 'E:\\RM-217.zip'
+.\run_rm217_bse_alias_trace.ps1 'E:\RM-217.zip'
 ```
 
 Inspect the generated `rm217-bse-alias-mmuv2.summary.txt` first. The decisive values are the helper return at `0xF010432E`, `r4` and `r0` at `0xF0104330`, the post-`SUBS` `r0` at `0xF0104332`, and the captured `SP+0x38` before mapper. If the arithmetic and stack value both match but remain zero, the next investigation stays on the provenance of the zero result and the prelude/static-map construction around `0xF0104874`, `0xF0104880` and `0xF0104898`. Do not change Type-8 records, NOR base, alias policy or firmware bytes from the trace alone.
