@@ -2,7 +2,9 @@
 .idea/
 local.properties
 **/build/
+**/target/
 **/.cxx/
+app/src/main/jniLibs/
 *.iml
 *.apk
 *.aab

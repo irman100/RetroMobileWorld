@@ -8,7 +8,11 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.view.Gravity
 import android.view.WindowManager
+import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.LinearLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import java.util.concurrent.Executors
@@ -30,14 +34,41 @@ class MainActivity : Activity() {
             onImportFirmwareRequested = { requestFirmwareImport() }
             onFirmwareInfoRequested = { showFirmwareInfo() }
         }
-        setContentView(phoneView)
 
-        ViewCompat.setOnApplyWindowInsetsListener(phoneView) { view, insets ->
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0xFF050B11.toInt())
+        }
+        val toolbar = FrameLayout(this)
+        val c3Button = Button(this).apply {
+            text = "NOKIA C3-00  ·  ОТКРЫТЬ ЭМУЛЯТОР"
+            textSize = 10f
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, C3EmuActivity::class.java))
+            }
+        }
+        toolbar.addView(c3Button, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER
+        ))
+        root.addView(toolbar, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+        root.addView(phoneView, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0,
+            1f
+        ))
+        setContentView(root)
+
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val safeInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             view.setPadding(safeInsets.left, safeInsets.top, safeInsets.right, safeInsets.bottom)
             insets
         }
-        ViewCompat.requestApplyInsets(phoneView)
+        ViewCompat.requestApplyInsets(root)
         refreshFirmwareState()
     }
 
@@ -179,11 +210,7 @@ class MainActivity : Activity() {
     private fun queryDisplayName(uri: Uri): String {
         var displayName: String? = null
         val cursor: Cursor? = contentResolver.query(
-            uri,
-            arrayOf(OpenableColumns.DISPLAY_NAME),
-            null,
-            null,
-            null
+            uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
         )
         cursor?.use {
             if (it.moveToFirst()) {
@@ -206,9 +233,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (::phoneView.isInitialized && ::firmwareLibrary.isInitialized) {
-            refreshFirmwareState()
-        }
+        if (::phoneView.isInitialized && ::firmwareLibrary.isInitialized) refreshFirmwareState()
     }
 
     @Suppress("DEPRECATION")

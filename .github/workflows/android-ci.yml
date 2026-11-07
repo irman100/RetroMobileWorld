@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: android-ci-recovery-${{ github.workflow }}-${{ github.ref }}
+  group: android-ci-c3emu-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -29,7 +29,7 @@ jobs:
       - name: Validate device profiles and catalogue
         run: python scripts/validate_registry.py
 
-      - name: Test RM-217 firmware inspection tooling
+      - name: Test firmware inspection tooling
         run: python -m unittest discover -s scripts/tests -v
 
       - name: Set up JDK 17
@@ -43,8 +43,32 @@ jobs:
         with:
           packages: platform-tools
 
-      - name: Install Android platform and build tools
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Install Android platform, build tools and NDK
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018"
+          yes | sdkmanager --licenses >/dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Set up Rust and Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build c3emu JNI libraries for Android ABIs
+        run: |
+          cargo ndk \
+            -t arm64-v8a \
+            -t armeabi-v7a \
+            -t x86_64 \
+            -o app/src/main/jniLibs \
+            build --release --manifest-path engine/c3emu-android/Cargo.toml
+          test -s app/src/main/jniLibs/arm64-v8a/libc3emu_android.so
+          test -s app/src/main/jniLibs/armeabi-v7a/libc3emu_android.so
+          test -s app/src/main/jniLibs/x86_64/libc3emu_android.so
 
       - name: Run Android unit tests
         run: ./gradlew --no-daemon :app:testDebugUnitTest
@@ -55,7 +79,7 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: retro-mobile-world-debug
+          name: retro-mobile-world-c3emu-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

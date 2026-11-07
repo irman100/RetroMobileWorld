@@ -1,0 +1,14 @@
+[package]
+name = "c3emu-android-jni"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+publish = false
+
+[lib]
+name = "c3emu_android"
+crate-type = ["cdylib"]
+
+[dependencies]
+c3emu-web = { git = "https://github.com/androettop/c3emu", rev = "9b0d3ae2da326e109428f64d8760ea823ee1b648", package = "c3emu-web" }
+jni = "=0.21.1"

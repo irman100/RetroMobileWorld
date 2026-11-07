@@ -15,6 +15,10 @@
                 android:resource="@xml/legacy_file_paths" />
         </provider>
         <activity
+            android:name=".C3EmuActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false" />
+        <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
