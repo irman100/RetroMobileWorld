@@ -441,13 +441,26 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
         (0xF0104330, "before SUBS r0, r4, r0"),
         (0xF0104332, "after SUBS / before SP+0x38 store"),
     )
+    # 0xF0104976 is a shared helper with many call sites. For this allocator
+    # invocation, correlate the entry by the Thumb LR set by BL at 0xF010432A.
+    # The return address is odd because the caller is in Thumb state.
+    allocator_helper_lr = 0xF010432F
+    helper_entry_rows = [
+        snapshot for snapshot in snapshots_by_pc.get(0xF0104976, [])
+        if snapshot["lr"] == allocator_helper_lr
+    ]
+
     for pc, label in checkpoint_labels:
         candidates = snapshots_by_pc.get(pc, [])
+        if pc == 0xF0104976:
+            candidates = helper_entry_rows
+            label = "helper entry for allocator BL (LR=0xF010432F)"
         if candidates:
             snapshot = candidates[-1]
             out.append(
                 f"- {label}: PC={_hex(pc)} r0={_hex(snapshot['r0'])} "
-                f"r4={_hex(snapshot['r4'])} SP={_hex(snapshot['sp'])}"
+                f"r4={_hex(snapshot['r4'])} SP={_hex(snapshot['sp'])} "
+                f"LR={_hex(snapshot['lr'])}"
             )
         else:
             out.append(f"- {label}: not captured")
@@ -455,6 +468,7 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
     sub_before_rows = snapshots_by_pc.get(0xF0104330, [])
     sub_after_rows = snapshots_by_pc.get(0xF0104332, [])
     helper_return_rows = snapshots_by_pc.get(0xF010432E, [])
+    helper_call_rows = snapshots_by_pc.get(0xF010432A, [])
     if sub_before_rows and sub_after_rows:
         sub_before = sub_before_rows[-1]
         sub_after = sub_after_rows[-1]
@@ -470,6 +484,34 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
                 f"allocator SUBS at 0xF0104330 predicts alias {_hex(expected_alias)} "
                 f"but 0xF0104332 reports r0={_hex(actual_alias)}"
             )
+
+        if helper_return_rows and helper_entry_rows and helper_call_rows:
+            helper_input = helper_call_rows[-1]
+            helper_entry = helper_entry_rows[-1]
+            helper_return = helper_return_rows[-1]
+            same_input = helper_input["r0"] == helper_entry["r0"]
+            same_return = helper_entry["r0"] == helper_return["r0"]
+            same_stack = helper_input["sp"] == helper_entry["sp"] == helper_return["sp"]
+            state = "MATCH" if same_input and same_return and same_stack else "MISMATCH"
+            out.append(
+                f"- allocator helper correlation (LR=0xF010432F): "
+                f"call-input r0={_hex(helper_input['r0'])}; "
+                f"helper-entry r0={_hex(helper_entry['r0'])}; "
+                f"return r0={_hex(helper_return['r0'])}; "
+                f"SP call/entry/return={_hex(helper_input['sp'])}/"
+                f"{_hex(helper_entry['sp'])}/{_hex(helper_return['sp'])} [{state}]"
+            )
+            if not same_input or not same_stack:
+                warnings.append("allocator helper entry does not match the 0xF010432A call-site registers/stack")
+            if not same_return:
+                warnings.append(
+                    f"allocator helper changed r0: entry {_hex(helper_entry['r0'])} "
+                    f"!= return {_hex(helper_return['r0'])}"
+                )
+        elif helper_entry_rows:
+            out.append("- allocator helper correlation: matching entry found, but call/return checkpoints are incomplete")
+        else:
+            out.append("- allocator helper correlation: no 0xF0104976 entry with LR=0xF010432F was captured")
 
         if helper_return_rows:
             helper_return = helper_return_rows[-1]["r0"]

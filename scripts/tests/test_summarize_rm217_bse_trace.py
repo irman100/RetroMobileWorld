@@ -132,6 +132,52 @@ Probe exit code: 0
         self.assertIn("SP+0x38 before mapper=0x00000FE0; computed alias=0x00000FE0 [MATCH]", summary)
         self.assertNotIn("WARNING: allocator SUBS", summary)
 
+    def test_summary_correlates_shared_helper_by_allocator_return_address(self):
+        def watch(
+            pc: int,
+            r0: int,
+            *,
+            r4: int = 0,
+            sp: int = 0x08002EC8,
+            lr: int = 0xF010432F,
+        ) -> str:
+            regs = [r0, 0, 0, 0, r4, 0, 0, 0]
+            values = " ".join(f"r{i}=0x{value:08X}" for i, value in enumerate(regs))
+            return (
+                f"[watch-pc hit=0] pc=0x{pc:08X} size=2 {values} "
+                f"sp=0x{sp:08X} lr=0x{lr:08X}"
+            )
+
+        trace = "\n".join([
+            watch(0xF010432A, 0xF0100000, sp=0x08002EC8, lr=0xF0104307),
+            # Same helper, but an unrelated logging caller. It must not be
+            # mistaken for the allocator's BL target.
+            watch(0xF0104976, 0xF0103AB0, sp=0x08002E00, lr=0xF0102FB3),
+            watch(0xF0104976, 0xF0100000, sp=0x08002EC8, lr=0xF010432F),
+            watch(0xF010432E, 0xF0100000, sp=0x08002EC8, lr=0xF010432F),
+            watch(0xF0104330, 0xF0100000, r4=0xF0100000, sp=0x08002EC8),
+            watch(0xF0104332, 0x00000000, r4=0xF0100000, sp=0x08002EC8),
+            "[watch-pc allocator interval before mapper] "
+            "base=0x00000000 length=0x01600000 extra38=0x00000000 "
+            "extra3C=0x00000000 source-list=0x080037A0 map-root=0x10090000",
+        ])
+
+        summary = build_summary(trace)
+
+        self.assertIn(
+            "helper entry for allocator BL (LR=0xF010432F): "
+            "PC=0xF0104976 r0=0xF0100000",
+            summary,
+        )
+        self.assertIn(
+            "allocator helper correlation (LR=0xF010432F): "
+            "call-input r0=0xF0100000; helper-entry r0=0xF0100000; "
+            "return r0=0xF0100000",
+            summary,
+        )
+        self.assertIn("SP call/entry/return=0x08002EC8/0x08002EC8/0x08002EC8 [MATCH]", summary)
+        self.assertNotIn("helper entry for allocator BL (LR=0xF010432F): PC=0xF0104976 r0=0xF0103AB0", summary)
+
     def test_summary_warns_when_allocator_alias_register_flow_disagrees(self):
         def watch(pc: int, r0: int, r4: int = 0x1000) -> str:
             regs = [r0, 0, 0, 0, r4, 0, 0, 0]

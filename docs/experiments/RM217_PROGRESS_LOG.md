@@ -1026,3 +1026,16 @@ For current checkpoint ee4f82297dffc796aa0195258ff0694133824fd7:
 - PR #1 remains open, unmerged and mergeable.
 
 The latest runner expands Thumb disassembly to 0xF0103B00..0xF0104000, dumps 0xE4 bytes at 0xF0105AEC, and watches the marker write at 0xF0103C3E plus mapper/page-table update paths at 0xF0103D3C, 0xF0103D5C, 0xF0103D6E and 0xF0103D7E. This only changes diagnostics. No guest firmware mapping or bytes have been changed, and no new guest run has yet been performed with this expanded capture.
+
+### 19.4 Shared relocation helper: correlate the actual allocator invocation
+
+The full trace shows that 0xF0104976 is a shared helper with many callers. The old summary displayed the last helper-entry hit, which came from the later assertion/logging path (LR=0xF0102FB3, r0=0xF0103AB0) and was not the NOR allocator's call. This was a summary correlation defect, not an error in the guest execution.
+
+For the NOR allocator invocation:
+- call site before BL: 0xF010432A, LR=0xF0104307, SP=0x08002EC8, r0=0xF0100000;
+- matching helper entry: 0xF0104976, LR=0xF010432F, SP=0x08002EC8, r0=0xF0100000;
+- return site after BL: 0xF010432E, SP=0x08002EC8, r0=0xF0100000;
+- after literal load: 0xF0104330, r4=0xF0100000, r0=0xF0100000;
+- after SUBS: 0xF0104332, r0=0.
+
+The summarizer now selects the helper-entry snapshot by the caller's Thumb LR 0xF010432F, rather than using the last hit for PC 0xF0104976. A synthetic regression test includes an unrelated helper invocation with different LR/SP and verifies it is ignored. The caller/entry/return register and stack chain is reported together. This makes the helper-return conclusion directly tied to the correct invocation.
