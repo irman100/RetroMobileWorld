@@ -432,7 +432,7 @@ The PPM/VPL CRC-32 mismatch is independent of this BSE allocator issue. The matc
 
 ## Latest diagnostic build and next trace (2026-11-07)
 
-The most recent branch head is 75ae7edc0f37eef4b8f79c6504bc4d28da072014. Its final commit corrects only the PowerShell command example; the allocator arithmetic analyzer and its tests are from code checkpoint 558c35bb48e4cd2719146ce998f4d0668a23638c.
+The last fully tested runtime/tooling checkpoint is 75ae7edc0f37eef4b8f79c6504bc4d28da072014. The current branch head dbe5e258c49a5587d4d9d43b1d5ae222221289e8 is a documentation-only refresh; the allocator arithmetic analyzer and its tests remain the tested code from checkpoint 558c35bb48e4cd2719146ce998f4d0668a23638c.
 
 - [RM-217 Boot Probe run #42366626010](https://github.com/irman100/RetroMobileWorld/actions/runs/42366626010) — success on Windows and Linux; trace summarizer tests, Rust tests, release builds and Windows trace-kit assembly/upload passed.
 - [Android CI pull-request run #42366626025](https://github.com/irman100/RetroMobileWorld/actions/runs/42366626025) — success.
