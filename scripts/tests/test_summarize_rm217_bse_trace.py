@@ -180,6 +180,7 @@ Probe exit code: 0
             "[watch-pc CP15 SCTLR] = 0x0009117D",
             "[watch-pc CP15 TTBR] = 0x08004000",
             "[watch-pc CP15 DACR] = 0x00000001",
+            "[BSE slot-table-read 000] VA=0x10093FC4 PA=0x08093FC4 size=4 value=0x0 pc=0xF0103C04",
         ])
 
         summary = build_summary(trace)
