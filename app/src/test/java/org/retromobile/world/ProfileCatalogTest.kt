@@ -13,10 +13,11 @@ class ProfileCatalogTest {
     }
 
     @Test
-    fun symbianSmartphoneCanExposeBothRuntimeFamilies() {
+    fun symbianSmartphoneRetainsDeferredRuntimeButStartsInJavaMe() {
         val n73 = ProfileCatalog.builtIn.single { it.id == "nokia-n73-s60" }
         assertEquals(setOf(RuntimeFamily.JAVA_ME, RuntimeFamily.SYMBIAN), n73.supportedRuntimes)
-        assertEquals(RuntimeFamily.SYMBIAN, n73.defaultRuntime)
+        assertEquals(RuntimeFamily.JAVA_ME, n73.defaultRuntime)
+        assertTrue(n73.targetFor(RuntimeFamily.SYMBIAN)?.systemImageRequired == true)
     }
 
     @Test
