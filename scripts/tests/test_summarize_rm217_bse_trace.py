@@ -154,6 +154,39 @@ Probe exit code: 0
         self.assertIn("[MISMATCH]", summary)
         self.assertIn("WARNING: allocator SUBS", summary)
 
+    def test_summary_separates_disabled_arm_mmu_from_bse_alias_collision(self):
+        trace = "\n".join([
+            "[BSE mapper args] caller=0xF010489D phys_base=0x00000000 length=0x00100000 bse_alias=0x00000000 alias_slot_1MiB=0x0 slot_address=0x10090000 guest_va_to_pa=0x00000000",
+            "[BSE mapper args] caller=0xF01043A5 phys_base=0x00000000 length=0x01600000 bse_alias=0x00000000 alias_slot_1MiB=0x0 slot_address=0x10090000 guest_va_to_pa=0x00000000",
+            "[watch-pc CP15 SCTLR] = 0x0009117C",
+            "[watch-pc CP15 TTBR] = 0x00000000",
+            "[watch-pc CP15 DACR] = 0x00000000",
+            "[BSE slot-table-read 000] VA=0x10090000 PA=0x10090000 size=4 value=0x0 pc=0xF0103C04",
+            "[BSE slot-table-read 001] VA=0x10090000 PA=0x10090000 size=4 value=0x3E pc=0xF0103C04",
+        ])
+
+        summary = build_summary(trace)
+
+        self.assertIn("CPU MMU VS BSE ALIAS ADDRESS SPACES", summary)
+        self.assertIn("M bit (bit 0)=0; ARM MMU translation is disabled", summary)
+        self.assertIn("ARM CP15 TTBR=0x00000000", summary)
+        self.assertIn("BSE slot-0 CPU memory accesses: VA=0x10090000 PA=0x10090000", summary)
+        self.assertIn("Both requests select BSE slot 0x000", summary)
+        self.assertIn("separate alias-space input, not the ARM VA-to-PA translation", summary)
+
+    def test_summary_distinguishes_active_arm_mmu_from_bse_alias(self):
+        trace = "\n".join([
+            "[BSE mapper args] caller=0xF010489D phys_base=0x00000000 length=0x00100000 bse_alias=0xFF100000 alias_slot_1MiB=0xFF1 slot_address=0x10093FC4 guest_va_to_pa=0x00000000",
+            "[watch-pc CP15 SCTLR] = 0x0009117D",
+            "[watch-pc CP15 TTBR] = 0x08004000",
+            "[watch-pc CP15 DACR] = 0x00000001",
+        ])
+
+        summary = build_summary(trace)
+
+        self.assertIn("ARM MMU translation is enabled", summary)
+        self.assertIn("Do not equate BSE alias values with CPU physical addresses", summary)
+
     def test_summary_flags_wrong_logged_slot_index(self):
         trace = (
             "[BSE mapper args] caller=0xF010489D phys_base=0x00000000 "

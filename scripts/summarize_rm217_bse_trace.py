@@ -61,6 +61,10 @@ WATCH_PC_RE = re.compile(
     r"r6=0x(?P<r6>[0-9A-Fa-f]+)\s+r7=0x(?P<r7>[0-9A-Fa-f]+)\s+"
     r"sp=0x(?P<sp>[0-9A-Fa-f]+)\s+lr=0x(?P<lr>[0-9A-Fa-f]+)"
 )
+CP15_RE = re.compile(
+    r"\[watch-pc CP15 (?P<name>SCTLR|TTBR|DACR|FCSEIDR)\]\s*=\s*"
+    r"0x(?P<value>[0-9A-Fa-f]+)"
+)
 IMAGE_DUMP_RE = re.compile(
     r"\[image-dump\] VA=0x(?P<address>[0-9A-Fa-f]+) "
     r"length=0x(?P<length>[0-9A-Fa-f]+) bytes=\[(?P<bytes>[^]]*)\] "
@@ -121,8 +125,13 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
     watch_snapshots: list[dict[str, int]] = []
     image_dumps: list[dict[str, int | str]] = []
     warnings: list[str] = []
+    cp15_registers: dict[str, int] = {}
 
     for line in lines:
+        match = CP15_RE.search(line)
+        if match:
+            cp15_registers[match.group("name")] = int(match.group("value"), 16)
+
         match = MAPPER_RE.search(line)
         if match:
             caller, phys, length, alias, logged_index, logged_address = match.groups()
@@ -266,6 +275,52 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
         out.append(f"Host probe exit code: {exit_match.group(1)}")
     if stop_match:
         out.append(f"Probe stop: {stop_match.group(1)}")
+
+    out.append("")
+    out.append("CPU MMU VS BSE ALIAS ADDRESS SPACES")
+    sctlr = cp15_registers.get("SCTLR")
+    if sctlr is None:
+        out.append("- ARM CP15 SCTLR: not captured at the late mapper call.")
+    else:
+        mmu_enabled = bool(sctlr & 0x1)
+        state = "enabled" if mmu_enabled else "disabled"
+        out.append(
+            f"- ARM CP15 SCTLR={_hex(sctlr)}; M bit (bit 0)={int(mmu_enabled)}; "
+            f"ARM MMU translation is {state} at the late mapper hook."
+        )
+    for name in ("TTBR", "DACR", "FCSEIDR"):
+        if name in cp15_registers:
+            out.append(f"- ARM CP15 {name}={_hex(cp15_registers[name])}.")
+
+    slot_zero_reads = [
+        read for read in slot_reads if read["va"] == BSE_SLOT_BASE
+    ]
+    if slot_zero_reads:
+        pairs = list(dict.fromkeys((read["va"], read["pa"]) for read in slot_zero_reads))
+        rendered = ", ".join(f"VA={_hex(va)} PA={_hex(pa)}" for va, pa in pairs)
+        out.append(f"- BSE slot-0 CPU memory accesses: {rendered}.")
+        if not (sctlr and (sctlr & 0x1)):
+            if all(va == pa for va, pa in pairs):
+                out.append("- Observed slot-0 VA/PA identity is consistent with the ARM MMU being disabled.")
+        else:
+            out.append("- Do not equate BSE alias values with CPU physical addresses; ARM MMU translation is active.")
+
+    static_zero_call = next(iter(static_zero), None)
+    nor_zero_call = next(iter(nor_zero), None)
+    if static_zero_call and nor_zero_call:
+        out.append(
+            f"- Collision pair: static prelude physical={_hex(static_zero_call['phys'])}, "
+            f"BSE alias={_hex(static_zero_call['alias'])}, length={_hex(static_zero_call['length'])}; "
+            f"late NOR physical={_hex(nor_zero_call['phys'])}, "
+            f"BSE alias={_hex(nor_zero_call['alias'])}, length={_hex(nor_zero_call['length'])}."
+        )
+        out.append(
+            f"- Both requests select BSE slot {_hex(static_zero_call['index'], 3)} at "
+            f"{_hex(static_zero_call['slot_address'])}; the BSE alias is the mapper's "
+            "separate alias-space input, not the ARM VA-to-PA translation."
+        )
+    else:
+        out.append("- The full static-prelude / late-NOR alias-0 pair was not captured.")
 
     out.append("")
     out.append("KEY MAPPER CALLS (other calls counted, details omitted)")
