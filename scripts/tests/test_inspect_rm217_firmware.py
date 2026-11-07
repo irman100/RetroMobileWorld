@@ -2,10 +2,12 @@ import struct
 import sys
 import unittest
 from pathlib import Path
+import zlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from inspect_rm217_firmware import (
     Region,
+    compare_component_crc,
     inspect_rm217_boot_entry,
     parse_fpsx,
     parse_vpl,
@@ -79,6 +81,46 @@ class Rm217FirmwareInspectionTests(unittest.TestCase):
         self.assertEqual(manifest["product"], "0537625")
         self.assertEqual(manifest["version"], "07.30")
         self.assertEqual(manifest["files"]["rm217__07.30.mcusw"], 0x01C45DB7)
+
+    def test_zip_entry_can_be_consistent_while_vpl_is_wrong(self):
+        payload = b"synthetic PPM component"
+        actual = zlib.crc32(payload) & 0xFFFFFFFF
+
+        result = compare_component_crc(payload, actual, actual ^ 0x01000000)
+
+        self.assertEqual(result["actual_crc"], actual)
+        self.assertTrue(result["zip_matches"])
+        self.assertFalse(result["vpl_matches"])
+        self.assertTrue(result["vpl_present"])
+
+    def test_all_three_crc_values_match_for_a_valid_component(self):
+        payload = b"synthetic MCU component"
+        actual = zlib.crc32(payload) & 0xFFFFFFFF
+
+        result = compare_component_crc(payload, actual, actual)
+
+        self.assertTrue(result["zip_matches"])
+        self.assertTrue(result["vpl_matches"])
+        self.assertTrue(result["vpl_present"])
+
+    def test_zip_entry_crc_mismatch_is_distinguished_from_vpl_mismatch(self):
+        payload = b"synthetic IMAGE component"
+        actual = zlib.crc32(payload) & 0xFFFFFFFF
+
+        result = compare_component_crc(payload, actual ^ 0xFFFFFFFF, actual)
+
+        self.assertFalse(result["zip_matches"])
+        self.assertTrue(result["vpl_matches"])
+
+    def test_missing_vpl_checksum_is_not_reported_as_a_match(self):
+        payload = b"component without manifest checksum"
+        actual = zlib.crc32(payload) & 0xFFFFFFFF
+
+        result = compare_component_crc(payload, actual, None)
+
+        self.assertTrue(result["zip_matches"])
+        self.assertFalse(result["vpl_matches"])
+        self.assertFalse(result["vpl_present"])
 
     def test_vpl_rejects_entity_declarations(self):
         xml = b"<!DOCTYPE x [<!ENTITY y 'z'>]><x/>"
