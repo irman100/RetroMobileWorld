@@ -106,6 +106,54 @@ Probe exit code: 0
         self.assertIn("Mapper calls parsed: 45", summary)
         self.assertLess(len(summary.splitlines()), 60)
 
+    def test_summary_reconstructs_allocator_alias_from_thumb_checkpoints(self):
+        def watch(pc: int, r0: int, r4: int = 0x1000) -> str:
+            regs = [r0, 0, 0, 0, r4, 0, 0, 0]
+            values = " ".join(f"r{i}=0x{value:08X}" for i, value in enumerate(regs))
+            return (
+                f"[watch-pc hit=0] pc=0x{pc:08X} size=2 {values} "
+                "sp=0x08003A00 lr=0xF01043A5"
+            )
+
+        trace = "\n".join([
+            watch(0xF010432A, 0x20),
+            watch(0xF0104976, 0x20),
+            watch(0xF010432E, 0x20),
+            watch(0xF0104330, 0x20, 0x1000),
+            watch(0xF0104332, 0xFE0),
+            "[watch-pc allocator interval before mapper] "
+            "base=0x00000000 length=0x01600000 extra38=0x00000FE0 "
+            "extra3C=0x00000000 source-list=0x080037A0 map-root=0x10090000",
+        ])
+        summary = build_summary(trace)
+
+        self.assertIn("after helper return / before literal LDR", summary)
+        self.assertIn("SUBS check: (r4-r0)=0x00000FE0; post-SUBS r0=0x00000FE0 [MATCH]", summary)
+        self.assertIn("SP+0x38 before mapper=0x00000FE0; computed alias=0x00000FE0 [MATCH]", summary)
+        self.assertNotIn("WARNING: allocator SUBS", summary)
+
+    def test_summary_warns_when_allocator_alias_register_flow_disagrees(self):
+        def watch(pc: int, r0: int, r4: int = 0x1000) -> str:
+            regs = [r0, 0, 0, 0, r4, 0, 0, 0]
+            values = " ".join(f"r{i}=0x{value:08X}" for i, value in enumerate(regs))
+            return (
+                f"[watch-pc hit=0] pc=0x{pc:08X} size=2 {values} "
+                "sp=0x08003A00 lr=0xF01043A5"
+            )
+
+        trace = "\n".join([
+            watch(0xF010432E, 0x20),
+            watch(0xF0104330, 0x20, 0x1000),
+            watch(0xF0104332, 0xFE1),
+            "[watch-pc allocator interval before mapper] "
+            "base=0x00000000 length=0x01600000 extra38=0x00000FE1 "
+            "extra3C=0x00000000 source-list=0x080037A0 map-root=0x10090000",
+        ])
+        summary = build_summary(trace)
+
+        self.assertIn("[MISMATCH]", summary)
+        self.assertIn("WARNING: allocator SUBS", summary)
+
     def test_summary_flags_wrong_logged_slot_index(self):
         trace = (
             "[BSE mapper args] caller=0xF010489D phys_base=0x00000000 "
