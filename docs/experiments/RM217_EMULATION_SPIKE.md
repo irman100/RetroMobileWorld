@@ -478,3 +478,12 @@ The shared helper at `0xF0104976` has multiple call sites. The trace summarizer 
 
 
 The PowerShell runner now preserves existing Desktop trace and summary files before each new run, copying them to timestamped `.previous-...` filenames. The new run continues to write the familiar fixed filenames, so the earlier uploaded trace remains available locally for comparison.
+
+
+## Same NOR physical window, two BSE alias views (7 November 2026)
+
+Rows 0 and 11 of the static table both describe physical base `0x00000000`, length `0x00100000`, but different BSE aliases: `0x00000000` and `0xFF100000`. They therefore register the same physical 1-MiB interval in separate BSE slots (`0x000` and `0xFF1`). The trace observes different slot values (`0x3E` and `0x472`) and different raw fourth words (`0xC4` and `0x40D`), whose exact meanings remain unresolved.
+
+Both intervals lie within the type-0x24 NOR descriptor (base 0, size 32 MiB). This is direct evidence for multiple BSE alias views of the same physical NOR region, not evidence that the ARM CPU MMU folds two virtual addresses together. The currently failing allocator still uses alias 0 and collides with row 0; row 11's alias `0xFF100000` is a distinct slot and must not be substituted without proving firmware policy.
+
+Current validated tooling checkpoint `9635ce53c942523c59c5a386f6e3bc109a5aad51` passed Windows/Linux probe CI and both Android CI paths. The newest Windows trace kit is artifact 13574875706 (SHA-256 983061ac50f66e87538f0d69cb0c2309395af4694d38eee55f4bb1b67473f989). The runner now preserves previous Desktop trace/summary files under timestamped backup names before writing a new run.

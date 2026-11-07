@@ -4,12 +4,12 @@
 
 **Обновлено:** 7 ноября 2026  
 **Ветка:** `feature/j2me-library-bridge-20261104`  
-**HEAD последнего проверенного checkpoint:** `a2da0ed052787f573f072a2455c52ceb91a92f75`  
+**HEAD последнего проверенного checkpoint:** `9635ce53c942523c59c5a386f6e3bc109a5aad51`  
 **PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит; GitHub показывает, что ветка допускает merge.  
-**CI для HEAD `a2da0ed`: успешно:**
-- [RM-217 Boot Probe #42372700232](https://github.com/irman100/RetroMobileWorld/actions/runs/42372700232) — Windows и Linux; summarizer tests, Rust tests, release builds и Windows trace-kit.
-- [Android CI #42372700217](https://github.com/irman100/RetroMobileWorld/actions/runs/42372700217) — success, pull request; APK собран.
-- [Android CI #42372697855](https://github.com/irman100/RetroMobileWorld/actions/runs/42372697855) — success, push.
+**CI для HEAD `9635ce5`: успешно:**
+- [RM-217 Boot Probe #42373012663](https://github.com/irman100/RetroMobileWorld/actions/runs/42373012663) — Windows и Linux; summarizer tests, Rust tests, release builds и Windows trace-kit.
+- [Android CI #42373012770](https://github.com/irman100/RetroMobileWorld/actions/runs/42373012770) — success, pull request; APK собран.
+- [Android CI #42373008184](https://github.com/irman100/RetroMobileWorld/actions/runs/42373008184) — success, push.
 
 Исторические проверки для предыдущих диагностических коммитов сохранены в соответствующих разделах ниже.
 
@@ -1013,7 +1013,7 @@ The runner now adds:
 
 These are observation-only additions. The runner still uses the established diagnostic ASIC-ready, candidate NOR-ID and legacy-unmapped-as-RAM overrides. It does not write or patch firmware, the static table, the BSE table or the assertion.
 
-The next execution should use the latest artifact from run 42371570722 and the same local RM-217 Phoenix ZIP. Retain the full trace and compact summary. The immediate analysis targets are: the meaning of raw row field +0x0C, duplicate rows 6/7, and the exact code path that distinguishes marker 0x3E from page-table-backed alias slots. Do not change mapping behaviour until that is understood.
+At the time this section was written, the next execution was planned with artifact from run 42371570722. That kit has since been superseded; use the current artifact recorded in section 19.7. Retain the full trace and compact summary. The immediate analysis targets are: the meaning of raw row field +0x0C, duplicate rows 6/7, and the exact code path that distinguishes marker 0x3E from page-table-backed alias slots. Do not change mapping behaviour until that is understood.
 
 
 ### 19.3 Latest mapper-inspection kit and green CI (2026-11-07)
@@ -1049,3 +1049,25 @@ The helper-correlation change was validated on checkpoint a2da0ed052787f573f072a
 - Windows trace-kit artifact from run 42372700232: ID 13573972459; SHA-256 e3ee10cd1ebad36d07a0a8f940af30cff4391350fd1f3c38361a7773ae5dfe2a.
 
 The runner now backs up existing fixed-name Desktop trace and summary before starting a new run. Backups use the names `rm217-bse-alias-mmuv2.previous-<timestamp>.txt` and `rm217-bse-alias-mmuv2.previous-<timestamp>.summary.txt`; the current run continues to write the stable `rm217-bse-alias-mmuv2.txt` and `.summary.txt` names. This avoids destroying the previous evidence when the same kit is run again.
+
+### 19.6 Same physical NOR window appears under two BSE aliases
+
+The restored static table contains two records whose first two fields match:
+- row 0: physical base `0x00000000`, length `0x00100000`, BSE alias `0x00000000`, raw `+0x0C = 0x000000C4`;
+- row 11: physical base `0x00000000`, length `0x00100000`, BSE alias `0xFF100000`, raw `+0x0C = 0x0000040D`.
+
+They therefore describe the same physical 1-MiB interval through two distinct BSE alias windows: slot `0x000` and slot `0xFF1`. The trace shows different resulting slot values: row 0 writes `0x3E`, while row 11 writes `0x472`. The raw fourth words also differ. This is direct evidence that one physical interval can be registered more than once under different BSE aliases and different attributes/representations. The exact semantics of `0xC4`, `0x40D`, `0x3E` and `0x472` remain unknown.
+
+Because the NOR descriptor is type `0x24`, base `0`, size `0x02000000`, both row-0 and row-11 intervals lie within the described NOR window. It is reasonable to treat the two table rows as separate BSE views of the same first MiB of that physical window, but the trace alone does not prove byte-level equivalence or intended software use for each view.
+
+This helps explain why “different kinds of memory/addressing” came up in the earlier investigation: physical NOR/SDRAM windows are distinct, and the BSE mapper separately exposes some physical intervals through more than one alias. It does not make the current assertion disappear. The failing late allocator still sends `(physical=0, BSE alias=0)` and collides with row 0's slot; it does not use row 11's alternate alias `0xFF100000`. Do not substitute that alias for the 22-MiB NOR request without establishing the firmware's intended alias policy and available range.
+
+### 19.7 Current runner, evidence-preservation behaviour and validated artifact
+
+For current checkpoint `9635ce53c942523c59c5a386f6e3bc109a5aad51`:
+- [RM-217 Boot Probe #42373012663](https://github.com/irman100/RetroMobileWorld/actions/runs/42373012663) — success on Windows and Linux; probe unit tests, trace summarizer tests, release builds and Windows trace-kit upload passed.
+- [Android CI PR #42373012770](https://github.com/irman100/RetroMobileWorld/actions/runs/42373012770) — success; Android tests and debug APK assembly/upload passed.
+- [Android CI push #42373008184](https://github.com/irman100/RetroMobileWorld/actions/runs/42373008184) — success.
+- Latest Windows artifact: `rm217-windows-bse-trace-kit`, ID `13574875706`, SHA-256 `983061ac50f66e87538f0d69cb0c2309395af4694d38eee55f4bb1b67473f989`, 1,301,440 bytes; expires 2026-11-21 12:35:21 UTC.
+
+The summarizer now correlates the allocator's `0xF0104976` helper entry by `LR=0xF010432F`, preventing a later logging call to the same helper from being mistaken for the NOR allocator invocation. The runner now copies pre-existing Desktop trace and summary files to timestamped `.previous-...` names before starting a new run, then writes the new trace/summary to the stable filenames. The expanded BSE disassembly and static-table dump remain read-only diagnostics; no guest mapping, firmware bytes or assertion behaviour were changed.
