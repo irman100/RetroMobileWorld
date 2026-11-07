@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, 'feature/**']
   pull_request:
-    branches: [main]
+    branches: [main, 'feature/**']
   workflow_dispatch:
 
 permissions:
@@ -59,16 +59,17 @@ jobs:
         run: cargo install cargo-ndk --locked
 
       - name: Build c3emu JNI libraries for Android ABIs
+        working-directory: engine/c3emu-android
         run: |
           cargo ndk \
             -t arm64-v8a \
             -t armeabi-v7a \
             -t x86_64 \
-            -o app/src/main/jniLibs \
-            build --release --manifest-path engine/c3emu-android/Cargo.toml
-          test -s app/src/main/jniLibs/arm64-v8a/libc3emu_android.so
-          test -s app/src/main/jniLibs/armeabi-v7a/libc3emu_android.so
-          test -s app/src/main/jniLibs/x86_64/libc3emu_android.so
+            -o ../../app/src/main/jniLibs \
+            build --release
+          test -s ../../app/src/main/jniLibs/arm64-v8a/libc3emu_android.so
+          test -s ../../app/src/main/jniLibs/armeabi-v7a/libc3emu_android.so
+          test -s ../../app/src/main/jniLibs/x86_64/libc3emu_android.so
 
       - name: Run Android unit tests
         run: ./gradlew --no-daemon :app:testDebugUnitTest

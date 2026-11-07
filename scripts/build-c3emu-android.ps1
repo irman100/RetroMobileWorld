@@ -56,7 +56,11 @@ if (-not (Get-Command cargo-ndk -ErrorAction SilentlyContinue)) {
     Invoke-Checked -File "cargo" -Arguments @("install", "cargo-ndk", "--locked")
 }
 
-Push-Location $repoRoot
+$nativeProject = Join-Path $repoRoot "engine\c3emu-android"
+$outputDirectory = Join-Path $repoRoot "app\src\main\jniLibs"
+New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
+
+Push-Location $nativeProject
 try {
     Write-Host "Building c3emu native libraries for arm64-v8a, armeabi-v7a and x86_64..."
     Invoke-Checked -File "cargo" -Arguments @(
@@ -64,10 +68,9 @@ try {
         "-t", "arm64-v8a",
         "-t", "armeabi-v7a",
         "-t", "x86_64",
-        "-o", "app/src/main/jniLibs",
+        "-o", "..\..\app\src\main\jniLibs",
         "build",
-        "--release",
-        "--manifest-path", "engine/c3emu-android/Cargo.toml"
+        "--release"
     )
 }
 finally {
@@ -76,7 +79,7 @@ finally {
 
 $abis = @("arm64-v8a", "armeabi-v7a", "x86_64")
 foreach ($abi in $abis) {
-    $library = Join-Path $repoRoot "app\src\main\jniLibs\$abi\libc3emu_android.so"
+    $library = Join-Path $outputDirectory "$abi\libc3emu_android.so"
     if (-not (Test-Path -LiteralPath $library -PathType Leaf)) {
         throw "Native library for $abi was not produced: $library"
     }
