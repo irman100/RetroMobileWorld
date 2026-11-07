@@ -52,19 +52,19 @@ ALLOCATOR_INTERVAL_RE = re.compile(
 )
 MEMORY_WORDS_RE = re.compile(r"^\s*(0x[0-9A-Fa-f]+):\s+((?:[0-9A-Fa-f]{8}\s*)+)$")
 EXIT_RE = re.compile(r"Probe exit code:\s*(-?\d+)")
-STOP_RE = re.compile(r"(?m)^=== PROBE STOP ===\\s*\\n([^\\r\\n]+)")
+STOP_RE = re.compile(r"(?m)^=== PROBE STOP ===\s*\n([^\r\n]+)")
 WATCH_PC_RE = re.compile(
-    r"\\[watch-pc hit=\\d+\\]\\s+pc=0x(?P<pc>[0-9A-Fa-f]+).*?"
-    r"\\br0=0x(?P<r0>[0-9A-Fa-f]+)\\s+r1=0x(?P<r1>[0-9A-Fa-f]+)\\s+"
-    r"r2=0x(?P<r2>[0-9A-Fa-f]+)\\s+r3=0x(?P<r3>[0-9A-Fa-f]+)\\s+"
-    r"r4=0x(?P<r4>[0-9A-Fa-f]+)\\s+r5=0x(?P<r5>[0-9A-Fa-f]+)\\s+"
-    r"r6=0x(?P<r6>[0-9A-Fa-f]+)\\s+r7=0x(?P<r7>[0-9A-Fa-f]+)\\s+"
-    r"sp=0x(?P<sp>[0-9A-Fa-f]+)\\s+lr=0x(?P<lr>[0-9A-Fa-f]+)"
+    r"\[watch-pc hit=\d+\]\s+pc=0x(?P<pc>[0-9A-Fa-f]+).*?"
+    r"\br0=0x(?P<r0>[0-9A-Fa-f]+)\s+r1=0x(?P<r1>[0-9A-Fa-f]+)\s+"
+    r"r2=0x(?P<r2>[0-9A-Fa-f]+)\s+r3=0x(?P<r3>[0-9A-Fa-f]+)\s+"
+    r"r4=0x(?P<r4>[0-9A-Fa-f]+)\s+r5=0x(?P<r5>[0-9A-Fa-f]+)\s+"
+    r"r6=0x(?P<r6>[0-9A-Fa-f]+)\s+r7=0x(?P<r7>[0-9A-Fa-f]+)\s+"
+    r"sp=0x(?P<sp>[0-9A-Fa-f]+)\s+lr=0x(?P<lr>[0-9A-Fa-f]+)"
 )
 IMAGE_DUMP_RE = re.compile(
-    r"\\[image-dump\\] VA=0x(?P<address>[0-9A-Fa-f]+) "
-    r"length=0x(?P<length>[0-9A-Fa-f]+) bytes=\\[(?P<bytes>[^]]*)\\] "
-    r"words_le=\\[(?P<words>[^]]*)\\]"
+    r"\[image-dump\] VA=0x(?P<address>[0-9A-Fa-f]+) "
+    r"length=0x(?P<length>[0-9A-Fa-f]+) bytes=\[(?P<bytes>[^]]*)\] "
+    r"words_le=\[(?P<words>[^]]*)\]"
 )
 
 
