@@ -2,14 +2,14 @@
 
 **Назначение:** единая точка восстановления контекста для следующих сессий. Перед продолжением прочитать этот файл, затем актуальные исходники и перечисленные трассы. Не повторять выполненные эксперименты и не принимать диагностические подстановки за модель реального оборудования.
 
-**Обновлено:** 6 ноября 2026  
+**Обновлено:** 7 ноября 2026  
 **Ветка:** `feature/j2me-library-bridge-20261104`  
-**HEAD последнего проверенного probe-кода:** `25b59d4f2d9925710ad821b3b2529c74ccbce17e`  
-**PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит; GitHub показывает `mergeable_state=clean`.  
-**CI для HEAD `25b59d4`: успешно:**
-- [RM-217 Boot Probe #42284063828](https://github.com/irman100/RetroMobileWorld/actions/runs/42284063828) — Linux и Windows tests/build, Windows trace-kit.
-- [Android CI #42284063979](https://github.com/irman100/RetroMobileWorld/actions/runs/42284063979) — success.
-- [Android CI #42284059351](https://github.com/irman100/RetroMobileWorld/actions/runs/42284059351) — success.
+**HEAD последнего проверенного checkpoint:** `75ae7edc0f37eef4b8f79c6504bc4d28da072014`  
+**PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит; GitHub показывает, что ветка допускает merge.  
+**CI для HEAD `75ae7ed`: успешно:**
+- [RM-217 Boot Probe #42366626010](https://github.com/irman100/RetroMobileWorld/actions/runs/42366626010) — Windows и Linux tests/build; Windows trace-kit собран и опубликован.
+- [Android CI #42366626025](https://github.com/irman100/RetroMobileWorld/actions/runs/42366626025) — success, pull request.
+- [Android CI #42366622554](https://github.com/irman100/RetroMobileWorld/actions/runs/42366622554) — success, push.
 
 Исторические проверки для предыдущих диагностических коммитов сохранены в соответствующих разделах ниже.
 
@@ -815,10 +815,22 @@ The BSE alias-0 collision and assertion at `0xF0103C0A` therefore remain unresol
 
 ### 17.4 Next evidence checkpoint
 
-Download the Windows trace kit from [run 42366177923](https://github.com/irman100/RetroMobileWorld/actions/runs/42366177923), extract its flat files together, and run from PowerShell with the same user-supplied archive:
+Download the latest Windows trace kit from [run 42366626010](https://github.com/irman100/RetroMobileWorld/actions/runs/42366626010), artifact 13571708963 (SHA-256 ef99d059acab360556713f6b3693797510e53c30248a6acee704364680def20c), extract its flat files together, and run from PowerShell with the same user-supplied archive:
 
 ```powershell
 .\run_rm217_bse_alias_trace.ps1 'E:\RM-217.zip'
 ```
 
 Inspect the generated `rm217-bse-alias-mmuv2.summary.txt` first. The decisive values are the helper return at `0xF010432E`, `r4` and `r0` at `0xF0104330`, the post-`SUBS` `r0` at `0xF0104332`, and the captured `SP+0x38` before mapper. If the arithmetic and stack value both match but remain zero, the next investigation stays on the provenance of the zero result and the prelude/static-map construction around `0xF0104874`, `0xF0104880` and `0xF0104898`. Do not change Type-8 records, NOR base, alias policy or firmware bytes from the trace alone.
+
+
+### 17.5 Current branch HEAD and newest artifact (2026-11-07)
+
+The current branch head is 75ae7edc0f37eef4b8f79c6504bc4d28da072014. The last commit only corrected escaping in the PowerShell example above; the allocator alias derivation code remains the tested checkpoint 558c35bb48e4cd2719146ce998f4d0668a23638c.
+
+- [RM-217 Boot Probe #42366626010](https://github.com/irman100/RetroMobileWorld/actions/runs/42366626010) — success on Windows and Linux, including summarizer tests, Rust tests, release builds and trace-kit upload.
+- [Android CI #42366626025](https://github.com/irman100/RetroMobileWorld/actions/runs/42366626025) — success.
+- [Android CI #42366622554](https://github.com/irman100/RetroMobileWorld/actions/runs/42366622554) — success.
+- Latest Windows trace kit: artifact 13571708963, SHA-256 ef99d059acab360556713f6b3693797510e53c30248a6acee704364680def20c, 1,299,370 bytes, expires 2026-11-21 11:06:08 UTC. This newer artifact supersedes artifact 13571579203 above.
+
+The next unresolved dependency is still a fresh run on the user's original local firmware ZIP. The runtime diagnosis must not advance from synthetic fixtures alone.

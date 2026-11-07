@@ -1,7 +1,7 @@
 # RM-217 genuine-firmware emulation spike
 
-**Status:** partial NOLO startup is now executing in a local CPU-only probe and resolves the main MCUSW image; the full Series 40 OS has not yet reached a stable display or menu.  
-**Reference date:** 5 November 2026.
+**Status:** The RM-217 MCU firmware executes through the CPU-only NOLO-to-MCUSW diagnostic path and reaches BSE initialization, where the late allocator reproducibly stops on the alias-0 slot collision at 0xF0103C0A. The new trace analyzer checks the helper return, SUBS arithmetic and saved SP+0x38 alias value. The original Series 40 OS has not reached a stable display or menu; the PPM/VPL checksum discrepancy remains a separate firmware-set verification issue.  
+**Reference date:** 7 November 2026.
 
 ## Objective
 
@@ -410,7 +410,7 @@ phone boot or a verified complete RM-217 hardware model.
 
 The Type-8 scan and BSE alias observations recorded in the progress log establish the current failure mechanism more precisely than the earlier initial region-map report:
 
-- The Type-8 record at `0x0800381C` contains size `0x00A00000` at `+0x08` and start `0x01600000` at `+0x0C), describing occupied interval `[0x01600000, 0x02000000)`.
+- The Type-8 record at `0x0800381C` contains size `0x00A00000` at `+0x08` and start `0x01600000` at `+0x0C`, describing occupied interval `[0x01600000, 0x02000000)`.
 - The observed allocator subtracts that tail from candidate interval `[0, 0x02000000)`, leaving `[0, 0x01600000)`. Before the late mapper call, the saved alias input at `SP+0x38` is zero.
 - Earlier mapper calls in the same trace include physical interval `[0x01600000, 0x02000000)` through alias `0xC1600000` (slot `0xC16`) and low interval `[0, 0xB000)` through alias `0xC0000000` (slot `0xC00`). These occupy different BSE slots.
 - The static prelude's identity mapping of the first 1 MiB already marks slot 0 with `0x3E`. The late NOR allocator then requests alias 0 for a 22-MiB mapping and encounters that marker at `0x10090000`, entering the assertion at `0xF0103C0A`.
@@ -428,3 +428,16 @@ The updated diagnostic tooling and Android application build passed CI for check
 The refreshed [Windows BSE trace kit](https://github.com/irman100/RetroMobileWorld/actions/runs/42366177923) is artifact `13571579203` (SHA-256 `49b79d8234405d1ee57f9032eef7176a8fd5018799c0ff96d1e4217df3b91ec6`). The tests and CI builds validate the diagnostic code only. No new guest-firmware trace was captured in this checkpoint; the BSE assertion remains open, no stable LCD frame is available, and Series 40 has not booted. Do not alter the firmware memory map or suppress the assertion until the new register trace explains the alias source.
 
 The PPM/VPL CRC-32 mismatch is independent of this BSE allocator issue. The matching MCU and IMAGE checksums remain unchanged, and the PPM warning remains a separate integrity gate before a complete-OS claim.
+
+
+## Latest diagnostic build and next trace (2026-11-07)
+
+The most recent branch head is 75ae7edc0f37eef4b8f79c6504bc4d28da072014. Its final commit corrects only the PowerShell command example; the allocator arithmetic analyzer and its tests are from code checkpoint 558c35bb48e4cd2719146ce998f4d0668a23638c.
+
+- [RM-217 Boot Probe run #42366626010](https://github.com/irman100/RetroMobileWorld/actions/runs/42366626010) — success on Windows and Linux; trace summarizer tests, Rust tests, release builds and Windows trace-kit assembly/upload passed.
+- [Android CI pull-request run #42366626025](https://github.com/irman100/RetroMobileWorld/actions/runs/42366626025) — success.
+- [Android CI push run #42366622554](https://github.com/irman100/RetroMobileWorld/actions/runs/42366622554) — success.
+
+The newest Windows trace kit is artifact 13571708963 from run 42366626010 (SHA-256: ef99d059acab360556713f6b3693797510e53c30248a6acee704364680def20c; 1,299,370 bytes; expires 2026-11-21 11:06:08 UTC). It supersedes the earlier trace-kit artifact referenced in the prior progress checkpoint.
+
+Run the kit against the same local RM-217 Phoenix ZIP and retain both the compact summary and full trace. The summary should show whether the helper's returned r0 survives the literal load, whether post-SUBS r0 equals (r4-r0), and whether SP+0x38 carries that same computed value into the BSE mapper. This is still a diagnostic experiment; no new guest-firmware trace has yet been captured and the Series 40 OS is not running.
