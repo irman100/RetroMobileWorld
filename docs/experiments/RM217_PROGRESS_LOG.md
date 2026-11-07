@@ -4,9 +4,10 @@
 
 **Обновлено:** 7 ноября 2026  
 **Ветка:** `feature/j2me-library-bridge-20261104`  
-**Последний полностью проверенный кодовый checkpoint:** `b3a149c2c549d1514cff30428f2c180d0d643967`  
-**CI для него успешно:** [RM-217 Boot Probe #42374531265](https://github.com/irman100/RetroMobileWorld/actions/runs/42374531265) — Windows + Linux, summarizer tests, Rust tests, release builds и Windows trace-kit; [Android PR #42374531245](https://github.com/irman100/RetroMobileWorld/actions/runs/42374531245) и [Android push #42374526758](https://github.com/irman100/RetroMobileWorld/actions/runs/42374526758) — success.  
-**Свежий Windows artifact:** `rm217-windows-bse-trace-kit`, ID `13574932789`, SHA-256 `0a640b418ee0399e1662df633d31306d863bee8cda8101766b2e7a607d29d523`.  
+**Последний полностью проверенный кодовый checkpoint:** `31055f7be730639d429bb8309f377a915843209b`  
+**CI для него успешно:** [RM-217 Boot Probe #42375394611](https://github.com/irman100/RetroMobileWorld/actions/runs/42375394611) — Windows + Linux, trace summarizer tests, Rust tests, release builds и Windows trace-kit; [Android PR #42375394604](https://github.com/irman100/RetroMobileWorld/actions/runs/42375394604) и [Android push #42375390710](https://github.com/irman100/RetroMobileWorld/actions/runs/42375390710) — success.  
+**Windows artifact:** `rm217-windows-bse-trace-kit`, ID `13575965094`, SHA-256 `13affb7017900e17d13d86effbb1ea21ce366bd18e79e85db7c1f139473d2c7b`.  
+**Текущий диагностический патч ожидает CI.**  
 **PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит; ветка допускает merge.
 
 Исторические проверки для предыдущих диагностических коммитов сохранены в соответствующих разделах ниже.
@@ -1156,3 +1157,35 @@ The preceding code checkpoint `b3a149c2c549d1514cff30428f2c180d0d643967` passed:
 - [Android push #42374526758](https://github.com/irman100/RetroMobileWorld/actions/runs/42374526758) — success.
 
 The NOR-profile, source-comment, README, third-party notice and research-document changes in the current patch still require a new CI run.
+
+
+
+## RETU/TAHVO CBUS: RM-217 wiring and candidate protocol (2026-11-07)
+
+### RM-217 schematic evidence
+
+The RM-217/RM-222 Service Schematics v2.0, page 5, name the RAPGSM-side CBUS connections:
+- GENIO31 = CBusClk;
+- GENIO30 = CBusDa;
+- CBusEn1X = select/enable line;
+- RETU-side names are CbusClk, CbusData and CbusSelX;
+- the CBUS group is shared by RETU, TAHVO and FM radio.
+The same page separately shows I2C(1:0), SDA and SCL. The board PMIC transport must therefore not be replaced by an ordinary I2C model.
+
+Reference: https://usermanual.wiki/Document/nokia6300rm2176300brm222serviceschematicsv20.673614552.pdf
+
+### Related open-source protocol implementations
+
+The Linux Nokia Internet Tablet driver `i2c-cbus-gpio.c` (https://android.googlesource.com/kernel/common/+/e32795503de02da4e7e74a5e039cc268f6a0ecfb/drivers/i2c/busses/i2c-cbus-gpio.c) bit-bangs CLK, DAT and SEL with three GPIOs. It documents a candidate transaction header of 3-bit device address, 1-bit R/W and 5-bit register, sent MSB-first, followed by a 16-bit data phase. For reads it switches DAT to input and clocks a 16-bit word back. The Linux driver exposes this over its I2C adapter API, but physically this is GPIO-driven CBUS, not the separate I2C SDA/SCL interface.
+
+The old QEMU/DECAF model (https://github.com/decaf-project/DECAF/blob/6b09760d9b35fa37f524e810c6561bdb4c76b821/decaf/hw/cbus.c) independently models a three-line Nokia CBUS with the same 9-bit header + 16-bit data structure and generic Retu/Tahvo devices. It is based on reverse engineering of other Nokia platforms, so its register defaults and slave addresses are references, not confirmed RM-217 behaviour.
+
+The Linux driver specifically cautions that its 3-bit address and 5-bit register field widths should be checked for other CBUS implementations. Thus the 3-wire protocol is a strong candidate consistent with the RM-217 schematic, but it is not yet verified against live RM-217 MCUSW traffic. Do not code a full transport/PMIC model before capturing the first frame.
+
+### Methodology reference: another Nokia reverse-engineering project
+
+The Nokia E7-00 project https://github.com/apoage/nokia-e7-linux recovered pinmux tables and GPIO register semantics from that device's own OneNAND image and validates device models in QEMU. It targets the Broadcom BCM2727B1 / ARM1176 RAPU platform, not RM-217 RAPGSM / ARM926. It is a valuable workflow reference only; do not reuse its BCM2727 GPIO map, 7-bank registers or device code.
+
+### Current probe instrumentation boundary
+
+The existing watched ranges 0x20032C00..0x20032DFF and 0xFFD32C00..0xFFD32DFF are still unclassified ASIC/control windows; the reset register was observed at 0x20032D14. The current patch adds read logging to those ranges and captures the surrounding reset routine at 0xF0103A48. This is only to obtain PC/register context. The ranges are not identified as CBUS GPIO registers yet.

@@ -508,3 +508,16 @@ The practical decision is to reuse c3emu's ARM926 interpreter, MMU helpers and F
 The service schematic identifies combo memory K5G5629ATB-SF75 as 256-Mbit NOR + 128-Mbit DDR and shows RETU/TAHVO on CBUS(3:0), with I2C as a separate bus. The next device-level target is therefore the actual RAPGSM CBUS transaction path, not a generic I2C PMIC replacement.
 
 The probe's static-row cursor comment is also corrected: r3 is current_record+0x0C (the fourth word of the current 16-byte static row); the fourth word's attribute semantics remain unknown.
+
+
+## RETU/TAHVO CBUS: board evidence and candidate transaction shape (7 November 2026)
+
+The RM-217/RM-222 schematic page 5 identifies RAPGSM GENIO31 as CBusClk, GENIO30 as CBusDa and CBusEn1X as the select/enable signal; the RETU side labels these CbusClk, CbusData and CbusSelX. The bus is shared by RETU, TAHVO and FM radio. The schematic shows I2C(1:0), SDA/SCL separately.
+
+The Linux Nokia Internet Tablet `i2c-cbus-gpio` driver uses a three-GPIO physical transport and describes a candidate 3-bit slave address + R/W bit + 5-bit register header, followed by 16-bit data, MSB-first. Its I2C name describes the Linux adapter interface; the electrical transport is GPIO-driven CBUS. A historical QEMU/DECAF CBUS model independently implements the same general format and includes Retu/Tahvo register models.
+
+These are strong leads, not a confirmed RM-217 protocol. The Linux source itself says the header bit widths should be checked for other CBUS implementations. The actual RM-217 MCUSW pin toggles, slave IDs, timing and first register sequence must be captured before modelling them.
+
+The separate Nokia E7 reverse-engineering project shows a useful methodology for recovering a phone's GPIO/pinmux map from its own firmware, but it targets Broadcom BCM2727B1/ARM1176 RAPU, not RM-217 RAPGSM/ARM926; none of its GPIO addresses should be copied.
+
+The current ASIC windows 0x20032C00..0x20032DFF and 0xFFD32C00..0xFFD32DFF remain unclassified. The new diagnostic patch logs reads as well as writes and adds disassembly/watchpoints around the reset request at 0xF0103A48. No CBUS semantics are assigned to those windows yet.

@@ -1848,6 +1848,31 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
     )
     .map_err(|error| std::io::Error::other(format!("BSE slot-table read hook failed: {error:?}")))?;
 
+    // This register window is observed in the boot trace but is not yet
+    // identified as the RAPGSM GENIO/CBUS block. Capture both directions.
+    let asic_register_read_count = Rc::new(Cell::new(0usize));
+    for (begin, end) in [
+        (0x2003_2C00u64, 0x2003_2DFFu64),
+        (0xFFD3_2C00u64, 0xFFD3_2DFFu64),
+    ] {
+        let asic_register_read_count = Rc::clone(&asic_register_read_count);
+        uc.add_mem_hook(HookType::MEM_READ, begin, end, {
+            let asic_register_read_count = Rc::clone(&asic_register_read_count);
+            move |cpu, _kind, address, size, value| {
+                let count = asic_register_read_count.get();
+                if count < 256 {
+                    asic_register_read_count.set(count + 1);
+                    let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0);
+                    println!(
+                        "  [ASIC-read {count:03}] addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
+                    );
+                }
+                true
+            }
+        })
+        .map_err(|error| std::io::Error::other(format!("ASIC read watch failed: {error:?}")))?;
+    }
+
     let asic_register_access_count = Rc::new(Cell::new(0usize));
     for (begin, end) in [
         (0x2003_2C00u64, 0x2003_2DFFu64),
