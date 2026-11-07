@@ -188,6 +188,41 @@ Probe exit code: 0
         self.assertIn("ARM MMU translation is enabled", summary)
         self.assertIn("Do not equate BSE alias values with CPU physical addresses", summary)
 
+    def test_summary_reports_active_mmu_for_any_bse_slot_read(self):
+        trace = "\n".join([
+            "[BSE mapper args] caller=0xF010489D phys_base=0x00000000 length=0x00100000 bse_alias=0xFF100000 alias_slot_1MiB=0xFF1 slot_address=0x10093FC4 guest_va_to_pa=0x00000000",
+            "[watch-pc CP15 SCTLR] = 0x0009117D",
+            "[watch-pc CP15 TTBR] = 0x08004000",
+            "[BSE slot-table-read 000] VA=0x10093FC4 PA=0x08093FC4 size=4 value=0x0 pc=0xF0103C04",
+        ])
+        summary = build_summary(trace)
+        self.assertIn("BSE slot-table CPU memory accesses:", summary)
+        self.assertIn("Do not equate BSE alias values with CPU physical addresses", summary)
+
+    def test_summary_recovers_static_table_row_and_current_cursor_field(self):
+        trace = "\n".join([
+            "[watch-pc static-map cursor] loop-index=0 cursor=0xF0105AF8 table-root=0xF0105AEC current-base=0x00000000 current-size=0x00100000 current-alias=0x00000000",
+            "[watch-pc static-map cursor bytes] 0xF0105AF8..0xF0105B08",
+            "0xF0105AF8: 000000C4 20100000 00100000 FFB00000",
+            "[watch-pc static-map cursor] loop-index=1 cursor=0xF0105B08 table-root=0xF0105AEC current-base=0x20100000 current-size=0x00100000 current-alias=0xFFB00000",
+            "[watch-pc static-map cursor bytes] 0xF0105B08..0xF0105B18",
+            "0xF0105B08: 00000185 FFFFFFFF 00000000 00000000",
+        ])
+        summary = build_summary(trace)
+        self.assertIn("STATIC BSE TABLE RECORDS", summary)
+        self.assertIn(
+            "index=00 record=0xF0105AEC base=0x00000000 size=0x00100000 "
+            "alias=0x00000000 slot=0x10090000 raw+0C=0x000000C4",
+            summary,
+        )
+        self.assertIn(
+            "index=01 record=0xF0105AFC base=0x20100000 size=0x00100000 "
+            "alias=0xFFB00000 slot=0x10093FEC raw+0C=0x00000185",
+            summary,
+        )
+        self.assertIn("record+0x0C (the fourth word of the same 16-byte row)", summary)
+        self.assertIn("End marker 0xFFFFFFFF follows row 01", summary)
+
     def test_summary_flags_wrong_logged_slot_index(self):
         trace = (
             "[BSE mapper args] caller=0xF010489D phys_base=0x00000000 "

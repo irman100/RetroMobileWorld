@@ -37,6 +37,12 @@ MAPPER_WATCH_RE = re.compile(
 ASSERT_WATCH_RE = re.compile(
     r"\[watch-pc hit=\d+\]\s+pc=0xF0103C0A\b.*?\br0=0x([0-9A-Fa-f]+)"
 )
+STATIC_MAP_DETAIL_RE = re.compile(
+    r"\[watch-pc static-map cursor\]\s+loop-index=(\d+)\s+"
+    r"cursor=0x([0-9A-Fa-f]+)\s+table-root=0x([0-9A-Fa-f]+)\s+"
+    r"current-base=0x([0-9A-Fa-f]+)\s+current-size=0x([0-9A-Fa-f]+)\s+"
+    r"current-alias=0x([0-9A-Fa-f]+)"
+)
 CURSOR_RE = re.compile(
     r"\[watch-pc static-map (?:cursor|entry)\]\s+"
     r"(?:loop-index|index)=(\d+)\s+(?:cursor|entry)=0x([0-9A-Fa-f]+)"
@@ -119,6 +125,7 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
     slot_reads: list[dict[str, int]] = []
     slot_writes: list[dict[str, int]] = []
     cursor_rows: list[tuple[int, int]] = []
+    static_map_rows: list[dict[str, int]] = []
     type8_pointers: list[int] = []
     allocator_intervals: list[dict[str, int | str]] = []
     memory_words: dict[int, int] = {}
@@ -186,6 +193,18 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
                     "index": slot_index_from_address(address_value),
                 })
 
+        match = STATIC_MAP_DETAIL_RE.search(line)
+        if match:
+            index, cursor, table_root, base, length, alias = match.groups()
+            static_map_rows.append({
+                "index": int(index),
+                "cursor": int(cursor, 16),
+                "table_root": int(table_root, 16),
+                "base": int(base, 16),
+                "length": int(length, 16),
+                "alias": int(alias, 16),
+            })
+
         match = CURSOR_RE.search(line)
         if match:
             cursor_rows.append((int(match.group(1)), int(match.group(2), 16)))
@@ -232,7 +251,10 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
             address_value = int(address, 16)
             # BSE descriptors and stacks are in this observed SDRAM window.
             # Ignore code dumps and unrelated target windows.
-            if 0x08000000 <= address_value < 0x08100000:
+            if (
+                0x08000000 <= address_value < 0x08100000
+                or 0xF0105A00 <= address_value < 0xF0105D00
+            ):
                 for word_index, word in enumerate(words.split()):
                     memory_words[address_value + 4 * word_index] = int(word, 16)
 
@@ -292,20 +314,59 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
         if name in cp15_registers:
             out.append(f"- ARM CP15 {name}={_hex(cp15_registers[name])}.")
 
-    slot_zero_reads = [
-        read for read in slot_reads if read["va"] == BSE_SLOT_BASE
-    ]
-    if slot_zero_reads:
-        pairs = list(dict.fromkeys((read["va"], read["pa"]) for read in slot_zero_reads))
-        rendered = ", ".join(f"VA={_hex(va)} PA={_hex(pa)}" for va, pa in pairs)
-        out.append(f"- BSE slot-0 CPU memory accesses: {rendered}.")
-        if sctlr is not None and not (sctlr & 0x1):
-            if all(va == pa for va, pa in pairs):
-                out.append("- Observed slot-0 VA/PA identity is consistent with the ARM MMU being disabled.")
-        elif sctlr is not None:
+    slot_pairs = list(dict.fromkeys((read["va"], read["pa"]) for read in slot_reads))
+    slot_zero_pairs = [pair for pair in slot_pairs if pair[0] == BSE_SLOT_BASE]
+    if slot_pairs:
+        rendered = ", ".join(f"VA={_hex(va)} PA={_hex(pa)}" for va, pa in slot_pairs)
+        out.append(f"- BSE slot-table CPU memory accesses: {rendered}.")
+        if sctlr is not None and (sctlr & 0x1):
             out.append("- Do not equate BSE alias values with CPU physical addresses; ARM MMU translation is active.")
+        elif sctlr is not None:
+            if all(va == pa for va, pa in slot_pairs):
+                out.append("- Observed slot-table VA/PA identity is consistent with the ARM MMU being disabled.")
         else:
             out.append("- ARM MMU state is unknown for these slot-table reads because SCTLR was not captured.")
+    if slot_zero_pairs:
+        rendered = ", ".join(f"VA={_hex(va)} PA={_hex(pa)}" for va, pa in slot_zero_pairs)
+        out.append(f"- BSE slot-0 accesses: {rendered}.")
+
+    out.append("")
+    out.append("STATIC BSE TABLE RECORDS")
+    if static_map_rows:
+        for row in sorted(static_map_rows, key=lambda item: item["index"]):
+            index = row["index"]
+            cursor = row["cursor"]
+            expected_cursor = row["table_root"] + index * 0x10 + 0x0C
+            record_address = cursor - 0x0C
+            fourth_word = memory_words.get(cursor)
+            if cursor != expected_cursor:
+                warnings.append(
+                    f"static table row {index}: cursor {_hex(cursor)} != "
+                    f"root+index*0x10+0x0C ({_hex(expected_cursor)})"
+                )
+            fourth_text = _hex(fourth_word) if fourth_word is not None else "not captured"
+            out.append(
+                f"- index={index:02d} record={_hex(record_address)} "
+                f"base={_hex(row['base'])} size={_hex(row['length'])} "
+                f"alias={_hex(row['alias'])} slot={_hex(bse_slot_address(row['alias']))} "
+                f"raw+0C={fourth_text}"
+            )
+        out.append(
+            "- The watched cursor is record+0x0C (the fourth word of the same 16-byte row), "
+            "not the start of the following row."
+        )
+        sentinel_rows = [
+            row for row in static_map_rows
+            if memory_words.get(row["cursor"] + 4) == 0xFFFFFFFF
+        ]
+        if sentinel_rows:
+            last = max(sentinel_rows, key=lambda item: item["index"])
+            out.append(
+                f"- End marker 0xFFFFFFFF follows row {last['index']:02d} at "
+                f"{_hex(last['cursor'] + 4)}."
+            )
+    else:
+        out.append("- No detailed static-map cursor rows were captured.")
 
     static_zero_call = next(iter(static_zero), None)
     nor_zero_call = next(iter(nor_zero), None)
