@@ -371,15 +371,20 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
     # A BSE slot represents a complete 1-MiB alias window. Different alias
     # addresses inside that window share the slot intentionally; only
     # overlapping alias intervals need further scrutiny.
-    out.append("")
-    out.append("BSE ALIAS WINDOWS / SHARED SLOTS")
     rows_by_slot: dict[int, list[dict[str, int]]] = {}
     for row in static_map_rows:
         rows_by_slot.setdefault(bse_slot_index(row["alias"]), []).append(row)
+    shared_slot_groups = [
+        (slot_index, rows)
+        for slot_index, rows in sorted(rows_by_slot.items())
+        if len(rows) > 1
+    ]
 
-    for slot_index, rows in sorted(rows_by_slot.items()):
-        if len(rows) < 2:
-            continue
+    if shared_slot_groups:
+        out.append("")
+        out.append("BSE ALIAS WINDOWS / SHARED SLOTS")
+
+    for slot_index, rows in shared_slot_groups:
         slot_address = BSE_SLOT_BASE + slot_index * BSE_SLOT_BYTES
         window_base = slot_index << 20
         row_labels = ", ".join(
