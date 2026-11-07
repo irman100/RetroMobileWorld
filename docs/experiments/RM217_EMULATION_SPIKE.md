@@ -33,15 +33,29 @@ The uploaded archive `RM-217.zip` was inspected locally without executing any in
 
 ### Manifest integrity result
 
-The ZIP archive itself passes `zipfile.testzip()`. The selected VPL CRC-32 matches the ZIP CRC and calculated CRC for MCU and IMAGE, but not for PPM:
+The ZIP archive itself passes `zipfile.testzip()`. For the selected MCU, PPM and IMAGE entries, the inspector performs three distinct checks: ZIP central-directory CRC, a fresh CRC-32 over the decompressed component bytes, and the CRC-32 recorded in the selected VPL:
 
-| Component | VPL CRC-32 | Actual/ZIP CRC-32 | Result |
-|---|---:|---:|---|
-| MCU | `01C45DB7` | `01C45DB7` | Match |
-| PPM | `C585B71C` | `613D565F` | **Mismatch** |
-| IMAGE | `5008F91F` | `5008F91F` | Match |
+| Component | VPL CRC-32 | ZIP entry CRC-32 | Recalculated CRC-32 | Result |
+|---|---:|---:|---:|---|
+| MCU | `01C45DB7` | `01C45DB7` | `01C45DB7` | All match |
+| PPM | `C585B71C` | `613D565F` | `613D565F` | ZIP self-consistent; VPL mismatch |
+| IMAGE | `5008F91F` | `5008F91F` | `5008F91F` | All match |
 
-All six VPL files in the ZIP reference the same PPM name and expected CRC `C585B71C`. The archive contains only one matching PPM component. Its FPSX header identifies language-pack version 07.30 and its payload is structurally readable, but this does not resolve the manifest checksum discrepancy. Treat this set as **not fully verified**; do not use it as the reference boot set until a matching PPM is found or the checksum rule is independently explained.
+This distinction matters. `zipfile.testzip()` validates the entries against their own ZIP CRCs; recalculating the PPM CRC gives the same `613D565F` as the ZIP entry. Therefore the PPM bytes are internally consistent with the ZIP archive as packaged. The discrepancy is specifically between those packaged PPM bytes and the selected VPL manifest. It is not evidence of accidental damage while this ZIP entry was read or decompressed. It remains possible that the PPM was already wrong, substituted or damaged before the ZIP was assembled, or that the VPL metadata is stale/wrong.
+
+All six VPL files in the ZIP reference the same PPM name and expected CRC `C585B71C`. The archive contains only one matching PPM component. Its FPSX header identifies language-pack version 07.30 and its payload is structurally readable, but structural readability and the matching version string do not prove that it belongs to this exact package/variant. Treat this set as **not fully verified** and do not use the PPM as a trusted reference component until a matching file or independent explanation is obtained.
+
+The MCU checksum does match the selected VPL, the ZIP entry CRC and the recalculated CRC. That lowers the likelihood of accidental corruption of the MCU bytes in this package, although CRC-32 is not a cryptographic authenticity proof and no trusted external SHA-256 baseline is currently available. The IMAGE has the same three-way match.
+
+The current CPU/BSE probe selects and executes the MCU component only; it does not load or execute PPM during the investigated BSE initialization. Therefore this PPM mismatch does **not** explain the observed alias-0 collision or marker `0x3E` assertion. It may become relevant later when the full OS loads language resources or other PPM data, so it must be resolved before claiming a complete, verified Series 40 boot.
+
+
+### Historical public reports (anecdotal)
+
+Older Nokia repair-forum discussions contain user reports of `Corrupted Flash File` / PPM-package errors with RM-217 version 07.30, including `rm217__07.30.ppm_c`. These reports are not Nokia service documentation, are not the same verified archive/product code, and cannot establish that this particular PPM file is damaged. They do show that a 07.30 PPM package problem has been reported historically; keep this as a weak corroborating clue only:
+
+- [Unlockers archive: Nokia 6300, “Corrupted flash file” for PPM_C 07.30](https://www.unlockers.ru/archive/index.php/t-15828.html)
+- [Unlockers archive: Nokia 6300 firmware 07.30 PPM reinstall reports](https://www.unlockers.ru/archive/index.php/t-37017.html)
 
 ### FPSX layout findings
 
