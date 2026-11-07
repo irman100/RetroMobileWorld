@@ -4,12 +4,12 @@
 
 **Обновлено:** 7 ноября 2026  
 **Ветка:** `feature/j2me-library-bridge-20261104`  
-**HEAD последнего проверенного checkpoint:** `75ae7edc0f37eef4b8f79c6504bc4d28da072014`  
+**HEAD последнего проверенного checkpoint:** `3c1726af079fd4bb08308757cd9c83dbe1c175d4`  
 **PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит; GitHub показывает, что ветка допускает merge.  
-**CI для HEAD `75ae7ed`: успешно:**
-- [RM-217 Boot Probe #42366626010](https://github.com/irman100/RetroMobileWorld/actions/runs/42366626010) — Windows и Linux tests/build; Windows trace-kit собран и опубликован.
-- [Android CI #42366626025](https://github.com/irman100/RetroMobileWorld/actions/runs/42366626025) — success, pull request.
-- [Android CI #42366622554](https://github.com/irman100/RetroMobileWorld/actions/runs/42366622554) — success, push.
+**CI для HEAD `3c1726a`: успешно:**
+- [RM-217 Boot Probe #42371570722](https://github.com/irman100/RetroMobileWorld/actions/runs/42371570722) — Windows и Linux; trace summarizer tests, Rust tests, release builds и Windows trace-kit.
+- [Android CI #42371570679](https://github.com/irman100/RetroMobileWorld/actions/runs/42371570679) — success, pull request; APK собран.
+- [Android CI #42371566417](https://github.com/irman100/RetroMobileWorld/actions/runs/42371566417) — success, push.
 
 Исторические проверки для предыдущих диагностических коммитов сохранены в соответствующих разделах ниже.
 
@@ -985,3 +985,32 @@ The table, reconstructed from the mapper argument snapshots and the fourth word 
 The trace shows `0xFFFFFFFF` at `0xF0105BCC` immediately after row 13's fourth word, acting as the table terminator. Rows 6 and 7 are identical across all four observed words; keep this as an observation, not a claimed firmware defect.
 
 This is stronger than the earlier cursor-only interpretation: the first alias-0 mapping is explicitly present in the static table. The unresolved collision is between that explicit 1-MiB mapping and the later 22-MiB allocator mapping. The next task is to establish the intended reservation/extension semantics between the static table and the NOR free-range allocator. No firmware data or mapping was modified.
+
+
+### 19.1 CI validation and latest static-table trace kit
+
+For checkpoint 3c1726af079fd4bb08308757cd9c83dbe1c175d4:
+- RM-217 Boot Probe #42371570722 — success on Windows and Linux; all trace summarizer tests, Rust unit tests and release builds passed.
+- Android CI pull-request #42371570679 — success; Android unit tests, debug APK assembly and artifact upload passed.
+- Android CI push #42371566417 — success.
+- PR #1 remains open and mergeable; it has not been merged.
+
+Latest Windows trace kit:
+- Artifact: rm217-windows-bse-trace-kit, ID 13574605219.
+- SHA-256: fbff4b2c30e3eca27ca13b3242cf0069dcbdb72e961e85df7e20f4a478ac9b2d.
+- Size: 1,300,724 bytes; expires 2026-11-21 12:15:39 UTC.
+
+The trace summarizer now reports the CP15 MMU state for any BSE slot-table read and reconstructs the 14 static mapping rows from the current-record cursor and its fourth word. Synthetic tests verify that cursor = table_root + index*16 + 0x0C and that active-MMU warnings are not limited to slot 0. This validates the diagnostic tooling; no new guest-firmware execution was performed in this checkpoint.
+
+### 19.2 Next read-only BSE mapper capture
+
+The newly restored table establishes that row 0 itself maps physical base 0, size 1 MiB and alias 0. The next unresolved detail is how the BSE mapper treats an already-populated alias slot and why the row-0 entry creates marker 0x3E, while other aliases create page-table/descriptor values.
+
+The runner now adds:
+- full Thumb disassembly of 0xF0103B00..0xF0104000, covering the BSE slot check, assertion path and mapping/allocation helpers;
+- exact watchpoints at 0xF0103C3E, 0xF0103D3C, 0xF0103D5C, 0xF0103D6E and 0xF0103D7E;
+- a read-only dump of 0xE4 bytes beginning at 0xF0105AEC, covering the 14 static 16-byte rows and the following FFFFFFFF terminator.
+
+These are observation-only additions. The runner still uses the established diagnostic ASIC-ready, candidate NOR-ID and legacy-unmapped-as-RAM overrides. It does not write or patch firmware, the static table, the BSE table or the assertion.
+
+The next execution should use the latest artifact from run 42371570722 and the same local RM-217 Phoenix ZIP. Retain the full trace and compact summary. The immediate analysis targets are: the meaning of raw row field +0x0C, duplicate rows 6/7, and the exact code path that distinguishes marker 0x3E from page-table-backed alias slots. Do not change mapping behaviour until that is understood.

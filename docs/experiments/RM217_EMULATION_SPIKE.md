@@ -464,3 +464,11 @@ The loop disassembly shows that `r3` at the mapper call is `record + 0x0C`, not 
 The first row at `0xF0105AEC` therefore directly creates the mapping `(physical=0, size=1 MiB, BSE alias=0)`. The cursor `0xF0105AF8` points to that row's fourth word `0xC4`; row 1 begins at `0xF0105AFC`. The previous description of this as a separate prelude outside the static table is superseded.
 
 The new progress-log section 19 records the 14 rows, their raw fourth words and the `0xFFFFFFFF` sentinel. The fourth word's exact semantic meaning remains unconfirmed. Rows 6 and 7 are identical across all four observed words; this is recorded without treating it as a proven fault.
+
+## Next read-only BSE mapper capture (7 November 2026)
+
+The full static table is now restored, and the old r3 interpretation has been corrected. The next diagnostic kit expands the trace window to cover the complete BSE mapper and nearby allocation helpers at 0xF0103B00..0xF0104000. It also watches the marker writer at 0xF0103C3E and the page-table allocation/update writes at 0xF0103D3C, 0xF0103D5C, 0xF0103D6E and 0xF0103D7E.
+
+A read-only image dump of 0xE4 bytes at 0xF0105AEC captures the full 14-row static table plus its FFFFFFFF terminator. This should let us compare the live mapper arguments and raw fourth words with the contiguous table contents, while inspecting why row 0 initializes alias slot 0 to 0x3E and repeated FFD aliases use page-table-backed values.
+
+The updated runner is packaged only after the next CI build passes. No guest mapping, firmware bytes or assertion behaviour are changed by this instrumentation.
