@@ -471,4 +471,4 @@ The full static table is now restored, and the old r3 interpretation has been co
 
 A read-only image dump of 0xE4 bytes at 0xF0105AEC captures the full 14-row static table plus its FFFFFFFF terminator. This should let us compare the live mapper arguments and raw fourth words with the contiguous table contents, while inspecting why row 0 initializes alias slot 0 to 0x3E and repeated FFD aliases use page-table-backed values.
 
-The updated runner is packaged only after the next CI build passes. No guest mapping, firmware bytes or assertion behaviour are changed by this instrumentation.
+The updated [Windows BSE trace kit](https://github.com/irman100/RetroMobileWorld/actions/runs/42371959409) has now passed CI and is available as artifact 13573956694 (SHA-256 f47242ebb8962cfd0ac08f928776a616cc9ec7abdd5f5b2e4a2405a7b1fb9a2a; 1,300,758 bytes; expires 2026-11-21 12:21:31 UTC). Both Windows and Linux probe tests/builds passed, as did Android PR and push CI. The corresponding runs are #42371959409, #42371959417 and #42371955441. No guest mapping, firmware bytes or assertion behaviour are changed by this instrumentation.

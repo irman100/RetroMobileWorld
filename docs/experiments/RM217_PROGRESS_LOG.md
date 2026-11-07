@@ -4,12 +4,12 @@
 
 **Обновлено:** 7 ноября 2026  
 **Ветка:** `feature/j2me-library-bridge-20261104`  
-**HEAD последнего проверенного checkpoint:** `3c1726af079fd4bb08308757cd9c83dbe1c175d4`  
+**HEAD последнего проверенного checkpoint:** `ee4f82297dffc796aa0195258ff0694133824fd7`  
 **PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит; GitHub показывает, что ветка допускает merge.  
-**CI для HEAD `3c1726a`: успешно:**
-- [RM-217 Boot Probe #42371570722](https://github.com/irman100/RetroMobileWorld/actions/runs/42371570722) — Windows и Linux; trace summarizer tests, Rust tests, release builds и Windows trace-kit.
-- [Android CI #42371570679](https://github.com/irman100/RetroMobileWorld/actions/runs/42371570679) — success, pull request; APK собран.
-- [Android CI #42371566417](https://github.com/irman100/RetroMobileWorld/actions/runs/42371566417) — success, push.
+**CI для HEAD `ee4f822`: успешно:**
+- [RM-217 Boot Probe #42371959409](https://github.com/irman100/RetroMobileWorld/actions/runs/42371959409) — Windows и Linux; trace summarizer tests, Rust tests, release builds и Windows trace-kit.
+- [Android CI #42371959417](https://github.com/irman100/RetroMobileWorld/actions/runs/42371959417) — success, pull request; APK собран.
+- [Android CI #42371955441](https://github.com/irman100/RetroMobileWorld/actions/runs/42371955441) — success, push.
 
 Исторические проверки для предыдущих диагностических коммитов сохранены в соответствующих разделах ниже.
 
@@ -1014,3 +1014,15 @@ The runner now adds:
 These are observation-only additions. The runner still uses the established diagnostic ASIC-ready, candidate NOR-ID and legacy-unmapped-as-RAM overrides. It does not write or patch firmware, the static table, the BSE table or the assertion.
 
 The next execution should use the latest artifact from run 42371570722 and the same local RM-217 Phoenix ZIP. Retain the full trace and compact summary. The immediate analysis targets are: the meaning of raw row field +0x0C, duplicate rows 6/7, and the exact code path that distinguishes marker 0x3E from page-table-backed alias slots. Do not change mapping behaviour until that is understood.
+
+
+### 19.3 Latest mapper-inspection kit and green CI (2026-11-07)
+
+For current checkpoint ee4f82297dffc796aa0195258ff0694133824fd7:
+- [RM-217 Boot Probe #42371959409](https://github.com/irman100/RetroMobileWorld/actions/runs/42371959409) — success on Windows and Linux. The updated trace runner, summarizer tests, Rust unit tests, release builds and Windows trace-kit assembly/upload passed.
+- [Android CI PR #42371959417](https://github.com/irman100/RetroMobileWorld/actions/runs/42371959417) — success; Android unit tests and debug APK assembly/upload passed.
+- [Android CI push #42371955441](https://github.com/irman100/RetroMobileWorld/actions/runs/42371955441) — success.
+- Latest Windows artifact: rm217-windows-bse-trace-kit, ID 13573956694, SHA-256 f47242ebb8962cfd0ac08f928776a616cc9ec7abdd5f5b2e4a2405a7b1fb9a2a, 1,300,758 bytes; expires 2026-11-21 12:21:31 UTC.
+- PR #1 remains open, unmerged and mergeable.
+
+The latest runner expands Thumb disassembly to 0xF0103B00..0xF0104000, dumps 0xE4 bytes at 0xF0105AEC, and watches the marker write at 0xF0103C3E plus mapper/page-table update paths at 0xF0103D3C, 0xF0103D5C, 0xF0103D6E and 0xF0103D7E. This only changes diagnostics. No guest firmware mapping or bytes have been changed, and no new guest run has yet been performed with this expanded capture.
