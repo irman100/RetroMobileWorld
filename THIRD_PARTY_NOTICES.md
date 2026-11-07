@@ -29,5 +29,10 @@ The Gradle Wrapper launcher scripts and bootstrap JAR are distributed with Gradl
 
 - The diagnostic program under `engine/rm217-boot-probe` depends on `androettop/c3emu` pinned to commit `9b0d3ae2da326e109428f64d8760ea823ee1b648`, GPL-3.0-or-later.
 - The dependency is fetched by Cargo at build time; no c3emu source or firmware image is copied into the Android APK. The probe is a separate desktop diagnostic executable.
-- The probe uses c3emu's ARM926 interpreter and its RM-614 machine scaffolding only to gather first-stage diagnostics. It is explicitly not an RM-217-compatible emulator.
+- The probe uses c3emu's ARM926 interpreter, MMU helpers and FPSX parsing utilities. It does not instantiate c3emu's RM-614 `Machine`, address map or device models. The probe's RM-217 memory/peripheral setup remains explicitly diagnostic and is not yet a complete RM-217 emulator.
 - The probe's complete corresponding source is in this repository; preserve this project's GPL-3.0 license and the upstream c3emu licence/attribution when distributing the executable.
+
+
+## RM-217 emulator-reuse research
+
+Research reviewed on 2026-11-07 is recorded in `docs/experiments/RM217_EMULATOR_REUSE_RESEARCH.md`. It compares c3emu, the Nokia DCT3 emulator, EmuGII/QEMU and FreeJ2ME, and distinguishes reusable CPU/MMU/image utilities from model-specific SoC devices. No source from those projects has been copied into this repository.

@@ -44,7 +44,7 @@ The app imports this structurally valid set but labels it unverified. Do not tre
 - Routing physical key press/release events into the emulated keypad.
 - Flashing or modifying a physical Nokia handset.
 
-The desktop boot probe under engine/rm217-boot-probe is diagnostic research, not an Android firmware emulator. Its c3emu reference machine targets RM-614 / Nokia C3-00 and is not a drop-in RM-217 implementation.
+The desktop boot probe under engine/rm217-boot-probe is diagnostic research, not an Android firmware emulator. It already reuses c3emu's ARM926 interpreter, MMU translation helpers and FPSX parsing. It deliberately does not instantiate c3emu's RM-614 / Nokia C3-00 machine: that board's memory map, LCD, keypad, PMU and peripheral models differ from RM-217. The future RM-217 engine must keep the shared CPU core and provide an RM-217-specific SoC/device layer. See docs/experiments/RM217_EMULATOR_REUSE_RESEARCH.md for the emulator survey and hardware-backed implementation plan.
 
 ## Android build
 

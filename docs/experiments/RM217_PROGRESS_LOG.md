@@ -4,10 +4,10 @@
 
 **Обновлено:** 7 ноября 2026  
 **Ветка:** `feature/j2me-library-bridge-20261104`  
-**HEAD последнего полностью проверенного checkpoint:** `9635ce53c942523c59c5a386f6e3bc109a5aad51`  
-**HEAD последнего изменения:** `a1385778a1d10fb9a8883a27cf254fa7f6909d62` (журнал dual-alias).  
-**PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит; GitHub показывает, что ветка допускает merge.  
-**Последний полностью зелёный CI:** [RM-217 Boot Probe #42373012663](https://github.com/irman100/RetroMobileWorld/actions/runs/42373012663), [Android PR #42373012770](https://github.com/irman100/RetroMobileWorld/actions/runs/42373012770), [Android push #42373008184](https://github.com/irman100/RetroMobileWorld/actions/runs/42373008184). Последующее документальное изменение пока не требовало нового probe build.
+**Последний полностью проверенный кодовый checkpoint:** `b3a149c2c549d1514cff30428f2c180d0d643967`  
+**CI для него успешно:** [RM-217 Boot Probe #42374531265](https://github.com/irman100/RetroMobileWorld/actions/runs/42374531265) — Windows + Linux, summarizer tests, Rust tests, release builds и Windows trace-kit; [Android PR #42374531245](https://github.com/irman100/RetroMobileWorld/actions/runs/42374531245) и [Android push #42374526758](https://github.com/irman100/RetroMobileWorld/actions/runs/42374526758) — success.  
+**Свежий Windows artifact:** `rm217-windows-bse-trace-kit`, ID `13574932789`, SHA-256 `0a640b418ee0399e1662df633d31306d863bee8cda8101766b2e7a607d29d523`.  
+**PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит; ветка допускает merge.
 
 Исторические проверки для предыдущих диагностических коммитов сохранены в соответствующих разделах ниже.
 
@@ -1112,3 +1112,47 @@ This run does not establish OS boot. It ends when firmware writes the guest hard
 The summarizer now needs to render alias_offset = alias & 0x000FFFFF, group static rows by alias >> 20, and distinguish shared 1-MiB alias window with non-overlapping subranges, exact duplicate rows (6/7), and genuinely overlapping alias intervals that differ in physical range or attributes.
 
 This prevents treating legitimate page-table sharing as a BSE collision. No firmware bytes, memory map or assertion behaviour were changed.
+
+
+## 20. Existing emulator research and RM-217 hardware profile (2026-11-07)
+
+### 20.1 Realistic reuse decision
+
+The online survey is recorded in [RM217_EMULATOR_REUSE_RESEARCH.md](RM217_EMULATOR_REUSE_RESEARCH.md). The key result is that c3emu is already our shared CPU foundation, but its full RM-614 board is not the RM-217 board.
+
+The current probe uses c3emu's ARM926 interpreter, MMU translation helpers and FPSX parser. It does not instantiate `c3emu::machine::Machine`. This is the correct reuse boundary: share the CPU and generic translation/container code; implement an RM-217-specific SoC/device layer.
+
+Other reviewed references:
+- Nokia DCT3 emulator — useful patterns for per-model firmware profiles, bus/event tracing and headless validation, but DCT3/MAD2/CCONT/C54x hardware is not RM-217.
+- EmuGII — useful QEMU ARM926 board/device architecture, but its STMP3770 calculator board is not compatible.
+- FreeJ2ME — application runtime only, not a Series 40 OS or BB5 hardware emulator.
+- QEMU ARM system emulation — a possible alternative board framework, but the machine model must match RAPGSM/RM-217.
+
+No source from these projects has been copied into the repository.
+
+### 20.2 New hardware facts
+
+The RM-217 service schematics identify combo memory package `K5G5629ATB-SF75` as 256-Mbit NOR + 128-Mbit DDR DRAM. The same board schematic shows RAPGSM and RETU/TAHVO connected via CBUS(3:0), while I2C(1:0) is a separate bus.
+
+Historical, model-specific flashing records report NOR ID `00EC:2208`, Samsung `K8F5615ETM`, 256 Mbit and a 16-bit bus. They also expose physical NOR ranges: PPM starts at `0x01080000`, IMAGE/CNT at `0x01600000`, and the reported content write range ends at `0x01FDFFFF`. This is consistent with the live type-8 reservation `[0x01600000, 0x02000000)`, but it does not explain the BSE alias-zero collision.
+
+The exact K8F5615ETM primary datasheet and full erase geometry are not yet confirmed. Do not claim a complete NOR command model based only on service-tool output and secondary part listings.
+
+### 20.3 Functional probe change
+
+The probe now has a named `RM217_NOR0_PROFILE` with 32-MiB capacity, 16-bit bus, service-observed ID candidate `00EC:2208` and known MCU/PPM/IMAGE physical ranges. When FPSX regions are staged into the read-only diagnostic NOR array, the probe prints which known range each region belongs to. The existing 32-MiB array size is now derived from this profile rather than being an unexplained literal.
+
+The Rust test suite validates the PPM/IMAGE boundaries and that the final 128-KiB tail remains unclassified. This profile is metadata/region classification only: no erase/program/CFI state machine has been added yet.
+
+### 20.4 CBUS investigation target
+
+The board schematic shows RETU/TAHVO on CBUS(3:0), not simply on the separate I2C(1:0) bus. A generic I2C PMIC model copied from another Nokia platform would therefore be wrong. The next device-level reverse-engineering task is to identify RAPGSM's CBUS master routines and capture its first RETU/TAHVO frames.
+
+### 20.5 Baseline validation before this profile patch
+
+The preceding code checkpoint `b3a149c2c549d1514cff30428f2c180d0d643967` passed:
+- [RM-217 Boot Probe #42374531265](https://github.com/irman100/RetroMobileWorld/actions/runs/42374531265) — Windows and Linux, trace summarizer tests, Rust tests, both release builds and Windows trace-kit.
+- [Android PR #42374531245](https://github.com/irman100/RetroMobileWorld/actions/runs/42374531245) — success; debug APK assembled.
+- [Android push #42374526758](https://github.com/irman100/RetroMobileWorld/actions/runs/42374526758) — success.
+
+The NOR-profile, source-comment, README, third-party notice and research-document changes in the current patch still require a new CI run.

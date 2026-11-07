@@ -497,3 +497,14 @@ Rows 6 and 7 are exact duplicates: physical 0x20040000, size 0x3000, alias 0xFFD
 Separate from this legitimate FFD window sharing, row 0 (physical 0, 1 MiB, alias 0) still writes marker 0x3E; the late allocator's 22-MiB alias-0 request reads the same marker and enters the assertion path.
 
 The new 6,318-line summary also reports a guest hardware-reset request at PC 0xF0103A48 (0x20032D14 <- 2). It also records the assertion formatter at 0xF0103C0A with r0=0x3E; the summarized output does not prove the exact control-flow relation. The run is not a successful OS boot.
+
+
+## Emulator reuse research and physical NOR profile (7 November 2026)
+
+The accompanying [RM217_EMULATOR_REUSE_RESEARCH.md](RM217_EMULATOR_REUSE_RESEARCH.md) compares c3emu, the Nokia DCT3 emulator, EmuGII/QEMU and FreeJ2ME.
+
+The practical decision is to reuse c3emu's ARM926 interpreter, MMU helpers and FPSX parser, but not its RM-614 Machine or device maps. RM-217 is RAPGSM BB5.0; c3emu is C3-00 RM-614 with a different RAPIDO/RAP3G board. The probe now has an explicit NOR profile from RM-217 service records: 32 MiB, 16-bit, service-observed ID candidate 00EC:2208, PPM at 0x01080000 and IMAGE/CNT at 0x01600000. It classifies staged FPSX regions at runtime. This does not yet model exact CFI, sector erase or program timing.
+
+The service schematic identifies combo memory K5G5629ATB-SF75 as 256-Mbit NOR + 128-Mbit DDR and shows RETU/TAHVO on CBUS(3:0), with I2C as a separate bus. The next device-level target is therefore the actual RAPGSM CBUS transaction path, not a generic I2C PMIC replacement.
+
+The probe's static-row cursor comment is also corrected: r3 is current_record+0x0C (the fourth word of the current 16-byte static row); the fourth word's attribute semantics remain unknown.

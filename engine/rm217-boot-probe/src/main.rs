@@ -18,7 +18,66 @@ const DEFAULT_TRACE: u64 = 96;
 const MAX_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_MCU_BYTES: u64 = 256 * 1024 * 1024;
 const XIP_MINIMUM_MAP: u64 = 0x0100_0000;
-const NOR0_CAPACITY: usize = 0x0200_0000;
+#[derive(Debug, Clone, Copy)]
+struct NorPartition {
+    name: &'static str,
+    start: u32,
+    end_exclusive: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct NorFlashProfile {
+    capacity_bytes: usize,
+    bus_width_bits: u8,
+    observed_jedec_manufacturer: u16,
+    observed_jedec_device: u16,
+    partitions: [NorPartition; 3],
+}
+
+// RM-217 service schematic: combo memory contains 256-Mbit NOR + 128-Mbit DDR.
+// Model-specific BB5 service readouts report JEDEC 00EC:2208 and identify
+// Samsung K8F5615ETM. Keep this ID labelled service-observed until the exact
+// Samsung datasheet and populated board variant are independently confirmed.
+const RM217_NOR0_PROFILE: NorFlashProfile = NorFlashProfile {
+    capacity_bytes: 0x0200_0000, // 256 Mbit = 32 MiB
+    bus_width_bits: 16,
+    observed_jedec_manufacturer: 0x00EC,
+    observed_jedec_device: 0x2208,
+    partitions: [
+        NorPartition {
+            name: "MCU/boot/system",
+            start: 0x0000_0000,
+            end_exclusive: 0x0108_0000,
+        },
+        NorPartition {
+            name: "PPM language pack",
+            start: 0x0108_0000,
+            end_exclusive: 0x0160_0000,
+        },
+        NorPartition {
+            name: "IMAGE/CNT content",
+            start: 0x0160_0000,
+            end_exclusive: 0x01FE_0000,
+        },
+    ],
+};
+const NOR0_CAPACITY: usize = RM217_NOR0_PROFILE.capacity_bytes;
+
+fn classify_rm217_nor_range(address: u32, length: usize) -> &'static str {
+    if length == 0 {
+        return "empty range";
+    }
+    let start = address as u64;
+    let end = start.saturating_add(length as u64);
+    RM217_NOR0_PROFILE
+        .partitions
+        .iter()
+        .find(|partition| {
+            start >= partition.start as u64 && end <= partition.end_exclusive as u64
+        })
+        .map(|partition| partition.name)
+        .unwrap_or("unclassified/reserved NOR range")
+}
 
 // The firmware trace establishes a 4096-entry BSE table. Each 32-bit slot
 // represents one 1-MiB alias index; this is NOT a 1-MiB-sized table.
@@ -565,6 +624,19 @@ fn write_nor_payload(image: &mut [u8], address: u32, payload: &[u8]) -> Result<(
 /// Construct a read-only diagnostic NOR array from the known physical FPSX regions.
 /// Missing physical bytes are left erased (0xFF); this is not a dump of the full chip.
 fn build_nor_flash_image(firmware: &Fpsx, capacity: usize) -> Result<Vec<u8>, Box<dyn Error>> {
+    println!(
+        "  [RM-217 NOR0 profile] capacity=0x{:08X} bus={} bit observed-service-JEDEC={:04X}:{:04X}",
+        RM217_NOR0_PROFILE.capacity_bytes,
+        RM217_NOR0_PROFILE.bus_width_bits,
+        RM217_NOR0_PROFILE.observed_jedec_manufacturer,
+        RM217_NOR0_PROFILE.observed_jedec_device
+    );
+    for partition in RM217_NOR0_PROFILE.partitions {
+        println!(
+            "  [RM-217 NOR0 partition] {}: 0x{:08X}..0x{:08X}",
+            partition.name, partition.start, partition.end_exclusive
+        );
+    }
     let mut image = vec![0xFF; capacity];
     let mut named: BTreeMap<String, &Region> = BTreeMap::new();
     let mut unnamed: Vec<&Region> = Vec::new();
@@ -590,10 +662,11 @@ fn build_nor_flash_image(firmware: &Fpsx, capacity: usize) -> Result<Vec<u8>, Bo
         write_nor_payload(&mut image, region.addr, &region.data)
             .map_err(std::io::Error::other)?;
         println!(
-            "  [experimental NOR0 array] staged {} at 0x{:08X} ({} bytes)",
+            "  [experimental NOR0 array] staged {} at 0x{:08X} ({} bytes; {})",
             region.name.as_deref().unwrap_or("(unnamed)"),
             region.addr,
-            region.data.len()
+            region.data.len(),
+            classify_rm217_nor_range(region.addr, region.data.len())
         );
     }
     Ok(image)
@@ -1523,10 +1596,10 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                     }
                 }
 
-                // The static BSE loop exposes a raw-table cursor in r3. The
-                // firmware trace shows it is one descriptor ahead of the
-                // current r0/r1/r2 mapper arguments, so label it as a cursor
-                // and never claim it generated this exact mapping request.
+                // The static BSE loop passes r3 = current_record + 0x0C:
+                // the fourth word of the same 16-byte row that supplies r0/r1/r2.
+                // Its attribute semantics are not decoded yet, so report the raw
+                // cursor and fourth word without assigning an invented meaning.
                 if address == 0xF010_3ECE && read(RegisterARM::LR) == 0xF010_489D {
                     let entry = read(RegisterARM::R3);
                     println!(
@@ -2123,6 +2196,36 @@ mod tests {
         let nor_end = NOR0_CAPACITY as u64;
         assert!(nor_end <= sdram_start || sdram_end <= nor_start);
         assert_eq!(sdram_end, 0x1100_0000);
+    }
+
+    #[test]
+    fn rm217_nor_profile_classifies_service_observed_firmware_partitions() {
+        assert_eq!(RM217_NOR0_PROFILE.capacity_bytes, 0x0200_0000);
+        assert_eq!(RM217_NOR0_PROFILE.bus_width_bits, 16);
+        assert_eq!(
+            (RM217_NOR0_PROFILE.observed_jedec_manufacturer, RM217_NOR0_PROFILE.observed_jedec_device),
+            (0x00EC, 0x2208)
+        );
+        assert_eq!(
+            classify_rm217_nor_range(0x0000_0000, 0x0108_0000),
+            "MCU/boot/system"
+        );
+        assert_eq!(
+            classify_rm217_nor_range(0x0108_0000, 0x0058_0000),
+            "PPM language pack"
+        );
+        assert_eq!(
+            classify_rm217_nor_range(0x0160_0000, 0x00DE_0000),
+            "IMAGE/CNT content"
+        );
+        assert_eq!(
+            classify_rm217_nor_range(0x01FE_0000, 0x0002_0000),
+            "unclassified/reserved NOR range"
+        );
+        assert_eq!(
+            classify_rm217_nor_range(0x015F_F000, 0x2000),
+            "unclassified/reserved NOR range"
+        );
     }
 
     #[test]
