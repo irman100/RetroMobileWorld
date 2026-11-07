@@ -301,6 +301,36 @@ Probe exit code: 0
         )
         self.assertNotIn("WARNING: overlapping alias mappings", summary)
 
+    def test_summary_includes_unclassified_asic_reads_and_writes(self):
+        trace = "\\n".join([
+            "[ASIC-read 000] addr=0x20032C04 size=4 value=0x00000001 pc=0xF0103900",
+            "[ASIC-write 000] addr=0xFFD32C00 size=4 value=0x00000002 pc=0xF0103904",
+            "[ASIC-write 001] addr=0x20032D14 size=4 value=0x00000002 pc=0xF0103A48",
+        ])
+
+        summary = build_summary(trace)
+
+        self.assertIn("UNCLASSIFIED ASIC CONTROL-WINDOW ACCESSES", summary)
+        self.assertIn("Parsed 3 accesses: 1 reads, 2 writes.", summary)
+        self.assertIn(
+            "[READ 000] addr=0x20032C04 size=4 value=0x00000001 pc=0xF0103900",
+            summary,
+        )
+        self.assertIn(
+            "[WRITE 000] addr=0xFFD32C00 size=4 value=0x00000002 pc=0xF0103904",
+            summary,
+        )
+        self.assertIn(
+            "Accesses at the separately observed reset-endpoint address 0x20032D14/0xFFD32D14",
+            summary,
+        )
+        self.assertIn("pc=0xF0103A48", summary)
+        self.assertLess(
+            summary.index("[READ 000]"),
+            summary.index("[WRITE 000]"),
+        )
+        self.assertIn("does not identify them as CBUS or GENIO registers", summary)
+
     def test_summary_flags_wrong_logged_slot_index(self):
         trace = (
             "[BSE mapper args] caller=0xF010489D phys_base=0x00000000 "

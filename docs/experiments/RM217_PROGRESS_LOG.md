@@ -1197,3 +1197,43 @@ The code checkpoint `bf148e501034eb7191ad8678d2abd24dc5b60308` passed all CI:
 - [Android push #42376320051](https://github.com/irman100/RetroMobileWorld/actions/runs/42376320051) — success; debug APK artifact `13575594078`, SHA-256 `aaac5d6c89d9ebd878b985642a063312ccff1e95749af5ede1fa8e7a49f37791`.
 
 The new [Windows trace kit](https://github.com/irman100/RetroMobileWorld/actions/runs/42376324182) is artifact `13575474418`, SHA-256 `42eb81956414bb5852fbdd15a85f76db3691657b596798f0a05f26f53b49ac44`. It adds read watchpoints over the same unclassified ASIC windows as the existing write watch and includes Thumb disassembly/watchpoints around reset request PC `0xF0103A48`. This is diagnostic only; those addresses have not been proven to be the GENIO/CBUS block.
+
+
+## 22. New 6,643-line RM-217 run: MMU state, allocator arithmetic and duplicate static row (2026-11-07)
+
+The user supplied the compact console summary generated from a new run of `run_rm217_bse_alias_trace.ps1`. The summary states that the full local trace contains 6,643 lines, 19 mapper calls, 16 slot reads and 37 slot writes. It is the **compact summary**, not the full raw trace file, so the new `ASIC-read`/`ASIC-write` events are not visible in the supplied attachment.
+
+### 22.1 ARM MMU is disabled at the late BSE mapper
+
+At the late mapper hook:
+- SCTLR = `0x0009117C`; M bit = 0;
+- TTBR = 0, DACR = 0, FCSEIDR = 0;
+- observed BSE slot reads have VA=PA, including slot 0 at `0x10090000`.
+
+This is a specific state at the late NOLO/MCUSW mapper hook; do not generalize it to every boot stage. It explains why the CPU VA/PA pairs are identical in this trace. It does **not** turn the BSE alias into an ARM MMU translation: BSE alias selection remains a separate firmware-managed table input.
+
+### 22.2 Exact alias-zero arithmetic is now fully corroborated
+
+At allocator call site `0xF010432A`, r0 is `0xF0100000`, r4 initially zero. The helper called at `0xF0104976` returns `0xF0100000`; the literal load at `0xF010432E` also places `0xF0100000` in r4. At `0xF0104330`, `SUBS r0,r4,r0` therefore produces zero, which is stored at SP+0x38 and passed as the BSE alias. Helper entry/return stack pointers match. No register corruption is indicated.
+
+Type-8 range subtraction remains as before: occupied interval `[0x01600000,0x02000000)`, candidate interval after subtraction `[0x00000000,0x01600000)`. The alias-zero conflict therefore remains an allocator/mapping-policy issue, not an arithmetic or Type-8 boundary arithmetic failure.
+
+### 22.3 A duplicate static row is confirmed but not yet causal
+
+Static rows 06 and 07 are identical:
+- physical base `0x20040000`;
+- length `0x3000`;
+- BSE alias `0xFFD40000`;
+- fourth word `0x405`.
+
+The mapper does not assert on this repeated row in the observed run. Treat it as duplicated static-table data or repeated registration until the lower mapper semantics are disassembled. It is not yet linked to the slot-0 assertion and is not evidence of a corrupt firmware dump.
+
+### 22.4 Reset endpoint
+
+The probe stopped on guest write `[0x20032D14] <- 0x00000002` at PC `0xF0103A48`. The guest assertion formatter was separately observed at `0xF0103C0A` with r0=`0x3E`. The supplied compact summary does not establish whether the reset request is a direct consequence of the assertion or a later boot policy response.
+
+### 22.5 Diagnostic report improvement in progress
+
+The current compact summarizer did not include the new ASIC window read/write lines, despite the full trace recording them. A code change is being prepared to include a bounded chronological sample and exact reset-endpoint accesses in future compact summaries. The addresses remain labelled unclassified; no CBUS/GENIO interpretation is inferred from the window base alone.
+
+Raw evidence needed to complete the CBUS step is the full local file `rm217-bse-alias-mmuv2.txt` (the 6,643-line trace), not the 213-line console summary.

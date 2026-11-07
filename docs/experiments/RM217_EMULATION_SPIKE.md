@@ -523,3 +523,15 @@ The separate Nokia E7 reverse-engineering project shows a useful methodology for
 The current ASIC windows 0x20032C00..0x20032DFF and 0xFFD32C00..0xFFD32DFF remain unclassified. The new diagnostic patch logs reads as well as writes and adds disassembly/watchpoints around the reset request at 0xF0103A48. No CBUS semantics are assigned to those windows yet.
 
 The CBUS-candidate instrumentation is now CI-validated on `bf148e501034eb7191ad8678d2abd24dc5b60308`: Windows/Linux probe tests and builds passed, as did Android PR/push CI. Latest Windows trace kit: artifact `13575474418`, SHA-256 `42eb81956414bb5852fbdd15a85f76db3691657b596798f0a05f26f53b49ac44`. It records reads as well as writes in the unclassified ASIC windows and disassembles the reset path around `0xF0103A48`; no CBUS register mapping is assumed.
+
+## New supplied trace: MMU disabled, exact alias calculation, duplicate static row (7 November 2026)
+
+The user's compact run summary reports a 6,643-line raw trace, 19 mapper calls, 16 slot reads and 37 writes. At the late mapper, SCTLR=0x0009117C (M=0) and TTBR/DACR/FCSEIDR are zero; the BSE slot reads therefore have identity VA=PA. This is a stage-specific MMU state and does not collapse BSE alias space into ARM VA-to-PA translation.
+
+The allocator's alias zero is confirmed instruction by instruction: helper 0xF0104976 returns 0xF0100000; the following literal LDR loads the same value into r4; SUBS r0,r4,r0 at 0xF0104330 produces zero, and SP+0x38 carries that zero into the mapper. The Type-8 subtraction leaves base 0, length 0x01600000 after reserving [0x01600000,0x02000000).
+
+Static rows 06 and 07 duplicate physical 0x20040000, size 0x3000, alias 0xFFD40000 and raw fourth word 0x405. The observed run does not assert on this row; its cause/meaning is unknown and it is not yet connected to slot 0.
+
+The guest stop is reset request 0x20032D14 <- 2 at PC 0xF0103A48. The assertion formatter is seen separately at PC 0xF0103C0A with r0=0x3E; the compact summary alone does not prove direct control-flow causality.
+
+The supplied attachment was the 213-line compact summary, not the full 6,643-line trace. It therefore does not expose the newly instrumented ASIC-read/ASIC-write events. The summarizer is being extended to include a bounded chronological sample of those accesses and their PC values, while retaining the unclassified address label.

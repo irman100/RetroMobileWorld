@@ -77,6 +77,12 @@ IMAGE_DUMP_RE = re.compile(
     r"words_le=\[(?P<words>[^]]*)\]"
 )
 
+ASIC_ACCESS_RE = re.compile(
+    r"\[ASIC-(?P<direction>read|write)\s+(?P<sequence>\d+)\]\s+"
+    r"addr=0x(?P<address>[0-9A-Fa-f]+)\s+size=(?P<size>\d+)\s+"
+    r"value=0x(?P<value>[0-9A-Fa-f]+)\s+pc=0x(?P<pc>[0-9A-Fa-f]+)"
+)
+
 
 def bse_slot_index(alias: int) -> int:
     """Return the 1-MiB alias slot index used by the observed firmware."""
@@ -133,8 +139,21 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
     image_dumps: list[dict[str, int | str]] = []
     warnings: list[str] = []
     cp15_registers: dict[str, int] = {}
+    asic_accesses: list[dict[str, int | str]] = []
 
     for line in lines:
+        match = ASIC_ACCESS_RE.search(line)
+        if match:
+            access = match.groupdict()
+            asic_accesses.append({
+                "direction": access["direction"].upper(),
+                "sequence": int(access["sequence"]),
+                "address": int(access["address"], 16),
+                "size": int(access["size"]),
+                "value": int(access["value"], 16),
+                "pc": int(access["pc"], 16),
+            })
+
         match = CP15_RE.search(line)
         if match:
             cp15_registers[match.group("name")] = int(match.group("value"), 16)
@@ -681,6 +700,45 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
     if len(rows) > 24:
         out.append(f"- ... {len(rows) - 24} additional slots omitted")
 
+    out.append("")
+    out.append("UNCLASSIFIED ASIC CONTROL-WINDOW ACCESSES")
+    if asic_accesses:
+        read_count = sum(event["direction"] == "READ" for event in asic_accesses)
+        write_count = len(asic_accesses) - read_count
+        out.append(
+            f"- Parsed {len(asic_accesses)} accesses: {read_count} reads, {write_count} writes."
+        )
+        out.append(
+            "- These addresses are still unclassified; this report does not identify them as CBUS or GENIO registers."
+        )
+        if len(asic_accesses) <= 64:
+            selected_events = asic_accesses
+        else:
+            selected_events = asic_accesses[:32] + [{"direction": "OMITTED"}] + asic_accesses[-32:]
+        for event in selected_events:
+            if event["direction"] == "OMITTED":
+                out.append(f"- ... {len(asic_accesses) - 64} middle ASIC accesses omitted ...")
+                continue
+            out.append(
+                f"- [{event['direction']} {int(event['sequence']):03d}] "
+                f"addr={_hex(int(event['address']))} size={int(event['size'])} "
+                f"value={_hex(int(event['value']))} pc={_hex(int(event['pc']))}"
+            )
+        reset_events = [
+            event for event in asic_accesses
+            if int(event["address"]) in {0x20032D14, 0xFFD32D14}
+        ]
+        if reset_events:
+            out.append(
+                "- Accesses at the separately observed reset-endpoint address 0x20032D14/0xFFD32D14:"
+            )
+            for event in reset_events:
+                out.append(
+                    f"  {event['direction']} value={_hex(int(event['value']))} "
+                    f"size={int(event['size'])} pc={_hex(int(event['pc']))}"
+                )
+    else:
+        out.append("- No [ASIC-read]/[ASIC-write] events parsed from this trace.")
     out.append("")
     out.append("TRACE SIGNATURES")
     if static_zero:
