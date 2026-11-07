@@ -539,3 +539,13 @@ The supplied attachment was the 213-line compact summary, not the full 6,643-lin
 The reset endpoint `0x20032D14` lies at offset `0x2D14` within static BSE row 05, physical range `[0x20030000,0x20037000)`, whose BSE alias base is `0xFFD30000`. The corresponding alias-view address is `0xFFD32D14`. The compact summary confirms the physical reset write, not a guest write through the alias.
 
 The corrected summarizer, tests and reports passed CI on `8d049de7d59017084f8e249f3ba81079b2cf0b61`: Windows/Linux probe #42379564262 and Android PR/push #42379564321 / #42379559302. Latest Windows trace kit: artifact `13577250544`, SHA-256 `a98694d3af681199f39c4d5ba1743cdc03ec5ab8c8e3cfc8097aa0f5ac5034a3`.
+
+## CBUS line-count clarification and reset ownership caveat (7 November 2026)
+
+The RM-217/RM-222 schematic labels the bus group CBUS(3:0), but its detailed page-5 connections explicitly name three active signals: GENIO31 / CBusClk, GENIO30 / CBusDa and CBusEn1X (select/enable), routed to RETU, TAHVO and FM radio. I2C(1:0), SDA and SCL are separate. Do not interpret the group label alone as proof of four active physical CBUS wires; the detailed RM-217 signal rows name three, and no fourth active CBUS connection is mapped in that sheet.
+
+A Nokia 6233/RM-145 schematic also uses CBUS(3:0) while naming CBUSCLK, CBUSDA and CBUSENX. Older Nokia troubleshooting documentation explicitly calls the CLK/DATA/BUS_ENABLE topology three-wire. In contrast, the Nokia N81/RM-179/RM-223 service manual describes a four-wire half-duplex CBUS at 2.4 MHz for its different RAPIDO/EM ASIC platform. Do not copy that N81 bus width or timing into RM-217.
+
+The Linux Nokia Internet Tablet GPIO driver and QEMU/DECAF three-wire models fit the RM-217 pin-level topology, but their frame fields and data-phase details remain unverified against the target MCUSW. Trace actual GENIO31/GENIO30/CBusEn1X transactions before implementing the transaction model.
+
+A comparative RM-38/RAPGSM service manual says RAPGSM has ASIC clock/reset control and a CBUS interface, with start-up/reset and CBUS blocks also described for EM ASIC N2200. That is general functional context only, not an RM-217 register map; it does not identify reset write 0x20032D14 as a particular device register.

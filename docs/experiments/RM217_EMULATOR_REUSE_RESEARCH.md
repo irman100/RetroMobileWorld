@@ -119,3 +119,24 @@ The existing watched ranges 0x20032C00..0x20032DFF and 0xFFD32C00..0xFFD32DFF ar
 
 
 The [Nokia E7 Linux reverse-engineering project](https://github.com/apoage/nokia-e7-linux) is another methodology reference: it recovers GPIO/pinmux data from its own OneNAND/ROM and validates a board-specific QEMU machine, but it is BCM2727B1/ARM1176 RAPU hardware and is not reusable as an RM-217 register map.
+
+
+
+## CBUS line count and platform-specific variants
+
+The RM-217/RM-222 schematic uses the group label CBUS(3:0), but the detailed page-5 pin rows explicitly name three active signal connections: RAPGSM GENIO31 / CBusClk, RAPGSM GENIO30 / CBusDa, and CBusEn1X as select/enable. The destination group is RETU, TAHVO and FM radio. The same page lists I2C(1:0), SDA and SCL separately. Do not interpret the CBUS(3:0) group label alone as proof of four active physical wires; the detailed rows identify these three named nets, and no fourth active CBUS line is mapped in this schematic.
+
+This three-signal topology is consistent with another Nokia 6233/RM-145 schematic, which also groups the bus as CBUS(3:0) but names CBUSCLK, CBUSDA and CBUSENX, and with older Nokia baseband troubleshooting documentation that explicitly describes CLK/DATA/BUS_ENABLE as a three-wire CBUS.
+
+CBUS is not universal across every BB5 board. The Nokia N81/RM-179/RM-223 service manual describes a RAPIDO/EM ASIC CBUS variant as a four-wire half-duplex master/slave interface at 2.4 MHz. That is another phone design: do not transfer its wire count or clock rate to RM-217. This platform difference is a reason to trust RM-217 pin assignments over generic CBUS descriptions.
+
+The Linux Nokia Internet Tablet GPIO driver and QEMU/DECAF three-line models are therefore useful physical-topology references for RM-217, but their 3-bit slave address, R/W bit, 5-bit register address and 16-bit data framing are not yet proven for this firmware. The actual MCUSW GENIO31/GENIO30/CBusEn1X transactions still need to be captured.
+
+A comparative Nokia RM-38/RAPGSM service manual describes the RAPGSM ASIC as containing ASIC clock/reset control and a CBUS interface; it describes EM ASIC N2200 as containing start-up/reset logic and a digital CBUS interface, while TAHVO handles energy management and charge control. RM-38 is not the RM-217 register map. This block-level context does not identify the observed RM-217 reset write at 0x20032D14 as a particular RAPGSM, RETU or TAHVO register.
+
+References:
+- RM-217 exact signal assignments, service schematic page 5: https://usermanual.wiki/Document/nokia6300rm2176300brm222serviceschematicsv20.673614552.pdf
+- Nokia 6233/RM-145 service schematic, page 5: https://www.scribd.com/document/712368773/nokia-6233-rm-145-6234-rm-123
+- Nokia RH-51/52 three-wire CBUS troubleshooting guide: https://electronicsandbooks.com/edt/manual/Hardware/N/Nokia/Phone/NOKIA%206670%2C%207610%20RH-51/NOKIA%206670%2C%207610%20RH-52%2C%20RH-67%2C%20RH-68%206a.pdf
+- Nokia N81/RM-179/RM-223 four-wire CBUS variant: https://www.manualslib.com/manual/1144021/Nokia-N81.html?page=204
+- Nokia RM-38/RAPGSM functional description: https://www.manualslib.com/manual/4254639/Nokia-Rm-38.html?page=234
