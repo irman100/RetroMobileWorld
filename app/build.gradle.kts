@@ -26,60 +26,59 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 }
 
-val c3PhotoFile = layout.buildDirectory.file("generated/c3emuAssets/c3emu/dienthoai.jpg")
-val c3PhotoAttributionFile = layout.buildDirectory.file("generated/c3emuAssets/c3emu/ATTRIBUTION.txt")
+val c3ProfilePhotoFile = layout.buildDirectory.file("generated/c3emuAssets/c3emu/75-205-263-02.png")
+val c3ProfilePhotoAttributionFile = layout.buildDirectory.file("generated/c3emuAssets/c3emu/PROFILE_IMAGE_SOURCE.txt")
 
-// The original Commons photograph is fetched at build time, verified by SHA-1,
-// then packaged as an ordinary app asset (no network access at runtime).
-val fetchC3ShellPhoto = tasks.register("fetchC3ShellPhoto") {
-    outputs.files(c3PhotoFile, c3PhotoAttributionFile)
+// The user-selected front-facing C3-00 reference image lives in the repository's
+// main branch. Fetch the exact reviewed Git blob and verify its Git object hash
+// before putting it in the APK. No runtime network access is used.
+val fetchC3ProfilePhoto = tasks.register("fetchC3ProfilePhoto") {
+    outputs.files(c3ProfilePhotoFile, c3ProfilePhotoAttributionFile)
     doLast {
-        val photo = c3PhotoFile.get().asFile
-        val attribution = c3PhotoAttributionFile.get().asFile
-        val expectedSha1 = "2dbd3412ea6cdc2477281b9cc210294f2d433a88"
+        val photo = c3ProfilePhotoFile.get().asFile
+        val attribution = c3ProfilePhotoAttributionFile.get().asFile
+        val expectedGitBlobSha1 = "98edc0abadb2e37afa4e0d3168fb8b186aea64b1"
+        val sourceCommit = "bd44163d8c059cb9840eb1ab9c28da7228e44109"
+        val sourceUrl =
+            "https://raw.githubusercontent.com/irman100/RetroMobileWorld/$sourceCommit/docs/75-205-263-02.png"
 
-        fun sha1(bytes: ByteArray): String =
-            MessageDigest.getInstance("SHA-1")
-                .digest(bytes)
-                .joinToString("") { byte -> (byte.toInt() and 0xFF).toString(16).padStart(2, '0') }
+        val connection = URL(sourceUrl).openConnection().apply {
+            connectTimeout = 20_000
+            readTimeout = 30_000
+            setRequestProperty("User-Agent", "RetroMobileWorld/0.3 (profile asset retrieval)")
+        }
+        val bytes = connection.getInputStream().use { it.readBytes() }
+        val gitHeader = "blob ${bytes.size}\\u0000".toByteArray(Charsets.UTF_8)
+        val digest = MessageDigest.getInstance("SHA-1")
+        digest.update(gitHeader)
+        val actualGitBlobSha1 = digest.digest(bytes)
+            .joinToString("") { byte -> (byte.toInt() and 0xFF).toString(16).padStart(2, '0') }
 
-        val existing = if (photo.isFile) photo.readBytes() else null
-        val verifiedExisting = existing != null && sha1(existing) == expectedSha1
-        if (!verifiedExisting) {
-            val connection = URL(
-                "https://upload.wikimedia.org/wikipedia/commons/4/4c/Dienthoai.JPG"
-            ).openConnection().apply {
-                connectTimeout = 20_000
-                readTimeout = 30_000
-                setRequestProperty("User-Agent", "RetroMobileWorld/0.3 (build asset retrieval)")
-            }
-            val bytes = connection.getInputStream().use { it.readBytes() }
-            check(bytes.size == 1_339_157 && sha1(bytes) == expectedSha1) {
-                "Nokia C3-00 Commons photo failed its size/SHA-1 verification."
-            }
-            photo.parentFile.mkdirs()
-            photo.writeBytes(bytes)
+        check(bytes.size >= 24 &&
+            bytes[0] == 0x89.toByte() &&
+            bytes[1] == 0x50.toByte() &&
+            bytes[2] == 0x4E.toByte() &&
+            bytes[3] == 0x47.toByte()
+        ) { "The C3-00 profile image is not a valid PNG." }
+        check(actualGitBlobSha1 == expectedGitBlobSha1) {
+            "C3-00 profile image integrity check failed: expected $expectedGitBlobSha1, got $actualGitBlobSha1."
         }
 
-        if (!attribution.isFile) {
-            attribution.parentFile.mkdirs()
-            attribution.writeText(
-                """Photograph: Dienthoai.JPG (23 December 2011)
-Author: Trongphu
-Source: https://commons.wikimedia.org/wiki/File:Dienthoai.JPG
-License: Creative Commons Attribution-ShareAlike 3.0 Unported (CC BY-SA 3.0)
-License text: https://creativecommons.org/licenses/by-sa/3.0/
-
-The original JPEG is included unchanged. The emulator LCD is rendered separately
-over the photographed display at runtime; invisible touch regions are aligned
-with the photographed physical keys.
+        photo.parentFile.mkdirs()
+        photo.writeBytes(bytes)
+        attribution.parentFile.mkdirs()
+        attribution.writeText(
+            """User-selected Nokia C3-00 profile image
+Source: docs/75-205-263-02.png
+Source commit: $sourceCommit
+Git blob SHA-1: $expectedGitBlobSha1
+Packaged unchanged as an Android asset; the guest LCD is drawn separately over its screen opening.
 """.trimIndent(),
-                Charsets.UTF_8
-            )
-        }
+            Charsets.UTF_8
+        )
     }
 }
 
 tasks.named("preBuild").configure {
-    dependsOn(fetchC3ShellPhoto)
+    dependsOn(fetchC3ProfilePhoto)
 }
