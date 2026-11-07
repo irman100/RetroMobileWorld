@@ -41,7 +41,7 @@ val fetchC3ShellPhoto = tasks.register("fetchC3ShellPhoto") {
         fun sha1(bytes: ByteArray): String =
             MessageDigest.getInstance("SHA-1")
                 .digest(bytes)
-                .joinToString("") { byte -> (byte.toInt() and 0xFF).toString(16).padStart(2, "0") }
+                .joinToString("") { byte -> (byte.toInt() and 0xFF).toString(16).padStart(2, '0') }
 
         val existing = if (photo.isFile) photo.readBytes() else null
         val verifiedExisting = existing != null && sha1(existing) == expectedSha1
