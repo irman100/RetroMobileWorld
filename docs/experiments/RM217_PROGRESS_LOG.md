@@ -552,24 +552,50 @@ slot_address = 0x10090000 + 4 * (alias >> 20)
 
 Это прямое подтверждение: поздний allocator повторно использует тот же BSE alias slot 0, который был помечен ранней статической инициализацией. Причина текущего assertion — не простое совпадение физических адресов; это совпадение **BSE alias index 0**.
 
-### 14.4 Важное уточнение: raw descriptor pointer опережает mapper arguments
+### 14.4 Исправление интерпретации static-table cursor (2026-11-07)
 
-Не считать `r3` на hook `0xF0103ECE` указателем на raw descriptor, который породил текущие `r0/r1/r2`, без отдельной проверки.
+Новая трасса вместе с дизассемблированием `0xF0104866..0xF01048A6` опровергает прежний вывод, что `r3` на mapper hook указывает на следующую static-table запись. `r3` указывает на **четвёртое поле текущей 16-byte записи**, то есть на `record + 0x0C`.
 
-В trace виден устойчивый сдвиг на одну запись:
+Логика цикла:
+- `r6` — начало таблицы после relocation helper, `0xF0105AEC`;
+- `r5` — индекс записи, `ip = r5 << 4` — смещение записи в таблице;
+- `0xF01048A2`: `LDR r0, [r6, ip]` — физическая база текущей записи;
+- `0xF0104892`: `LDR r2, [r1, #8]` — alias;
+- `0xF0104894`: `LDR r1, [r1, #4]` — размер;
+- `0xF0104896`: `ADDS r3, #0xC` — указатель на четвёртое поле той же записи;
+- `0xF0104898`: вызов mapper с `r0/r1/r2` от текущей записи и `r3=record+0x0C`.
 
-- mapper hit/index 0 передаёт `(base=0, size=1 MiB, alias=0)`, но `r3=0xF0105AF8` указывает на raw words `000000C4 20100000 00100000 FFB00000`; эти поля соответствуют следующему mapping request (hit/index 1: `0x20100000, 1 MiB, 0xFFB00000));
-- hit/index 1 передаёт `0x20100000, 1 MiB, 0xFFB00000`, а raw data по `r3=0xF0105B08` уже описывает следующий вызов `0x40000000, 4 KiB, 0xFFC00000);
-- аналогичный сдвиг продолжается по последующим entries.
+Например, при `index=0`:
+- table root / record = `0xF0105AEC`;
+- mapper args: physical base `0`, size `0x00100000`, alias `0`;
+- `r3=0xF0105AF8 = record+0x0C`;
+- word по `0xF0105AF8` = `0x000000C4`, четвёртое поле текущей записи;
+- следующая запись начинается только с `0xF0105AFC`, где лежит её base `0x20100000`.
 
-Таким образом, первый mapping alias 0 — отдельный prelude/начальная запись в последовательности статической инициализации, предшествующая обработке raw table entries (или эквивалентный шаг с уже сдвинутым указателем). Точное место, которое создаёт этот prelude mapping, ещё нужно доказать по caller code. **Не называть raw entry по адресу `0xF0105AF8` источником alias-0 mapping.**
+Таким образом, mapping `(physical=0, size=1 MiB, alias=0)` — это **первая запись самой static table**, а не отдельный mapping вне таблицы. Прежняя формулировка о том, что raw cursor опережает mapper arguments на одну запись, была ошибочной и заменяется этим выводом. Семантика четвёртого word пока не подтверждена; в таблице ниже он называется raw `+0x0C`, не приписывая ему смысл.
 
-В то же время raw descriptor, который приводит к отображению физической базы 0 через alias `0xFF100000`, действительно занимает отдельный slot:
-- BSE alias index `0xFF1`;
-- slot address `0x10093FC4`;
-- при его создании slot был пуст (`0`) и затем получил marker `0x472`.
+| Index | Record | Physical base | Size | BSE alias | Raw `+0x0C` |
+|---:|---:|---:|---:|---:|---:|
+| 0 | `0xF0105AEC` | `0x00000000` | `0x00100000` | `0x00000000` | `0x000000C4` |
+| 1 | `0xF0105AFC` | `0x20100000` | `0x00100000` | `0xFFB00000` | `0x00000185` |
+| 2 | `0xF0105B0C` | `0x40000000` | `0x00001000` | `0xFFC00000` | `0x00000005` |
+| 3 | `0xF0105B1C` | `0x20010000` | `0x00001000` | `0xFFD10000` | `0x00000005` |
+| 4 | `0xF0105B2C` | `0x20020000` | `0x00007000` | `0xFFD20000` | `0x00000405` |
+| 5 | `0xF0105B3C` | `0x20030000` | `0x00007000` | `0xFFD30000` | `0x00000405` |
+| 6 | `0xF0105B4C` | `0x20040000` | `0x00003000` | `0xFFD40000` | `0x00000405` |
+| 7 | `0xF0105B5C` | `0x20040000` | `0x00003000` | `0xFFD40000` | `0x00000405` |
+| 8 | `0xF0105B6C` | `0x20050000` | `0x00003000` | `0xFFD50000` | `0x00000405` |
+| 9 | `0xF0105B7C` | `0x1C000000` | `0x00001000` | `0xFFE00000` | `0x00000405` |
+| 10 | `0xF0105B8C` | `0xFFFF0400` | `0x0000FC00` | `0xFFFF0400` | `0x00000044` |
+| 11 | `0xF0105B9C` | `0x00000000` | `0x00100000` | `0xFF100000` | `0x0000040D` |
+| 12 | `0xF0105BAC` | `0x04000000` | `0x00100000` | `0xFF200000` | `0x0000040D` |
+| 13 | `0xF0105BBC` | `0x00000001` | `0x00100000` | `0xE0001000` | `0x00000105` |
 
-Это подтверждает, что два отображения физического base 0 — alias 0 и alias `0xFF100000` — не конфликтуют между собой. Конфликтует именно дополнительный поздний NOR request с alias 0.
+По trace после четвёртого поля записи №13, по адресу `0xF0105BCC`, следует sentinel `0xFFFFFFFF`. Наблюдаемая таблица содержит 14 mapper records.
+
+Дополнительное наблюдение: records №6 и №7 идентичны по первым трём полям и raw `+0x0C`. Это нужно сохранить как факт, но не объявлять ошибкой: смысл записи и поведение повторной регистрации ещё требуют отдельного изучения.
+
+Главное следствие для BSE: первая 1-MiB identity mapping действительно задана явной строкой static table. Поздний NOR allocator пытается использовать тот же физический base и alias для 22-MiB диапазона. Следующий вопрос — правило согласования этой static mapping с NOR free-range allocator, а не происхождение отдельного prelude за пределами таблицы.
 
 ### 14.5 Как это связано с type-8 свободным интервалом
 
@@ -926,3 +952,36 @@ The Type-8 record at 0x0800381C still removes the occupied NOR tail [0x01600000,
 ### 18.7 Следующий точечный шаг
 
 Разобрать 16-byte static-table record, который предшествует raw cursor 0xF0105AF8, и выяснить назначение prelude mapping (physical=0, size=1 MiB, BSE alias=0). Для этого можно добавить только read-only dump всей таблицы начиная с 0xF0105AEC, не меняя её contents. Затем сопоставить static entry с NOR descriptor и Type-8 reservation list.
+
+---
+
+## 19. Static table restored from the real trace; previous cursor interpretation corrected (2026-11-07)
+
+The 5,427-line trace plus the disassembly at `0xF0104866..0xF01048A6` restores all 14 static mapping rows. This corrects section 14.4: `r3` is not a pointer one descriptor ahead. The loop computes `r3 = current_record + 0x0C`, the address of the current row's fourth word.
+
+The loop uses `r6` as the relocated table base `0xF0105AEC` and `ip = index << 4`. It loads base from `[r6 + ip]` into `r0`, size from `[record + 4]` into `r1`, BSE alias from `[record + 8]` into `r2`, and passes `record + 0x0C` in `r3`.
+
+At index 0, the mapper receives `(physical=0, size=1 MiB, alias=0)` from row `0xF0105AEC`; `r3=0xF0105AF8` points to its fourth word `0xC4`. The next row starts at `0xF0105AFC`, with base `0x20100000`. The original interpretation that the raw cursor described the next row is therefore withdrawn.
+
+The table, reconstructed from the mapper argument snapshots and the fourth word at each cursor address:
+
+| Index | Record | Physical base | Size | BSE alias | Raw +0x0C |
+|---:|---:|---:|---:|---:|---:|
+| 0 | `0xF0105AEC` | `0x00000000` | `0x00100000` | `0x00000000` | `0x000000C4` |
+| 1 | `0xF0105AFC` | `0x20100000` | `0x00100000` | `0xFFB00000` | `0x00000185` |
+| 2 | `0xF0105B0C` | `0x40000000` | `0x00001000` | `0xFFC00000` | `0x00000005` |
+| 3 | `0xF0105B1C` | `0x20010000` | `0x00001000` | `0xFFD10000` | `0x00000005` |
+| 4 | `0xF0105B2C` | `0x20020000` | `0x00007000` | `0xFFD20000` | `0x00000405` |
+| 5 | `0xF0105B3C` | `0x20030000` | `0x00007000` | `0xFFD30000` | `0x00000405` |
+| 6 | `0xF0105B4C` | `0x20040000` | `0x00003000` | `0xFFD40000` | `0x00000405` |
+| 7 | `0xF0105B5C` | `0x20040000` | `0x00003000` | `0xFFD40000` | `0x00000405` |
+| 8 | `0xF0105B6C` | `0x20050000` | `0x00003000` | `0xFFD50000` | `0x00000405` |
+| 9 | `0xF0105B7C` | `0x1C000000` | `0x00001000` | `0xFFE00000` | `0x00000405` |
+| 10 | `0xF0105B8C` | `0xFFFF0400` | `0x0000FC00` | `0xFFFF0400` | `0x00000044` |
+| 11 | `0xF0105B9C` | `0x00000000` | `0x00100000` | `0xFF100000` | `0x0000040D` |
+| 12 | `0xF0105BAC` | `0x04000000` | `0x00100000` | `0xFF200000` | `0x0000040D` |
+| 13 | `0xF0105BBC` | `0x00000001` | `0x00100000` | `0xE0001000` | `0x00000105` |
+
+The trace shows `0xFFFFFFFF` at `0xF0105BCC` immediately after row 13's fourth word, acting as the table terminator. Rows 6 and 7 are identical across all four observed words; keep this as an observation, not a claimed firmware defect.
+
+This is stronger than the earlier cursor-only interpretation: the first alias-0 mapping is explicitly present in the static table. The unresolved collision is between that explicit 1-MiB mapping and the later 22-MiB allocator mapping. The next task is to establish the intended reservation/extension semantics between the static table and the NOR free-range allocator. No firmware data or mapping was modified.

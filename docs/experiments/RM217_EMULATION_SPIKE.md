@@ -415,7 +415,7 @@ The Type-8 scan and BSE alias observations recorded in the progress log establis
 - Earlier mapper calls in the same trace include physical interval `[0x01600000, 0x02000000)` through alias `0xC1600000` (slot `0xC16`) and low interval `[0, 0xB000)` through alias `0xC0000000` (slot `0xC00`). These occupy different BSE slots.
 - The static prelude's identity mapping of the first 1 MiB already marks slot 0 with `0x3E`. The late NOR allocator then requests alias 0 for a 22-MiB mapping and encounters that marker at `0x10090000`, entering the assertion at `0xF0103C0A`.
 
-The observed range subtraction is not itself proven incorrect. The open question is why the helper/literal calculation supplies alias zero and whether the static prelude mapping and allocator free-range list are intended to share this address space. The raw descriptor pointer observed alongside a mapper call is one descriptor ahead of the arguments in the old trace; it must not be treated as the source of the current mapping without a new direct correlation.
+The observed range subtraction is not itself proven incorrect. The open question is why the helper/literal calculation supplies alias zero and whether the static prelude mapping and allocator free-range list are intended to share this address space. A new disassembly/trace correlation corrects the old cursor interpretation: the mapper's `r3` points to `current_record + 0x0C`, the fourth word of the same 16-byte static-table row. It does not point to the next row. Row 0 at `0xF0105AEC` directly supplies physical base 0, size 1 MiB and BSE alias 0; `r3=0xF0105AF8` points to that row's raw fourth word `0xC4`.
 
 The Windows trace runner now captures the helper entry/return and the adjacent Thumb arithmetic checkpoints. Its summarizer calculates the expected 32-bit `r4-r0` result, checks the post-`SUBS` register, and compares that result with the captured `SP+0x38` value before the mapper. Synthetic tests cover both matching and mismatching traces.
 
@@ -456,3 +456,11 @@ The static prelude requests (physical=0, length=1 MiB, BSE alias=0); the late NO
 The zero is now explained by the actual register flow. The caller loads r0 from literal 0xF0104424; the helper at 0xF0104976 returns 0xF0100000 unchanged in this execution; the subsequent LDR r4 reads the same literal 0xF0100000; and SUBS r0,r4,r0 correctly computes zero. The same value reaches SP+0x38 and mapper r2. No register corruption is indicated.
 
 The remaining question is no longer why the arithmetic returns zero. It is why the static prelude's first MiB and the later NOR allocator's 22-MiB free prefix both claim the same BSE alias slot, and whether the mapper supports extending a same-origin mapping. The next step is to inspect the complete static table beginning at 0xF0105AEC, especially the entry before the observed raw cursor at 0xF0105AF8. Do not change the firmware map or suppress the assertion.
+
+## Static BSE table: current-row cursor interpretation corrected (7 November 2026)
+
+The loop disassembly shows that `r3` at the mapper call is `record + 0x0C`, not a next-record pointer. The table root is `0xF0105AEC`; each row is 16 bytes. The code reads base from word 0, size from word 1, alias from word 2, and passes the address of word 3 in `r3`.
+
+The first row at `0xF0105AEC` therefore directly creates the mapping `(physical=0, size=1 MiB, BSE alias=0)`. The cursor `0xF0105AF8` points to that row's fourth word `0xC4`; row 1 begins at `0xF0105AFC`. The previous description of this as a separate prelude outside the static table is superseded.
+
+The new progress-log section 19 records the 14 rows, their raw fourth words and the `0xFFFFFFFF` sentinel. The fourth word's exact semantic meaning remains unconfirmed. Rows 6 and 7 are identical across all four observed words; this is recorded without treating it as a proven fault.
