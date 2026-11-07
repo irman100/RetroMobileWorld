@@ -115,9 +115,9 @@ object ProfileCatalog {
             ),
             runtimeTargets = listOf(
                 RuntimeTarget(RuntimeFamily.JAVA_ME, "j2me-loader", false, "MIDP 2.0 on an S60-sized display"),
-                RuntimeTarget(RuntimeFamily.SYMBIAN, "eka2l1", true, "S60v3; compatible user-supplied firmware required")
+                RuntimeTarget(RuntimeFamily.SYMBIAN, "eka2l1", true, "Deferred: S60v3 compatible user-supplied firmware required")
             ),
-            defaultRuntime = RuntimeFamily.SYMBIAN
+            defaultRuntime = RuntimeFamily.JAVA_ME
         )
     )
 }

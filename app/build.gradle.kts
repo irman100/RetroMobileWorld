@@ -12,11 +12,12 @@ android {
         applicationId = "org.retromobile.world"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-bootstrap"
+        versionCode = 3
+        versionName = "0.3.0-rm217-firmware"
     }
 }
 
 dependencies {
+    implementation("androidx.core:core:1.16.0")
     testImplementation("junit:junit:4.13.2")
 }

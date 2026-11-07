@@ -1,49 +1,47 @@
 # Roadmap
 
-## Milestone 0 — bootstrap (current)
+## Milestone 0 — bootstrap
 
 - [x] Product direction and modular architecture documented.
 - [x] Engine candidates and headline licences researched.
-- [x] Device profile model and three sample profiles drafted, including dual Java ME + Symbian support on the N73-like S60 profile.
-- [x] JSON profile loader wired into Android startup; per-device display aperture and all 22 canonical keypad controls are profile data.
+- [x] Device profile model and sample profiles drafted.
 - [x] Static source registry format drafted.
-- [x] Basic interactive Android phone-shell prototype added with different keypad/casing treatments and runtime switching on the dual-runtime profile.
-- [x] Initial Android CI workflow added (not yet executed).
-- [ ] Create/push GitHub repository from the prepared Windows bootstrap script.
-- [ ] First remote CI run and Android SDK build verification.
+- [x] Android CI workflow, Gradle Wrapper, remote build and local Android SDK build established.
 
-## Milestone 1 — shell vertical slice
+## Milestone 1 — real Nokia 6300 / RM-217 firmware
 
-- [ ] Build the Android app with current Android Studio / SDK.
-- [ ] Verify the shell on a physical Android device and emulator.
-- [ ] Replace placeholder geometry with original, scalable vector shell artwork.
-- [ ] Verify all soft keys, D-pad, digits, star/hash and back/call/end hit areas.
-- [ ] Add profile import/export and profile validation.
-- [ ] Add snapshot/UI tests for the three sample device profiles.
+- [x] Preserve the phone display aperture and physical keypad in the Android shell.
+- [x] Replace the temporary hand-drawn home/menu hierarchy with a direct RM-217 firmware-loading screen.
+- [x] Add local-only Phoenix ZIP intake for the version-matched MCU, PPM and canonical IMAGE components.
+- [x] Inspect selected components as BB5 FPSX containers.
+- [x] Parse the matching VPL manifest and compare component CRC-32 values in the Android importer.
+- [x] Identify the supplied VPL variant: product code 0537625, software 07.30, variant 018.
+- [ ] Resolve the PPM CRC mismatch (VPL expected C585B71C; included file CRC 613D565F).
+- [ ] Verify the importer against the real archive on the target Android phone.
+- [ ] Reconstruct the RM-217 CPU/SoC and hardware map from firmware traces and reliable technical evidence.
+- [ ] Validate reset-entry semantics, XIP mapping, RAM aliases and early boot MMIO accesses with the desktop probe.
+- [ ] Boot the original RM-217 firmware to a repeatable, stable LCD frame.
+- [ ] Route physical phone key press/release events into the emulated RM-217 keypad.
+- [ ] Render the firmware's actual screen inside the retained display aperture; do not create a parallel simulated Series 40 menu system.
+- [ ] Port only the validated machine core to Android ARM64 via Rust JNI and a bounded render/input loop.
 
-## Milestone 2 — Java ME runtime
+## Milestone 2 — integrated Java ME applications
 
-- [ ] Pin J2ME Loader upstream revision and capture its licence/NOTICE inventory.
-- [ ] Build the upstream app and run a small reference MIDlet set.
-- [ ] Prototype module integration and surface/input routing.
-- [ ] Implement JAR/JAD parsing, install prompts, local library and per-title storage.
-- [ ] Prove the display and keys follow device profiles.
-- [ ] Add compatibility records by backend version + profile.
+- [ ] Replace the temporary J2ME Loader handoff with an in-app MIDP/CLDC runtime surface.
+- [ ] Route the emulated Nokia soft keys and D-pad events into the running MIDlet.
+- [ ] Validate Opera Mini as a priority MIDlet after the RM-217 OS reaches standby.
+- [ ] Add per-title RMS storage, lifecycle handling and user-controlled network access.
+- [ ] Pin engine source and capture complete licence/NOTICE inventory before embedding it.
 
-## Milestone 3 — Symbian runtime
+## Deferred milestone — Symbian runtime
 
-- [ ] Pin and build EKA2L1 for the chosen Android ABI/device.
-- [ ] Test boot and firmware setup using a user-provided system image.
-- [ ] Test a small supported SIS/SISX and N-Gage app set.
-- [ ] Measure Android performance and document unsupported titles.
-- [ ] Decide whether the EKA2L1 renderer can be embedded or should run as a companion engine.
-- [ ] Complete GPL/source-distribution and third-party licence review.
+- [ ] Revisit EKA2L1 only after the RM-217 OS and Java ME integration are complete.
 
 ## Milestone 4 — retro mobile internet
 
 - [ ] Implement a browser/catalogue handoff for JAD/JAR downloads.
 - [ ] Add source registry status and archival links.
-- [ ] Add WAP-oriented rendering mode (small viewport, legacy encodings where technically safe).
+- [ ] Add WAP-oriented rendering mode with legacy encodings where technically safe.
 - [ ] Recreate OTA installation prompts with consent and metadata validation.
 - [ ] Publish a static website generated from registry/profile data.
 
@@ -51,5 +49,4 @@
 
 - [ ] Add a compatibility database and community correction workflow.
 - [ ] Add more verified phone profiles and original shell skins.
-- [ ] Add optional Windows host after engine strategy stabilizes.
 - [ ] Consider sound packs, themes, wallpapers and local preservation bundles with rights metadata.
