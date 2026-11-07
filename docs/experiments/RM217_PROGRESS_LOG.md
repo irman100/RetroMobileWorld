@@ -826,7 +826,7 @@ Inspect the generated `rm217-bse-alias-mmuv2.summary.txt` first. The decisive va
 
 ### 17.5 Current branch HEAD and newest artifact (2026-11-07)
 
-The last fully tested runtime/tooling checkpoint is 75ae7edc0f37eef4b8f79c6504bc4d28da072014. The current branch head dbe5e258c49a5587d4d9d43b1d5ae222221289e8 is a documentation-only refresh; the prior 75ae commit only corrected escaping in the PowerShell example. The allocator alias derivation code remains the tested checkpoint 558c35bb48e4cd2719146ce998f4d0668a23638c.
+The last fully tested runtime/tooling checkpoint is 75ae7edc0f37eef4b8f79c6504bc4d28da072014. Subsequent commits only refresh these reports and correct the PowerShell example; they do not change the tested runtime or trace-analyzer code from checkpoint 558c35bb48e4cd2719146ce998f4d0668a23638c.
 
 - [RM-217 Boot Probe #42366626010](https://github.com/irman100/RetroMobileWorld/actions/runs/42366626010) — success on Windows and Linux, including summarizer tests, Rust tests, release builds and trace-kit upload.
 - [Android CI #42366626025](https://github.com/irman100/RetroMobileWorld/actions/runs/42366626025) — success.
