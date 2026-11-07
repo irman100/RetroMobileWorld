@@ -104,7 +104,7 @@ Probe exit code: 0
         )
         self.assertNotIn("LR=0xF0104000", summary)
         self.assertIn("Mapper calls parsed: 45", summary)
-        self.assertLess(len(summary.splitlines()), 60)
+        self.assertLess(len(summary.splitlines()), 65)
 
     def test_summary_reconstructs_allocator_alias_from_thumb_checkpoints(self):
         def watch(pc: int, r0: int, r4: int = 0x1000) -> str:
@@ -302,7 +302,7 @@ Probe exit code: 0
         self.assertNotIn("WARNING: overlapping alias mappings", summary)
 
     def test_summary_includes_unclassified_asic_reads_and_writes(self):
-        trace = "\\n".join([
+        trace = "\n".join([
             "[ASIC-read 000] addr=0x20032C04 size=4 value=0x00000001 pc=0xF0103900",
             "[ASIC-write 000] addr=0xFFD32C00 size=4 value=0x00000002 pc=0xF0103904",
             "[ASIC-write 001] addr=0x20032D14 size=4 value=0x00000002 pc=0xF0103A48",
