@@ -475,3 +475,6 @@ The updated [Windows BSE trace kit](https://github.com/irman100/RetroMobileWorld
 
 
 The shared helper at `0xF0104976` has multiple call sites. The trace summarizer now correlates the allocator's invocation specifically by `LR=0xF010432F` and matching stack `0x08002EC8`. This avoids confusing it with unrelated helper calls from the later assertion/logging path. For this invocation, call-site `r0`, helper-entry `r0`, and return-site `r0` are all `0xF0100000`; the subsequent SUBS is correctly zero.
+
+
+The PowerShell runner now preserves existing Desktop trace and summary files before each new run, copying them to timestamped `.previous-...` filenames. The new run continues to write the familiar fixed filenames, so the earlier uploaded trace remains available locally for comparison.

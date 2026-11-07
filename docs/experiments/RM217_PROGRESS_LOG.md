@@ -4,12 +4,12 @@
 
 **Обновлено:** 7 ноября 2026  
 **Ветка:** `feature/j2me-library-bridge-20261104`  
-**HEAD последнего проверенного checkpoint:** `ee4f82297dffc796aa0195258ff0694133824fd7`  
+**HEAD последнего проверенного checkpoint:** `a2da0ed052787f573f072a2455c52ceb91a92f75`  
 **PR:** [#1](https://github.com/irman100/RetroMobileWorld/pull/1), открыт, не слит; GitHub показывает, что ветка допускает merge.  
-**CI для HEAD `ee4f822`: успешно:**
-- [RM-217 Boot Probe #42371959409](https://github.com/irman100/RetroMobileWorld/actions/runs/42371959409) — Windows и Linux; trace summarizer tests, Rust tests, release builds и Windows trace-kit.
-- [Android CI #42371959417](https://github.com/irman100/RetroMobileWorld/actions/runs/42371959417) — success, pull request; APK собран.
-- [Android CI #42371955441](https://github.com/irman100/RetroMobileWorld/actions/runs/42371955441) — success, push.
+**CI для HEAD `a2da0ed`: успешно:**
+- [RM-217 Boot Probe #42372700232](https://github.com/irman100/RetroMobileWorld/actions/runs/42372700232) — Windows и Linux; summarizer tests, Rust tests, release builds и Windows trace-kit.
+- [Android CI #42372700217](https://github.com/irman100/RetroMobileWorld/actions/runs/42372700217) — success, pull request; APK собран.
+- [Android CI #42372697855](https://github.com/irman100/RetroMobileWorld/actions/runs/42372697855) — success, push.
 
 Исторические проверки для предыдущих диагностических коммитов сохранены в соответствующих разделах ниже.
 
@@ -1039,3 +1039,13 @@ For the NOR allocator invocation:
 - after SUBS: 0xF0104332, r0=0.
 
 The summarizer now selects the helper-entry snapshot by the caller's Thumb LR 0xF010432F, rather than using the last hit for PC 0xF0104976. A synthetic regression test includes an unrelated helper invocation with different LR/SP and verifies it is ignored. The caller/entry/return register and stack chain is reported together. This makes the helper-return conclusion directly tied to the correct invocation.
+
+### 19.5 Helper-call correlation CI and evidence preservation
+
+The helper-correlation change was validated on checkpoint a2da0ed052787f573f072a2455c52ceb91a92f75:
+- [RM-217 Boot Probe #42372700232](https://github.com/irman100/RetroMobileWorld/actions/runs/42372700232) — success on Windows and Linux; summarizer tests and Rust unit tests passed, both release builds completed, and the Windows trace kit was uploaded.
+- [Android CI PR #42372700217](https://github.com/irman100/RetroMobileWorld/actions/runs/42372700217) — success.
+- [Android CI push #42372697855](https://github.com/irman100/RetroMobileWorld/actions/runs/42372697855) — success.
+- Windows trace-kit artifact from run 42372700232: ID 13573972459; SHA-256 e3ee10cd1ebad36d07a0a8f940af30cff4391350fd1f3c38361a7773ae5dfe2a.
+
+The runner now backs up existing fixed-name Desktop trace and summary before starting a new run. Backups use the names `rm217-bse-alias-mmuv2.previous-<timestamp>.txt` and `rm217-bse-alias-mmuv2.previous-<timestamp>.summary.txt`; the current run continues to write the stable `rm217-bse-alias-mmuv2.txt` and `.summary.txt` names. This avoids destroying the previous evidence when the same kit is run again.

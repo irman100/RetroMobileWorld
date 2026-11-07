@@ -5,7 +5,22 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Probe = Join-Path $PSScriptRoot 'rm217-boot-probe.exe'
-$Log = Join-Path ([Environment]::GetFolderPath('Desktop')) 'rm217-bse-alias-mmuv2.txt'
+$Desktop = [Environment]::GetFolderPath('Desktop')
+$Log = Join-Path $Desktop 'rm217-bse-alias-mmuv2.txt'
+$Summary = Join-Path $Desktop 'rm217-bse-alias-mmuv2.summary.txt'
+$RunStamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+$PreviousLog = Join-Path $Desktop "rm217-bse-alias-mmuv2.previous-$RunStamp.txt"
+$PreviousSummary = Join-Path $Desktop "rm217-bse-alias-mmuv2.previous-$RunStamp.summary.txt"
+
+# Preserve the previous evidence before writing new files to the stable paths.
+if (Test-Path -LiteralPath $Log -PathType Leaf) {
+    Copy-Item -LiteralPath $Log -Destination $PreviousLog
+    Write-Host "Previous full trace preserved: $PreviousLog"
+}
+if (Test-Path -LiteralPath $Summary -PathType Leaf) {
+    Copy-Item -LiteralPath $Summary -Destination $PreviousSummary
+    Write-Host "Previous compact summary preserved: $PreviousSummary"
+}
 
 if (-not (Test-Path -LiteralPath $Probe -PathType Leaf)) {
     throw "Probe executable not found: $Probe. Extract rm217-boot-probe.exe next to this script."
@@ -59,7 +74,6 @@ $ProbeArgs = @(
     '--watch-pc=0xF01043A0'
 )
 
-$Summary = Join-Path ([Environment]::GetFolderPath('Desktop')) 'rm217-bse-alias-mmuv2.summary.txt'
 $Summarizer = Join-Path $PSScriptRoot 'summarize_rm217_bse_trace.py'
 
 Write-Host '=== RM-217 BSE ALIAS / ARM926 MMU TRACE ==='
