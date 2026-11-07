@@ -299,11 +299,13 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
         pairs = list(dict.fromkeys((read["va"], read["pa"]) for read in slot_zero_reads))
         rendered = ", ".join(f"VA={_hex(va)} PA={_hex(pa)}" for va, pa in pairs)
         out.append(f"- BSE slot-0 CPU memory accesses: {rendered}.")
-        if not (sctlr and (sctlr & 0x1)):
+        if sctlr is not None and not (sctlr & 0x1):
             if all(va == pa for va, pa in pairs):
                 out.append("- Observed slot-0 VA/PA identity is consistent with the ARM MMU being disabled.")
-        else:
+        elif sctlr is not None:
             out.append("- Do not equate BSE alias values with CPU physical addresses; ARM MMU translation is active.")
+        else:
+            out.append("- ARM MMU state is unknown for these slot-table reads because SCTLR was not captured.")
 
     static_zero_call = next(iter(static_zero), None)
     nor_zero_call = next(iter(nor_zero), None)
