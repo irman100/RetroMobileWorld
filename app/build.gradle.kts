@@ -1,3 +1,6 @@
+import java.net.URL
+import java.security.MessageDigest
+
 plugins {
     id("com.android.application")
 }
@@ -36,14 +39,14 @@ val fetchC3ShellPhoto = tasks.register("fetchC3ShellPhoto") {
         val expectedSha1 = "2dbd3412ea6cdc2477281b9cc210294f2d433a88"
 
         fun sha1(bytes: ByteArray): String =
-            java.security.MessageDigest.getInstance("SHA-1")
+            MessageDigest.getInstance("SHA-1")
                 .digest(bytes)
-                .joinToString("") { byte -> "%02x".format(byte) }
+                .joinToString("") { byte -> (byte.toInt() and 0xFF).toString(16).padStart(2, "0") }
 
         val existing = if (photo.isFile) photo.readBytes() else null
         val verifiedExisting = existing != null && sha1(existing) == expectedSha1
         if (!verifiedExisting) {
-            val connection = java.net.URL(
+            val connection = URL(
                 "https://upload.wikimedia.org/wikipedia/commons/4/4c/Dienthoai.JPG"
             ).openConnection().apply {
                 connectTimeout = 20_000
