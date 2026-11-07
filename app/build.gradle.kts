@@ -16,8 +16,8 @@ android {
         applicationId = "org.retromobile.world"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.3.0-rm217-firmware"
+        versionCode = 4
+        versionName = "0.4.0-c3emu-rm614"
     }
 }
 
