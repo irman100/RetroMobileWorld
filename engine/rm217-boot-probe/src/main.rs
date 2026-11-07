@@ -1863,8 +1863,19 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                 if count < 256 {
                     asic_register_read_count.set(count + 1);
                     let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0);
+                    let r0 = cpu.reg_read(RegisterARM::R0).unwrap_or(0);
+                    let r1 = cpu.reg_read(RegisterARM::R1).unwrap_or(0);
+                    let r2 = cpu.reg_read(RegisterARM::R2).unwrap_or(0);
+                    let r3 = cpu.reg_read(RegisterARM::R3).unwrap_or(0);
+                    let r4 = cpu.reg_read(RegisterARM::R4).unwrap_or(0);
+                    let r5 = cpu.reg_read(RegisterARM::R5).unwrap_or(0);
+                    let r6 = cpu.reg_read(RegisterARM::R6).unwrap_or(0);
+                    let r7 = cpu.reg_read(RegisterARM::R7).unwrap_or(0);
+                    let sp = cpu.reg_read(RegisterARM::SP).unwrap_or(0);
+                    let lr = cpu.reg_read(RegisterARM::LR).unwrap_or(0);
+                    let cpsr = cpu.reg_read(RegisterARM::CPSR).unwrap_or(0);
                     println!(
-                        "  [ASIC-read {count:03}] addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
+                        "  [ASIC-read {count:03}] addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X} r0=0x{r0:08X} r1=0x{r1:08X} r2=0x{r2:08X} r3=0x{r3:08X} r4=0x{r4:08X} r5=0x{r5:08X} r6=0x{r6:08X} r7=0x{r7:08X} sp=0x{sp:08X} lr=0x{lr:08X} cpsr=0x{cpsr:08X}"
                     );
                 }
                 true
@@ -1886,8 +1897,19 @@ fn run_probe(options: Options) -> Result<(), Box<dyn Error>> {
                 if count < 160 {
                     asic_register_access_count.set(count + 1);
                     let pc = cpu.reg_read(RegisterARM::PC).unwrap_or(0);
+                    let r0 = cpu.reg_read(RegisterARM::R0).unwrap_or(0);
+                    let r1 = cpu.reg_read(RegisterARM::R1).unwrap_or(0);
+                    let r2 = cpu.reg_read(RegisterARM::R2).unwrap_or(0);
+                    let r3 = cpu.reg_read(RegisterARM::R3).unwrap_or(0);
+                    let r4 = cpu.reg_read(RegisterARM::R4).unwrap_or(0);
+                    let r5 = cpu.reg_read(RegisterARM::R5).unwrap_or(0);
+                    let r6 = cpu.reg_read(RegisterARM::R6).unwrap_or(0);
+                    let r7 = cpu.reg_read(RegisterARM::R7).unwrap_or(0);
+                    let sp = cpu.reg_read(RegisterARM::SP).unwrap_or(0);
+                    let lr = cpu.reg_read(RegisterARM::LR).unwrap_or(0);
+                    let cpsr = cpu.reg_read(RegisterARM::CPSR).unwrap_or(0);
                     println!(
-                        "  [ASIC-write {count:03}] addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X}"
+                        "  [ASIC-write {count:03}] addr=0x{address:08X} size={size} value=0x{value:X} pc=0x{pc:08X} r0=0x{r0:08X} r1=0x{r1:08X} r2=0x{r2:08X} r3=0x{r3:08X} r4=0x{r4:08X} r5=0x{r5:08X} r6=0x{r6:08X} r7=0x{r7:08X} sp=0x{sp:08X} lr=0x{lr:08X} cpsr=0x{cpsr:08X}"
                     );
                 }
                 true
