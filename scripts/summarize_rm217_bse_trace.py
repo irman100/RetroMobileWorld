@@ -306,6 +306,82 @@ def build_summary(text: str, source_name: str = "<trace>") -> str:
     if not watch_snapshots:
         out.append("- No alias-source register snapshots parsed.")
 
+    # Reconstruct the allocator alias from the observed helper return and
+    # Thumb SUBS sequence. These PCs are intentionally adjacent checkpoints:
+    # 432E is the instruction after BL, 4330 is after the literal LDR, and
+    # 4332 is immediately after SUBS but before STR [sp, #0x38].
+    snapshots_by_pc: dict[int, list[dict[str, int]]] = {}
+    for snapshot in watch_snapshots:
+        snapshots_by_pc.setdefault(snapshot["pc"], []).append(snapshot)
+
+    out.append("")
+    out.append("ALLOCATOR ALIAS VALUE DERIVATION")
+    checkpoint_labels = (
+        (0xF010432A, "before helper BL"),
+        (0xF0104976, "helper entry"),
+        (0xF010432E, "after helper return / before literal LDR"),
+        (0xF0104330, "before SUBS r0, r4, r0"),
+        (0xF0104332, "after SUBS / before SP+0x38 store"),
+    )
+    for pc, label in checkpoint_labels:
+        candidates = snapshots_by_pc.get(pc, [])
+        if candidates:
+            snapshot = candidates[-1]
+            out.append(
+                f"- {label}: PC={_hex(pc)} r0={_hex(snapshot['r0'])} "
+                f"r4={_hex(snapshot['r4'])} SP={_hex(snapshot['sp'])}"
+            )
+        else:
+            out.append(f"- {label}: not captured")
+
+    sub_before_rows = snapshots_by_pc.get(0xF0104330, [])
+    sub_after_rows = snapshots_by_pc.get(0xF0104332, [])
+    helper_return_rows = snapshots_by_pc.get(0xF010432E, [])
+    if sub_before_rows and sub_after_rows:
+        sub_before = sub_before_rows[-1]
+        sub_after = sub_after_rows[-1]
+        expected_alias = (sub_before["r4"] - sub_before["r0"]) & 0xFFFFFFFF
+        actual_alias = sub_after["r0"]
+        arithmetic_state = "MATCH" if actual_alias == expected_alias else "MISMATCH"
+        out.append(
+            f"- SUBS check: (r4-r0)={_hex(expected_alias)}; "
+            f"post-SUBS r0={_hex(actual_alias)} [{arithmetic_state}]"
+        )
+        if actual_alias != expected_alias:
+            warnings.append(
+                f"allocator SUBS at 0xF0104330 predicts alias {_hex(expected_alias)} "
+                f"but 0xF0104332 reports r0={_hex(actual_alias)}"
+            )
+
+        if helper_return_rows:
+            helper_return = helper_return_rows[-1]["r0"]
+            if helper_return != sub_before["r0"]:
+                warnings.append(
+                    f"helper return r0 at 0xF010432E ({_hex(helper_return)}) "
+                    f"changed before SUBS at 0xF0104330 ({_hex(sub_before['r0'])})"
+                )
+
+        before_mapper = [
+            interval for interval in allocator_intervals
+            if interval["phase"] == "before mapper"
+        ]
+        if before_mapper:
+            stack_alias = int(before_mapper[-1]["alias_extra38"])
+            stored_state = "MATCH" if stack_alias == actual_alias else "MISMATCH"
+            out.append(
+                f"- SP+0x38 before mapper={_hex(stack_alias)}; "
+                f"computed alias={_hex(actual_alias)} [{stored_state}]"
+            )
+            if stack_alias != actual_alias:
+                warnings.append(
+                    f"SP+0x38 before mapper ({_hex(stack_alias)}) does not match "
+                    f"the SUBS result ({_hex(actual_alias)})"
+                )
+        else:
+            out.append("- SP+0x38 before mapper: allocator interval snapshot not captured")
+    else:
+        out.append("- SUBS check: insufficient 0xF0104330/0xF0104332 snapshots")
+
     out.append("")
     out.append("MCUSW IMAGE LITERAL DUMPS")
     for dump in image_dumps:
