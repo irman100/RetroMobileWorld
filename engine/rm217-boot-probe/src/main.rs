@@ -2215,7 +2215,7 @@ mod tests {
             "PPM language pack"
         );
         assert_eq!(
-            classify_rm217_nor_range(0x0160_0000, 0x00DE_0000),
+            classify_rm217_nor_range(0x0160_0000, 0x009E_0000),
             "IMAGE/CNT content"
         );
         assert_eq!(
