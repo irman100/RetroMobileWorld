@@ -38,7 +38,7 @@ From the repository root, the complete safe workflow is:
 .\scripts\build-install-c3emu-phone.ps1
 ```
 
-It checks for local edits before updating the C3-00 branch, fast-forward pulls from origin, builds the native libraries, runs Android unit tests, assembles the debug APK and installs that local APK on an authorized **physical phone**. Emulator serials are excluded; when more than one phone is connected, pass -Serial with the phone serial. The script never resets, cleans or stashes user work.
+It checks for local edits before updating the C3-00 branch, fast-forward pulls from origin, builds the native libraries, runs Android unit tests, assembles the debug APK and installs that local APK on an authorized **physical phone**. Emulator serials are excluded; when more than one phone is connected, pass -Serial with the phone serial. The script never resets, cleans or stashes user work. If the existing GitHub-signed debug APK cannot be updated because the local debug signing certificate differs, the script stops without uninstalling it or deleting app data; the destructive opt-in is documented in docs/ANDROID_BUILD_INSTALL.md.
 
 The SDK discovery supports ANDROID_SDK_ROOT, ANDROID_HOME, this checkout's local.properties, D:\Android\Sdk and standard Windows locations. The native build installs Android Rust targets and cargo-ndk when needed, then builds arm64-v8a, armeabi-v7a and x86_64 libraries into the ignored app/src/main/jniLibs directory.
 
