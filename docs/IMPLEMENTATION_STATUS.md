@@ -170,3 +170,10 @@ The first CI for commit 8156a2d built all c3emu JNI ABIs, then failed Kotlin com
 ### Network register telemetry refinement — 8 November 2026
 
 Native stats now return the latest 64 unique SoC/peripheral register touches in chronological order, improving visibility when WLAN/GPRS services are entered later in a running Series 40 session. This only exposes activity; it does not provide network support.
+
+
+### WLAN component identification — 8 November 2026
+
+Research now identifies the RM-614 board's WLAN-capable connectivity component as N6300 / Nokia part 4390090 / BOB1.0M-a (LGA130), with W6000 WLAN antenna and Z6300 WLAN RF band-pass filter. The schematic maps WLAN enable/IRQ, clock request and shared SPI/SDIO pins. This narrows target driver research, but the internal transceiver silicon and selected host bus are not yet confirmed. A different BOB1.0M-b revision used in other Nokia phones is documented with TI WL1271; do not assume that applies to C3-00 BOB1.0M-a.
+
+The exact Phoenix firmware was not found in this chat's attachment/library inventory. Reattach the RM-614 archive before disassembly. No WLAN chipset register model has been guessed or added.

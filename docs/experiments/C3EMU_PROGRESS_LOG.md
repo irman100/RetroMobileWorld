@@ -468,3 +468,18 @@ The user indicated that firmware was supplied in the preceding chat. No firmware
 ### MMIO diagnostic window refinement — 8 November 2026
 
 The native stats register-touch window now returns the most recently first-touched 64 unique SoC/peripheral MMIO addresses rather than the earliest 64 from boot. This is more useful when the guest reaches WLAN settings after startup: newly touched controller registers are no longer hidden behind early boot activity. Existing ISI recent-message ring remains separate. This is still observational telemetry, not a controller implementation.
+
+
+## 20. Specific WLAN module identified from RM-614 service references — 8 November 2026
+
+A second research pass identified the physical connectivity component more precisely:
+- Board reference N6300 is listed as Nokia part 4390090, BOB1.0M-a, LGA130.
+- W6000 is the internal WLAN antenna and Z6300 is the WLAN RF band-pass filter.
+- N6300 presents enable, IRQ, CLK_REQ and shared SPI/SDIO pins to the Juno host. The schematic labels the signals as both SPI and SDIO alternatives.
+- N6300 also carries Bluetooth UART/PCM and FM/I2C connections, confirming the combined radio-module role.
+
+This substantially narrows firmware inspection: locate the BOB1.0M-a WLAN driver, its power/clock/IRQ setup, and its actual SPI/SDIO protocol. A related but distinct BOB1.0M-b module in other Nokia devices is documented with TI WL1271; do not assume the RM-614 BOB1.0M-a is WL1271 without direct confirmation.
+
+Sources and links are recorded in `docs/experiments/C3EMU_NETWORK_RESEARCH.md`. The exact Phoenix firmware still is not present in the current conversation/Library, so no disassembly has yet been performed.
+
+The latest firmware inventory search paginated through 383 Library ZIPs plus the RAR inventory; no RM-614/Phoenix/MCUSW archive was found. The earlier-chat attachment must be attached again to this conversation before its bytes can be examined.

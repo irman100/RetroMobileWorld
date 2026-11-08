@@ -105,3 +105,37 @@ No Internet support is declared until the complete download/install path succeed
 
 
 Implementation note: the runtime MMIO trace window is a rolling view over the latest 64 unique SoC/peripheral register addresses encountered, in chronological order. It is intended to help identify register accesses that occur when opening WLAN/GPRS settings or Browser; it does not emulate those devices.
+
+
+## RM-614 WLAN component identification update — 8 November 2026
+
+A repair reference for Nokia C3-00 lists:
+- N6300 — Nokia part 4390090 — BOB1.0M-a, LGA130;
+- W6000 — internal WLAN antenna;
+- Z6300 — WLAN front-end band-pass filter.
+
+The RM-614 service schematic confirms N6300's WLAN-facing host signals:
+- WLANENABLE (H2);
+- WLAN_IRQ (K3), also labelled SDIO_D1;
+- SPI_CLK / SDIO_CLK (K2);
+- SPI_MOSI / SDIO_CMD (H3);
+- SPI_MISO / SDIO_D0 (L1);
+- SPI_CSX / SDIO_D3 (K4);
+- CLK_REQ (K1).
+
+The same N6300 package also exposes Bluetooth UART/PCM and FM/I2C signals, consistent with a combined connectivity module. The service schematic shows the RF path through Z6300 to W6000.
+
+Sources:
+- RM-614 schematic page 7: https://documents.cdn.ifixit.com/ORvCvsmrQTL2IJVq.pdf
+- Component identification / part-number table: https://www.radioradar.net/repair_electronic_technics/phones_repair/nokia_c3_00_mobile_phone_repair.html
+- Related Nokia service documentation describes BOB1.0M-a as a combined WLAN/BT/FM connectivity module: https://manualmachine.com/nokia/lumia900/4544489-service-manual/
+
+Important distinction: a different BOB1.0M-b revision used in other Nokia models is documented with a TI WL1271 transceiver. That does **not** prove the C3-00 BOB1.0M-a uses the same silicon. Do not implement wl1271-specific registers, firmware commands or the Linux wl12xx driver until the RM-614 MCUSW/PPM firmware or the part marking/BOM confirms the transceiver. The likely host bus in the C3-00 schematic is selected through shared SPI/SDIO signal lines; firmware traces must establish the protocol actually used.
+
+Next firmware-specific work:
+1. Disassemble the RM-614 network/WLAN driver and inspect strings, driver tables and firmware resource references.
+2. Find the N6300 power, enable, clock request, reset and IRQ sequence.
+3. Determine whether the actual driver uses SPI or SDIO and recover its command/data framing.
+4. Only then decide whether to reuse TI wl12xx/wlcore code, another open-source driver, or a small purpose-built BOB1.0M-a model.
+5. Bridge the resulting guest Ethernet/IP packets to Android network transport and validate Browser downloads.
+

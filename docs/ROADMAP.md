@@ -126,3 +126,7 @@
 
 
 - [x] Make native MMIO diagnostics return the most recent 64 unique SoC/peripheral register addresses, so later WLAN/GPRS activity is visible instead of being buried by first-boot register touches.
+
+
+- [x] Identify the RM-614 board's WLAN module as N6300 / Nokia part 4390090 / BOB1.0M-a, with separate W6000 antenna and Z6300 RF filter; document the shared SPI/SDIO host signals.
+- [ ] Confirm the transceiver silicon inside BOB1.0M-a and whether the firmware uses SPI or SDIO from the actual RM-614 firmware. Do not assume TI WL1271 merely because it appears in a different BOB1.0M-b phone.
