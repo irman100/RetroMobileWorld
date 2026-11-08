@@ -23,24 +23,27 @@ The C3-00 interface uses a 320×240 display and a virtual QWERTY keypad. This is
 
 The original Series 40 firmware intake and integrity inspector remain available. The RM-217 desktop boot probe is diagnostic tooling only; it is not yet a complete RM-217 machine and does not boot the Nokia 6300 operating system.
 
-## Build on Windows
+## Build and install on Windows
 
 Prerequisites:
 - JDK 17;
 - Android SDK platform 36 and build-tools 36.0.0;
 - Android NDK 27.2.12479018;
-- stable Rust through rustup.
+- stable Rust through rustup;
+- a physical Android phone with Developer options and USB debugging enabled.
 
-From the repository root, build the C3-00 native libraries and then the Android APK:
+From the repository root, the complete safe workflow is:
 
 ```powershell
-.\scripts\build-c3emu-android.ps1
-.\gradlew.bat --no-daemon :app:testDebugUnitTest
-.\gradlew.bat --no-daemon :app:assembleDebug
+.\scripts\build-install-c3emu-phone.ps1
 ```
 
-The native script installs the Android Rust targets and `cargo-ndk` when needed, then builds `arm64-v8a`, `armeabi-v7a` and `x86_64` libraries into the ignored `app/src/main/jniLibs` directory.
+It checks for local edits before updating the C3-00 branch, fast-forward pulls from origin, builds the native libraries, runs Android unit tests, assembles the debug APK and installs that local APK on an authorized **physical phone**. Emulator serials are excluded; when more than one phone is connected, pass -Serial with the phone serial. The script never resets, cleans or stashes user work.
 
-Android CI performs the same native cross-build before Kotlin tests and APK packaging. See `.github/workflows/android-ci.yml`.
+The SDK discovery supports ANDROID_SDK_ROOT, ANDROID_HOME, this checkout's local.properties, D:\Android\Sdk and standard Windows locations. The native build installs Android Rust targets and cargo-ndk when needed, then builds arm64-v8a, armeabi-v7a and x86_64 libraries into the ignored app/src/main/jniLibs directory.
+
+For manual setup of Developer options / USB debugging and troubleshooting ADB states, see [Android build and physical-device installation](docs/ANDROID_BUILD_INSTALL.md).
+
+Android CI performs the native cross-build before Kotlin tests and APK packaging. See .github/workflows/android-ci.yml.
 
 Third-party licensing details are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). No firmware is included.
