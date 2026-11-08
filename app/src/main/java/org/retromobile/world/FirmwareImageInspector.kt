@@ -37,7 +37,10 @@ object FirmwareImageInspector {
             "Firmware component must be between 9 bytes and 256 MiB."
         }
         val kind = classify(originalFileName)
-        if (kind == FirmwareImageKind.CONTENT_PACK) {
+        val extension = originalFileName.substringAfterLast('.', "")
+        if (kind == FirmwareImageKind.CONTENT_PACK &&
+            extension.startsWith("image_", ignoreCase = true)
+        ) {
             return inspectContentImage(file, originalFileName)
         }
 
