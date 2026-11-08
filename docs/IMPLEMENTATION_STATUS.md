@@ -61,8 +61,9 @@ The Android backend uses c3emu's own RM-614 hardware model. It must not be selec
 - JNI now reads imported app-private firmware paths directly into c3emu-owned native buffers to avoid several copies of large IMAGE files.
 - Host loop uses 16 ms native slices, 15 ms LCD frame cadence and a 20 ms WFI wait cap, matching upstream worker timing. Blocking audio writes run on a separate bounded worker; dirty flash storage is throttled to 1 second with forced flush on pause/stop/failure.
 - These are host-overhead optimizations, not a measured increase beyond upstream real-time emulation. Physical-device FPS/latency measurement remains pending.
-- CI now installs Gradle 9.6.0 through `gradle/actions/setup-gradle@v6`, caches distributions/dependencies and retries transient HTTP 5xx/network failures. Current head checks remain linked from PR #3.
-- Push CI run `42469546828` passed native builds for all three Android ABIs, Android unit tests, debug APK assembly and artifact upload. Artifact `13613535664`; APK SHA-256 `e5f08448acb424aeceb4a79c6a2d8e08b1b533cafb61b81d06923d88d1927f9c`. This confirms CI build/tests, not physical-device installation or firmware boot.
+- CI uses Gradle 9.6.0 through `gradle/actions/setup-gradle@v6`, caches the distribution and dependencies, and retries transient network 5xx failures. The Kotlin compiler module is exclusively pinned to WSO2 with POM/artifact metadata to avoid GitHub Releases 504 redirects; other dependencies retain normal repositories.
+- **Latest head `4c00850ea09fb681257d303d6e01f03ef2a763aa`: both push run `42472380211` and PR run `42472383487` passed.** Native builds, Android unit tests, APK assembly and upload all succeeded.
+- Current artifact: `13614395927`, ZIP SHA-256 `c3d85b501a1c1483707c029df3d8e2c8b2112b9caa9001334782aa9b3198b42e`; expires 22 November 2026 10:43 UTC. CI success is not a physical-device validation.
 
 ## RM-217 verification
 

@@ -45,7 +45,8 @@
 - [x] Pair PPM and IMAGE only when software release and regional suffix match.
 - [x] Transfer imported firmware from app-private file paths directly into native c3emu buffers.
 - [x] Reduce host-side stalls: offload blocking audio, match upstream 16 ms slices / 15 ms frame cadence / 20 ms WFI cap, and throttle flash persistence.
-- [x] Pass Android CI on C3 touch matrix / key-edge tests and sparse multi-block IMAGE fixture; assemble and upload debug APK artifact `13613535664`.
+- [x] Pass Android CI on C3 touch matrix / key-edge tests and sparse multi-block IMAGE fixture; assemble and upload debug APK artifact `13614395927` (latest branch head `4c00850`, push + PR runs both green).
+- [x] Pin only Kotlin compiler embeddable to exclusive WSO2 Maven POM/artifact source to avoid the recurring Kotlin 2.2.10 GitHub Releases HTTP 504.
 
 - [ ] Import the actual user-supplied RM-614 IMAGE file on the physical phone and confirm factory C: content appears on first boot.
 - [ ] Measure guest frame rate and input-to-screen latency on the physical phone after installation.

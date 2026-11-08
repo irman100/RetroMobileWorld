@@ -260,3 +260,50 @@ CI dependency fix:
 The PR-triggered duplicate run `42469551102` has also completed native build and unit tests successfully; at this journal update it is still executing APK assembly. The successful push run above already produced and uploaded the verified debug APK.
 
 **Phone-only checks still pending:** installation on the user's physical phone, import of the actual `rm614__08.71.image_*`, first-boot C: content, real Series 40 frame/home screen, touch response on every hotspot, LCD aperture screenshot, audio, and measured FPS/input latency. CI does not prove those device-level behaviours.
+
+
+## 11. Green CI checkpoint — exclusive Kotlin compiler mirror — 8 November 2026
+
+Current branch head: `4c00850ea09fb681257d303d6e01f03ef2a763aa`.
+
+The previous Kotlin compiler download failure was a real Maven-to-GitHub redirect to a GitHub Releases URL returning HTTP 504. The first WSO2 repository declaration was content-scoped, but Gradle still resolved the module through Maven Central in the failing run. The repository policy is now explicit in `settings.gradle.kts`:
+- `exclusiveContent` binds only `org.jetbrains.kotlin:kotlin-compiler-embeddable` to WSO2;
+- the mirror resolves Maven POM + artifact metadata (no Gradle-module metadata redirect);
+- all other dependencies retain normal Google/Maven Central/Plugin Portal sources;
+- Kotlin / Android plugin versions were not changed.
+
+**Latest push CI: run `42472380211` — SUCCESS.**
+**Latest PR CI: run `42472383487` — SUCCESS.**
+
+Both runs on the exact same head `4c00850` completed every step:
+- profile/catalogue validation;
+- firmware-inspection Python tests;
+- Android SDK / NDK setup;
+- Rust targets + cargo-ndk;
+- native c3emu JNI build for arm64-v8a, armeabi-v7a and x86_64;
+- `:app:testDebugUnitTest`;
+- `:app:assembleDebug`;
+- debug APK artifact upload.
+
+Artifact:
+- name: `retro-mobile-world-c3emu-debug`;
+- artifact ID: `13614395927`;
+- ZIP size: 7,935,562 bytes;
+- ZIP SHA-256: `c3d85b501a1c1483707c029df3d8e2c8b2112b9caa9001334782aa9b3198b42e`;
+- GitHub Actions run: https://github.com/irman100/RetroMobileWorld/actions/runs/42472380211;
+- expires: 22 November 2026, 10:43 UTC.
+
+### LCD aperture exact pixels
+
+The selected 968×1920 shell PNG contains a fully transparent rectangular screen aperture at x=82..884 and y=289..898 inclusive. The exclusive-edge geometry in `C3DeviceView` is therefore exactly `left=82, top=289, right=885, bottom=899`. The 320×240 emulator frame is mapped to the whole rectangle, clipped to the aperture. This confirms the source-image geometry; the final Android screenshot still needs visual verification on the phone.
+
+### Still pending on the physical phone
+
+- Install the current green APK without uninstalling or clearing app-private data.
+- Import the actual user's RM-614 MCUSW/PPM/IMAGE files and verify the real IMAGE is accepted.
+- First boot must seed factory C: only if there is no existing saved C: image.
+- Confirm a real Series 40 LCD frame/home screen.
+- Tap and hold every physical touch point, including release, slide and multi-touch.
+- Check LCD fit on the device, sound, C: persistence, and measure frame/input latency.
+
+CI proves source compilation, native ABI build, unit tests and APK assembly only. It does not prove the user's actual firmware boots or that touch/LCD/audio are correct on the handset.
