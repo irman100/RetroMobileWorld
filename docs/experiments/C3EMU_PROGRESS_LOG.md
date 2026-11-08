@@ -106,6 +106,9 @@ Developer options и USB debugging включаются вручную на те
 
 Android app version увеличена до 0.4.1-c3emu-rm614, versionCode 5, чтобы локальный APK был явно новее ранее установленной версии 0.4.0 / versionCode 4.
 
+Возможен конфликт подписи: GitHub Actions debug keystore и локальный Windows debug keystore могут различаться. Поэтому сценарий по умолчанию не удаляет ранее установленное приложение при INSTALL_FAILED_UPDATE_INCOMPATIBLE и сохраняет app-private данные. Только явный флаг -UninstallOnSignatureMismatch разрешает удаление пакета; удаление уничтожает приватную библиотеку прошивок, C: storage и настройки.
+
+
 Подробная процедура: docs/ANDROID_BUILD_INSTALL.md.
 
 ## 6. Следующие проверки на физическом телефоне
