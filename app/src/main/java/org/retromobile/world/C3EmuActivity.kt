@@ -253,7 +253,15 @@ class C3EmuActivity : Activity() {
             runOnUiThread {
                 menuView.isEnabled = true
                 result.onSuccess { records ->
-                    showMessage("Импортировано компонентов: " + records.size)
+                    val imageImported = records.any { it.metadata.kind == FirmwareImageKind.CONTENT_PACK }
+                    val message = when {
+                        imageImported && hasPersistedCDrive() ->
+                            "IMAGE импортирован. Существующая память C: сохранена; новый IMAGE не перезаписывает её автоматически."
+                        imageImported ->
+                            "IMAGE импортирован. Его содержимое C: будет установлено при первом создании памяти телефона."
+                        else -> "Импортировано компонентов: " + records.size
+                    }
+                    showMessage(message)
                     refreshFirmwareStatus()
                 }.onFailure { error ->
                     showMessage("Ошибка импорта: " + (error.message ?: error.javaClass.simpleName))
@@ -268,24 +276,28 @@ class C3EmuActivity : Activity() {
         showMessage("Запускаю Nokia Series 40…")
         fileExecutor.execute {
             val result = runCatching {
-                val core = library.find(FirmwareImageKind.CORE)
+                val selection = library.selectFirmware()
                     ?: error("Импортируй Phoenix ZIP или отдельный RM-614 MCUSW.")
-                val firmware = PhoneFirmwareSet(
-                    core = core,
-                    languagePack = library.find(FirmwareImageKind.LANGUAGE_PACK),
-                    contentPack = library.find(FirmwareImageKind.CONTENT_PACK)
-                )
-                engine.boot(firmware, File(filesDir, "c3emu-storage"))
+                val step = engine.boot(selection.firmware, File(filesDir, "c3emu-storage"))
+                selection to step
             }
             runOnUiThread {
                 menuView.isEnabled = true
-                result.onSuccess { step ->
+                result.onSuccess { (selection, step) ->
                     if (step.state == PhoneMachineState.FAILED) {
                         showMessage("Загрузка не удалась: " + (step.diagnostic ?: "ошибка"))
                     } else {
                         startAudio()
                         startRunLoop()
-                        showMessage("Nokia C3-00 загружается")
+                        val variant = selection.variant?.uppercase(Locale.ROOT)
+                        val warning = selection.warnings.firstOrNull()
+                        showMessage(
+                            warning ?: if (variant != null) {
+                                "Nokia C3-00 загружается, комплект $variant"
+                            } else {
+                                "Nokia C3-00 загружается"
+                            }
+                        )
                     }
                 }.onFailure { error ->
                     showMessage("Ошибка запуска: " + (error.message ?: error.javaClass.simpleName))
@@ -293,6 +305,12 @@ class C3EmuActivity : Activity() {
             }
         }
     }
+
+    private fun hasPersistedCDrive(): Boolean =
+        File(filesDir, "c3emu-storage").listFiles().orEmpty().any { file ->
+            file.isFile && (file.name == "dev_0.size" ||
+                file.name.matches(Regex("dev_0_[0-9]+\\.chunk")))
+        }
 
     private fun stopFirmware() {
         stopRunLoop()
