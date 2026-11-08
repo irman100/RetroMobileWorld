@@ -34,6 +34,7 @@ class C3EmuActivity : Activity() {
     private lateinit var library: C3FirmwareLibrary
     private lateinit var deviceView: C3DeviceView
     private lateinit var menuView: TextView
+    private var pendingPickerKind: FirmwareImageKind? = null
 
     private val engine = C3EmuEngine()
     private val fileExecutor = Executors.newSingleThreadExecutor { task ->
@@ -144,13 +145,28 @@ class C3EmuActivity : Activity() {
 
     private fun showDeviceMenu() {
         PopupMenu(this, menuView).apply {
-            menu.add(Menu.NONE, MENU_IMPORT, Menu.NONE, "Импорт Phoenix ZIP (RM-614)…")
+            menu.add(Menu.NONE, MENU_IMPORT_ZIP, Menu.NONE, "Импорт Phoenix ZIP (RM-614)…")
+            menu.add(Menu.NONE, MENU_IMPORT_CORE, Menu.NONE, "Импорт MCUSW отдельно…")
+            menu.add(Menu.NONE, MENU_IMPORT_PPM, Menu.NONE, "Импорт PPM отдельно…")
+            menu.add(Menu.NONE, MENU_IMPORT_IMAGE, Menu.NONE, "Импорт IMAGE отдельно…")
             menu.add(Menu.NONE, MENU_BOOT, Menu.NONE, "Запустить / перезапустить")
             menu.add(Menu.NONE, MENU_STOP, Menu.NONE, "Остановить и сохранить")
             setOnMenuItemClickListener { item ->
                 when (item.itemId) {
-                    MENU_IMPORT -> {
-                        openPicker()
+                    MENU_IMPORT_ZIP -> {
+                        openPicker(null)
+                        true
+                    }
+                    MENU_IMPORT_CORE -> {
+                        openPicker(FirmwareImageKind.CORE)
+                        true
+                    }
+                    MENU_IMPORT_PPM -> {
+                        openPicker(FirmwareImageKind.LANGUAGE_PACK)
+                        true
+                    }
+                    MENU_IMPORT_IMAGE -> {
+                        openPicker(FirmwareImageKind.CONTENT_PACK)
                         true
                     }
                     MENU_BOOT -> {
@@ -172,7 +188,8 @@ class C3EmuActivity : Activity() {
         engine.sendMatrixKeyAsync(index, pressed)
     }
 
-    private fun openPicker() {
+    private fun openPicker(kind: FirmwareImageKind?) {
+        pendingPickerKind = kind
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
@@ -189,6 +206,7 @@ class C3EmuActivity : Activity() {
         try {
             startActivityForResult(intent, REQUEST_IMPORT_C3_FIRMWARE)
         } catch (error: ActivityNotFoundException) {
+            pendingPickerKind = null
             showMessage("Не удалось открыть системный выбор файлов.")
         }
     }
@@ -196,18 +214,35 @@ class C3EmuActivity : Activity() {
     @Deprecated("Uses the platform activity-result callback for broad Android compatibility.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_IMPORT_C3_FIRMWARE || resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
+        if (requestCode != REQUEST_IMPORT_C3_FIRMWARE) return
+        if (resultCode != RESULT_OK) {
+            pendingPickerKind = null
+            return
+        }
+        val uri = data?.data ?: run {
+            pendingPickerKind = null
+            return
+        }
         val displayName = queryDisplayName(uri)
+        val selectedKind = pendingPickerKind
+        pendingPickerKind = null
         menuView.isEnabled = false
-        showMessage("Импортирую Phoenix ZIP…")
+        showMessage("Импортирую $displayName…")
 
         fileExecutor.execute {
             val result = runCatching {
-                require(displayName.endsWith(".zip", ignoreCase = true)) {
-                    "Выбери Phoenix ZIP с прошивкой RM-614."
+                if (displayName.endsWith(".zip", ignoreCase = true)) {
+                    require(selectedKind == null) {
+                        "Для импорта отдельного компонента выбери сам файл, а не ZIP."
+                    }
+                    library.importArchiveFromUri(uri, displayName)
+                } else {
+                    val record = library.importComponentFromUri(uri, displayName)
+                    require(selectedKind == null || record.metadata.kind == selectedKind) {
+                        "Выбран файл другого типа. Проверь расширение."
+                    }
+                    listOf(record)
                 }
-                library.importArchiveFromUri(uri, displayName)
             }
             runOnUiThread {
                 menuView.isEnabled = true
@@ -390,9 +425,12 @@ class C3EmuActivity : Activity() {
 
     companion object {
         private const val REQUEST_IMPORT_C3_FIRMWARE = 6140
-        private const val MENU_IMPORT = 1
-        private const val MENU_BOOT = 2
-        private const val MENU_STOP = 3
+        private const val MENU_IMPORT_ZIP = 1
+        private const val MENU_IMPORT_CORE = 2
+        private const val MENU_IMPORT_PPM = 3
+        private const val MENU_IMPORT_IMAGE = 4
+        private const val MENU_BOOT = 5
+        private const val MENU_STOP = 6
         private const val CPU_BUDGET_MICROS = 12_000L
     }
 }
