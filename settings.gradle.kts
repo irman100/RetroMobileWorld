@@ -1,14 +1,22 @@
 pluginManagement {
     repositories {
         google()
-        // The Kotlin 2.2.10 compiler artifact currently redirects from Maven
-        // Central to GitHub Releases, which intermittently returns HTTP 504.
-        // Restrict this mirror to that exact module; all other plugin
-        // dependencies continue to use the normal repositories below.
-        maven {
-            name = "kotlinCompilerEmbeddableMirror"
-            url = uri("https://maven.wso2.org/nexus/content/repositories/central/")
-            content {
+        // Kotlin 2.2.10 compiler-embeddable redirects from Maven Central to
+        // GitHub Releases, which intermittently returns HTTP 504 in CI.
+        // WSO2 hosts the exact artifact; force this one module to resolve
+        // from that Maven repository, without Gradle-module metadata redirects.
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = "kotlinCompilerEmbeddableMirror"
+                    url = uri("https://maven.wso2.org/nexus/content/repositories/central/")
+                    metadataSources {
+                        mavenPom()
+                        artifact()
+                    }
+                }
+            }
+            filter {
                 includeModule("org.jetbrains.kotlin", "kotlin-compiler-embeddable")
             }
         }
@@ -21,11 +29,19 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
-        // Same narrowly-scoped fallback for project/build-tool dependencies.
-        maven {
-            name = "kotlinCompilerEmbeddableMirror"
-            url = uri("https://maven.wso2.org/nexus/content/repositories/central/")
-            content {
+        // Apply the same exclusive source to build-tool dependencies.
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = "kotlinCompilerEmbeddableMirror"
+                    url = uri("https://maven.wso2.org/nexus/content/repositories/central/")
+                    metadataSources {
+                        mavenPom()
+                        artifact()
+                    }
+                }
+            }
+            filter {
                 includeModule("org.jetbrains.kotlin", "kotlin-compiler-embeddable")
             }
         }
