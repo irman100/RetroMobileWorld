@@ -58,9 +58,15 @@ class FirmwareImageInspectorTest {
     }
 
     @Test
-    fun stillRejectsOverflowForMappedFlashAddresses() {
+    fun accepts32BitFlashAddressWhoseRegionCrossesUnsignedAddressBoundary() {
+        // The FPSX address field is a u32 start address. Upstream c3emu consumes it
+        // as metadata and maps named images in the boot layer; the generic container
+        // inspector must not impose an extra address+length overflow rejection.
         val file = fixtureFile(".ppm_c", fpsx("PPM", 0xFFFF_FFFEL))
-        assertFalse(runCatching { FirmwareImageInspector.inspect(file) }.isSuccess)
+        val metadata = FirmwareImageInspector.inspect(file)
+
+        assertTrue("PPM" in metadata.namedRegions)
+        assertEquals(1, metadata.blockCount)
         file.delete()
     }
 
