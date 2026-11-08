@@ -47,12 +47,14 @@ if ($InstallOnly) {
     $sourceRef = "refs/heads/$Branch"
     $remoteRef = "refs/remotes/origin/$Branch"
     try {
-        Invoke-Checked -File "git" -Arguments @("fetch", "origin", "${sourceRef}:${remoteRef}")
+        # Suppress automatic housekeeping during fetch: this workstation reports
+        # Windows file-lock failures while Git tries to remove old pack indexes.
+        Invoke-Checked -File "git" -Arguments @("-c", "gc.auto=0", "fetch", "origin", "${sourceRef}:${remoteRef}")
     } catch {
         # Retry Schannel/TLS handshake failures using Git for Windows OpenSSL
         # backend for this one command only; do not change global Git config.
         Write-Warning "Git fetch failed with the configured TLS backend. Retrying once with OpenSSL."
-        Invoke-Checked -File "git" -Arguments @("-c", "http.sslBackend=openssl", "fetch", "origin", "${sourceRef}:${remoteRef}")
+        Invoke-Checked -File "git" -Arguments @("-c", "gc.auto=0", "-c", "http.sslBackend=openssl", "fetch", "origin", "${sourceRef}:${remoteRef}")
     }
 
     if ($currentBranch -ne $Branch) {
@@ -60,13 +62,15 @@ if ($InstallOnly) {
         if ($localBranch.Count -gt 0) {
             Invoke-Checked -File "git" -Arguments @("switch", $Branch)
         } else {
-            Invoke-Checked -File "git" -Arguments @("switch", "--track", "-c", $Branch, $remoteRef)
+            # Git switch --track expects the remote branch shorthand, not its
+            # full refs/remotes/... storage path.
+            Invoke-Checked -File "git" -Arguments @("switch", "--track", "-c", $Branch, "origin/$Branch")
         }
     }
 
     # The fetch above already retrieved the remote head. Avoid a second TLS
     # handshake; advance the local branch only when a fast-forward is possible.
-    Invoke-Checked -File "git" -Arguments @("merge", "--ff-only", $remoteRef)
+    Invoke-Checked -File "git" -Arguments @("-c", "gc.auto=0", "merge", "--ff-only", $remoteRef)
 }
 
 $commit = (& git rev-parse HEAD).Trim()
