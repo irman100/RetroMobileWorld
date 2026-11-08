@@ -39,6 +39,7 @@ class C3EmuEngine : PhoneSystemEngine {
     private var frameSerial = -1
     private var nextWaitMillis = 0.0
     private var lastStorageFlushAtMs = 0L
+    private var lastFrameDeliveryAtMs = 0L
     private var pendingAudio: ShortArray? = null
     private var closed = false
 
@@ -81,12 +82,15 @@ class C3EmuEngine : PhoneSystemEngine {
         storageDirectory = persistentStorageDirectory.apply { mkdirs() }
         C3EmuNative.nativeStop()
         C3EmuNative.nativeClearDisks()
-        C3EmuNative.nativeSetFile(0, firmware.core.file.readBytes()).requireNativeSuccess("MCUSW")
+        C3EmuNative.nativeSetFileFromPath(0, firmware.core.file.absolutePath)
+            .requireNativeSuccess("MCUSW")
         firmware.languagePack?.let {
-            C3EmuNative.nativeSetFile(1, it.file.readBytes()).requireNativeSuccess("PPM")
+            C3EmuNative.nativeSetFileFromPath(1, it.file.absolutePath)
+                .requireNativeSuccess("PPM")
         }
         firmware.contentPack?.let {
-            C3EmuNative.nativeSetFile(2, it.file.readBytes()).requireNativeSuccess("IMAGE")
+            C3EmuNative.nativeSetFileFromPath(2, it.file.absolutePath)
+                .requireNativeSuccess("IMAGE")
         }
         val nowMillis = System.currentTimeMillis()
         C3EmuNative.nativeSetTime(
@@ -102,6 +106,7 @@ class C3EmuEngine : PhoneSystemEngine {
         }
 
         frameSerial = -1
+        lastFrameDeliveryAtMs = 0L
         cachedFrame = null
         pendingAudio = null
         state = PhoneMachineState.READY
@@ -128,9 +133,13 @@ class C3EmuEngine : PhoneSystemEngine {
         }
         state = PhoneMachineState.RUNNING
 
+        // Upstream c3emu-web sends at most one frame every 15 ms. Match that
+        // cadence so Android does not copy JNI frame buffers faster than the LCD
+        // can visibly refresh. Keep the old serial until an actual frame is read.
         val nextSerial = C3EmuNative.nativeFrameSerial()
-        val frameChanged = nextSerial != frameSerial
-        if (frameChanged) {
+        val now = SystemClock.elapsedRealtime()
+        var frameChanged = false
+        if (nextSerial != frameSerial && now - lastFrameDeliveryAtMs >= FRAME_DELIVERY_INTERVAL_MS) {
             val pixels = C3EmuNative.nativeFrame()
             if (pixels.size == FRAME_BYTES) {
                 cachedFrame = PhoneMachineFrame(
@@ -142,6 +151,8 @@ class C3EmuEngine : PhoneSystemEngine {
                     frameNumber = nextSerial.toLong() and 0xFFFF_FFFFL
                 )
                 frameSerial = nextSerial
+                lastFrameDeliveryAtMs = now
+                frameChanged = true
             }
         }
 
@@ -226,6 +237,12 @@ class C3EmuEngine : PhoneSystemEngine {
     override fun pause() {
         if (state == PhoneMachineState.RUNNING || state == PhoneMachineState.READY) {
             state = PhoneMachineState.PAUSED
+            if (!closed) {
+                executor.execute {
+                    nativeThread = Thread.currentThread()
+                    runCatching { persistDirtyStorageIfDue(force = true) }
+                }
+            }
         }
     }
 
@@ -344,7 +361,8 @@ class C3EmuEngine : PhoneSystemEngine {
         private const val FRAME_BYTES = LCD_WIDTH * LCD_HEIGHT * 4
         private const val CHUNK_BYTES = 64 * 1024
         private const val DISK_RECORD_HEADER_BYTES = 4 + 8 + 4 + 8
-        private const val STORAGE_FLUSH_INTERVAL_MS = 250L
+        private const val STORAGE_FLUSH_INTERVAL_MS = 1_000L
+        private const val FRAME_DELIVERY_INTERVAL_MS = 15L
 
         /** C3-00 matrix positions documented in the upstream c3emu KEYMAP. */
         fun matrixIndexFor(key: CanonicalKey): Int? = when (key) {
