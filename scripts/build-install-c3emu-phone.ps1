@@ -3,6 +3,7 @@ param(
     [string]$Serial,
     [string]$Branch = "feature/c3emu-touch-shell-speed-20261107",
     [string]$NdkVersion = "27.2.12479018",
+    [switch]$InstallOnly,
     [switch]$UninstallOnSignatureMismatch
 )
 
@@ -36,19 +37,25 @@ $currentBranch = (& git branch --show-current).Trim()
 Write-Host "Current branch: $currentBranch"
 Write-Host "Target branch:  $Branch"
 
-Invoke-Checked -File "git" -Arguments @("fetch", "origin", $Branch)
-if ($currentBranch -ne $Branch) {
-    $localBranch = @(& git branch --list $Branch)
-    if ($localBranch.Count -gt 0) {
-        Invoke-Checked -File "git" -Arguments @("switch", $Branch)
-    } else {
-        Invoke-Checked -File "git" -Arguments @("switch", "--track", "-c", $Branch, "origin/$Branch")
+if ($InstallOnly) {
+    if ($currentBranch -ne $Branch) {
+        throw "-InstallOnly requires the current branch to be $Branch; current branch is $currentBranch."
     }
+} else {
+    Invoke-Checked -File "git" -Arguments @("fetch", "origin", $Branch)
+    if ($currentBranch -ne $Branch) {
+        $localBranch = @(& git branch --list $Branch)
+        if ($localBranch.Count -gt 0) {
+            Invoke-Checked -File "git" -Arguments @("switch", $Branch)
+        } else {
+            Invoke-Checked -File "git" -Arguments @("switch", "--track", "-c", $Branch, "origin/$Branch")
+        }
+    }
+    Invoke-Checked -File "git" -Arguments @("pull", "--ff-only", "origin", $Branch)
 }
-Invoke-Checked -File "git" -Arguments @("pull", "--ff-only", "origin", $Branch)
 
 $commit = (& git rev-parse HEAD).Trim()
-Write-Host "Building commit: $commit"
+Write-Host "Using commit: $commit"
 
 # Discover the installed SDK, including the D:\Android\Sdk location used by this PC.
 $sdkCandidates = @()
@@ -95,21 +102,36 @@ if (-not (Test-Path -LiteralPath $Adb -PathType Leaf)) {
     else { throw "adb.exe was not found under $sdkRoot\platform-tools." }
 }
 
-Write-Host " "
-Write-Host "=== BUILD NATIVE C3-00 ENGINE ==="
-& (Join-Path $repoRoot "scripts\build-c3emu-android.ps1") -NdkVersion $NdkVersion
-if ($LASTEXITCODE -ne 0) { throw "Native C3-00 build failed." }
-
-Write-Host " "
-Write-Host "=== ANDROID TESTS + DEBUG APK ==="
-Invoke-Checked -File (Join-Path $repoRoot "gradlew.bat") -Arguments @(
-    "--no-daemon", ":app:testDebugUnitTest", ":app:assembleDebug"
-)
-
 $Apk = Join-Path $repoRoot "app\build\outputs\apk\debug\app-debug.apk"
-if (-not (Test-Path -LiteralPath $Apk -PathType Leaf)) {
-    throw "Debug APK was not produced: $Apk"
+$buildStamp = Join-Path $repoRoot "app\build\c3emu-local-build-commit.txt"
+
+if ($InstallOnly) {
+    if (-not (Test-Path -LiteralPath $Apk -PathType Leaf)) {
+        throw "Existing local APK is missing: $Apk"
+    }
+    if (-not (Test-Path -LiteralPath $buildStamp -PathType Leaf) -or
+        (Get-Content -LiteralPath $buildStamp -Raw).Trim() -ne $commit) {
+        throw "The local APK does not have a matching build stamp for HEAD $commit. Run the script without -InstallOnly to rebuild."
+    }
+    Write-Host "Using previously built local APK for commit $commit."
+} else {
+    Write-Host " "
+    Write-Host "=== BUILD NATIVE C3-00 ENGINE ==="
+    & (Join-Path $repoRoot "scripts\build-c3emu-android.ps1") -NdkVersion $NdkVersion
+    if ($LASTEXITCODE -ne 0) { throw "Native C3-00 build failed." }
+
+    Write-Host " "
+    Write-Host "=== ANDROID TESTS + DEBUG APK ==="
+    Invoke-Checked -File (Join-Path $repoRoot "gradlew.bat") -Arguments @(
+        "--no-daemon", ":app:testDebugUnitTest", ":app:assembleDebug"
+    )
+
+    if (-not (Test-Path -LiteralPath $Apk -PathType Leaf)) {
+        throw "Debug APK was not produced: $Apk"
+    }
+    Set-Content -LiteralPath $buildStamp -Value $commit -NoNewline -Encoding ASCII
 }
+
 Write-Host " "
 Write-Host "APK ready:"
 Get-Item -LiteralPath $Apk | Select-Object FullName, Length, LastWriteTime
