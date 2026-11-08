@@ -46,7 +46,14 @@ if ($InstallOnly) {
     # may populate FETCH_HEAD without creating origin/<branch> on some clones.
     $sourceRef = "refs/heads/$Branch"
     $remoteRef = "refs/remotes/origin/$Branch"
-    Invoke-Checked -File "git" -Arguments @("fetch", "origin", "${sourceRef}:${remoteRef}")
+    try {
+        Invoke-Checked -File "git" -Arguments @("fetch", "origin", "${sourceRef}:${remoteRef}")
+    } catch {
+        # Retry Schannel/TLS handshake failures using Git for Windows OpenSSL
+        # backend for this one command only; do not change global Git config.
+        Write-Warning "Git fetch failed with the configured TLS backend. Retrying once with OpenSSL."
+        Invoke-Checked -File "git" -Arguments @("-c", "http.sslBackend=openssl", "fetch", "origin", "${sourceRef}:${remoteRef}")
+    }
 
     if ($currentBranch -ne $Branch) {
         $localBranch = @(& git branch --list $Branch)
