@@ -114,7 +114,8 @@
 - [x] Expose ISI TX/RX resource/message counters and recent messages plus initial SoC/peripheral register touches in native diagnostics.
 - [x] Bypass the old landing screen and launch the C3-00 shell directly.
 - [x] Add "Выбрать телефон…" to the three-dot menu; only implemented emulator is available.
-- [ ] Inspect the exact user's RM-614 MCUSW/PPM firmware for WLAN driver, chip ID, firmware image, SDIO/SPI init and interrupt/packet protocol (archive must be attached in this chat).
+- [x] Inspect exact RM-614 MCUSW 08.71: identify Broadcom S60 WLAN HAL/PDD, WlanSpiaImpl, WlanHpaImpl, explicit 802.11n gSPI selection, SDPCM/BDC/LMAC and IDB firmware-download diagnostics.
+- [ ] Recover the exact WLAN IDB code/NVMEM payload and establish the chip/revision + BOB1.0M-a NVS-profile mapping.
 - [ ] Implement the minimal firmware-observed WLAN controller state machine.
 - [ ] Bridge guest IP packets through a consent-based Android network interface.
 - [ ] Verify WLAN scan, association, IP assignment, DNS, TCP, HTTP and HTTPS.
@@ -129,4 +130,16 @@
 
 
 - [x] Identify the RM-614 board's WLAN module as N6300 / Nokia part 4390090 / BOB1.0M-a, with separate W6000 antenna and Z6300 RF filter; document the shared SPI/SDIO host signals.
-- [ ] Confirm the transceiver silicon inside BOB1.0M-a and whether the firmware uses SPI or SDIO from the actual RM-614 firmware. Do not assume TI WL1271 merely because it appears in a different BOB1.0M-b phone.
+- [x] Confirm the firmware-selected WLAN host transport is Broadcom SPI/gSPI (`802.11n gSPI` and `WlanSpiaImpl`); board schematic also labels the WLAN SPI pins.
+- [ ] Confirm the exact transceiver silicon/revision inside BOB1.0M-a and identify which BOB-specific NVS/IDB profile is selected; do not infer this from unrelated WMV metadata or another phone's BOB1.0M-b.
+
+
+### RM-614 WLAN firmware analysis — 8 November 2026
+
+- [x] Inspect the user's re-attached RM-614 MCUSW for the Broadcom S60 WLAN HAL, SPI/gSPI driver symbols, power/IRQ callbacks, SDPCM/BDC/LMAC protocol markers, device firmware version and IDB download stages.
+- [ ] Recover the exact WLAN device IDB code and NVMEM sections; confirm silicon revision and the BOB1.0M-a profile mapping.
+- [ ] Capture runtime SPI MMIO/chip-select/WLAN enable/CLK_REQ/IRQ activity during guest WLAN scan.
+- [ ] Implement and test only the firmware-observed gSPI controller subset and guest packet path.
+- [ ] Verify a real Series 40 Browser JAD/JAR download, integrity, MIDlet installation and launch.
+
+The archive is analyzed locally only (SHA-256 `5239534da21345e5fc7bc1fbe5277f7d25a7798e9196742fcc77dc5d34445b11`); firmware binaries are not committed.

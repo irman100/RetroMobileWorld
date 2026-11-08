@@ -177,3 +177,14 @@ Native stats now return the latest 64 unique SoC/peripheral register touches in 
 Research now identifies the RM-614 board's WLAN-capable connectivity component as N6300 / Nokia part 4390090 / BOB1.0M-a (LGA130), with W6000 WLAN antenna and Z6300 WLAN RF band-pass filter. The schematic maps WLAN enable/IRQ, clock request and shared SPI/SDIO pins. This narrows target driver research, but the internal transceiver silicon and selected host bus are not yet confirmed. A different BOB1.0M-b revision used in other Nokia phones is documented with TI WL1271; do not assume that applies to C3-00 BOB1.0M-a.
 
 The exact Phoenix firmware was not found in this chat's attachment/library inventory. Reattach the RM-614 archive before disassembly. No WLAN chipset register model has been guessed or added.
+
+
+## C3-00 WLAN firmware findings — 8 November 2026
+
+The exact user-supplied RM-614 Phoenix archive is now available and its MCUSW 08.71 has undergone static analysis (archive SHA-256 `5239534da21345e5fc7bc1fbe5277f7d25a7798e9196742fcc77dc5d34445b11`). This supersedes the earlier note that firmware-specific analysis was blocked by the missing attachment.
+
+The MCUSW contains a Broadcom S60 WLAN HAL/PDD (`BcmWha`), explicit `802.11n gSPI` configuration, `WlanSpiaImpl` SPI transaction callbacks, and `WlanHpaImpl` power/IRQ callbacks. Broadcom SDPCMD/SDPCM/BDC, LMAC scan/join commands, FIFO/interrupt paths, device firmware version `4.218.227.19`, and WHA download/IDB code+NVMEM validation messages are also present. This establishes a firmware-selected Broadcom gSPI host stack and a device firmware download path; it does not yet recover the full IDB payload or confirm the exact silicon/revision inside BOB1.0M-a.
+
+The `BCM4329B1...` text in MCUSW is located in a WMV3/Windows Media block and is not treated as chip-ID proof. The BOB-specific NVS labels likewise need a direct board/profile mapping. No controller registers or packet behavior have been invented, and guest Internet is still not implemented.
+
+Next: recover the WLAN IDB code/NVMEM sections; trace SPI MMIO, chip-select, enable, clock-request and IRQ while the guest scans; implement the minimal observed gSPI/SDPCM controller; then validate real Browser JAD/JAR downloads. The original firmware archive remains outside the repository.

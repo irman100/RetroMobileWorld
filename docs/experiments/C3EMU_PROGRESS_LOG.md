@@ -483,3 +483,22 @@ This substantially narrows firmware inspection: locate the BOB1.0M-a WLAN driver
 Sources and links are recorded in `docs/experiments/C3EMU_NETWORK_RESEARCH.md`. The exact Phoenix firmware still is not present in the current conversation/Library, so no disassembly has yet been performed.
 
 The latest firmware inventory search paginated through 383 Library ZIPs plus the RAR inventory; no RM-614/Phoenix/MCUSW archive was found. The earlier-chat attachment must be attached again to this conversation before its bytes can be examined.
+
+
+## 21. Анализ WLAN-драйвера по точной прошивке RM-614 — 8 ноября 2026
+
+Пользователь повторно приложил Phoenix ZIP. SHA-256 архива: `5239534da21345e5fc7bc1fbe5277f7d25a7798e9196742fcc77dc5d34445b11`. В архиве есть MCUSW 08.71 (29 271 181 байт), региональные PPM/IMAGE и Phoenix metadata. Исходный архив не менялся; бинарные файлы прошивки в GitHub не копировались.
+
+**Подтверждено статическим анализом MCUSW:**
+- Broadcom S60 WLAN HAL/PDD `BcmWha` (около `0x003F7532`).
+- Явная строка конфигурации `802.11n gSPI` (около `0x003F9EEA`).
+- `WlanSpiaImpl` реализует Configure/Request/SPI DFC/ISR callbacks; `WlanHpaImpl` управляет PowerOn/PowerOff и IRQ. Это подтверждает выбранную прошивкой транспортную ветку SPI/gSPI и отдельный слой питания/прерываний.
+- В стеке присутствуют Broadcom SDPCMD CDC, SDPCM, BDC, LMAC scan/join/reset, FIFO и RX/TX/interrupt handling.
+- Встроенная строка device firmware `4.218.227.19` (build 12 Oct 2010). WHA содержит стадии INIT1/2/3, ожидание ALP/HT, `DevDownload`, проверки IDB code/NVMEM sections и verify code/vars. Это указывает на скачивание firmware и NVMEM в WLAN-чип при инициализации; точный IDB payload пока не извлечён.
+- В тестовом интерфейсе встречаются профили `WLAN_TEST_EEPROM_NVS_BOB_B1_0` и `...BOB_T1_0`; связь конкретного профиля с N6300 BOB1.0M-a ещё не доказана.
+
+**Вывод о шине:** схема RM-614 показывает WLAN_SPICSX, WLAN_SPITxData, WLAN_SPIRxData, WLAN_SPIClk, WLAN_IRQ, WLAN_En и WLAN_CLK_REQ. В сочетании с gSPI-конфигурацией и WlanSpiaImpl это подтверждает SPI/gSPI как используемый firmware host path. SDIO-строки в других подсистемах MCUSW не доказывают SDIO-транспорт WLAN.
+
+Точный кристалл и ревизия N6300/BOB1.0M-a остаются открытыми. Строка `BCM4329B1 Class 1.5 For Nokia Phones` находится внутри отдельного WMV3/Windows Media блока и не используется как доказательство маркировки чипа. Не подменять модуль TI WL1271 от другой версии BOB.
+
+Следующий шаг — определить IDB code/NVMEM payload, снять runtime SPI/IRQ трассу при сканировании WLAN, затем реализовать минимальную наблюдённую gSPI state machine и packet path. Проверка сети остаётся незавершённой до реального скачивания JAD/JAR встроенным Series 40 Browser и запуска MIDlet.

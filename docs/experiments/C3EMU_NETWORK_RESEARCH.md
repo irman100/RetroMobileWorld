@@ -139,3 +139,39 @@ Next firmware-specific work:
 4. Only then decide whether to reuse TI wl12xx/wlcore code, another open-source driver, or a small purpose-built BOB1.0M-a model.
 5. Bridge the resulting guest Ethernet/IP packets to Android network transport and validate Browser downloads.
 
+
+
+## Exact RM-614 MCUSW WLAN analysis — 8 November 2026
+
+### Archive and confidence boundary
+
+The user re-attached the RM-614 Phoenix package as `RM-614.zip`. Archive SHA-256: `5239534da21345e5fc7bc1fbe5277f7d25a7798e9196742fcc77dc5d34445b11`. The archive includes the RM-614 08.71 MCUSW (29,271,181 bytes), regional PPM and IMAGE variants, and Phoenix product metadata. The original archive was not modified and no firmware binary was added to this repository.
+
+### What the MCUSW establishes
+
+Static string/symbol analysis of `rm614__08.71.mcusw` identifies a real Broadcom WLAN host stack, rather than merely WLAN menu support:
+
+- `WHA: ... Broadcom S60 WLAN HAL PDD [BcmWha ...]` at file offset `0x003F7532` identifies the Broadcom WLAN HAL/PDD.
+- The WLAN configuration contains the explicit string `802.11n gSPI` at `0x003F9EEA`.
+- C++ symbol names include `WlanSpiaImpl::Configure/Request/SpiDfcCallback/SpiIsrCallback` (around `0x0028F360`) and `WlanHpaImpl::PowerOnDevice/PowerOffDevice/InterruptServiced/ISR/EnableIrq` (around `0x0028EE9C`). This is direct firmware evidence of an SPI/gSPI transport implementation and a separate power/IRQ adaptation layer.
+- The neighbouring WLAN configuration contains SROM/NVRAM-style fields (including `sromrev`, `vendid`, `devid`, `boardtype`, `boardrev`, PA calibration and RSSI tables). The test service includes distinct `WLAN_TEST_EEPROM_NVS_BOB_B1_0` and `WLAN_TEST_EEPROM_NVS_BOB_T1_0` profile names at approximately `0x00B6FB72` and `0x00B6FBEA`. These are useful module/profile clues, but the binary does not yet prove which profile is selected for the board's BOB1.0M-a component.
+- Broadcom transport/protocol strings include `Broadcom SDPCMD CDC driver`, `SDPCM`, `BDC`, LMAC commands (`lmac_scan`, `lmac_join`, `lmac_reset`), FIFO/status/interrupt handling and RX/TX paths. The host-side WLAN driver therefore expects a real controller command/data interface; simply adding Android Internet permission or a guest-side IP socket is not enough.
+- A device-side Broadcom firmware version string `4.218.227.19` and build date `Oct 12 2010` are present around `0x00B5A1DB`. WHA diagnostics describe INIT1/INIT2/INIT3, ALP/HT clock-ready waits, `DevDownload`, and an Init Download Block (IDB) with required code and NVMEM sections plus code/vars verification. This strongly indicates a host boot-time firmware-download flow. The exact IDB code/NVMEM payload and its complete container boundaries have **not** yet been recovered.
+
+### Bus conclusion and cautions
+
+The RM-614 schematic labels the N6300 WLAN pins as `WLAN_SPICSX`, `WLAN_SPITxData`, `WLAN_SPIRxData`, `WLAN_SPIClk`, `WLAN_IRQ`, `WLAN_En` and `WLAN_CLK_REQ` (the same board also has SDIO aliases on shared lines). Together with the MCUSW's `802.11n gSPI` configuration and `WlanSpiaImpl` symbols, the firmware-selected WLAN host path is SPI/gSPI, not the generic SDIO path. Generic SDIO driver strings elsewhere in MCUSW are not evidence that WLAN uses SDIO on this phone.
+
+The board component remains documented as N6300 / Nokia part 4390090 / BOB1.0M-a. The exact Broadcom silicon/revision behind that module and the mapping of the BOB-specific NVS profile to this exact board revision remain unconfirmed. The string `BCM4329B1 Class 1.5 For Nokia Phones` occurs inside a separate WMV3/Windows Media resource block and is deliberately **not** treated as chip-identification evidence. Do not substitute a TI WL1271/BOB1.0M-b driver.
+
+Schematic/parts references: https://documents.cdn.ifixit.com/ORvCvsmrQTL2IJVq.pdf and https://www.radioradar.net/repair_electronic_technics/phones_repair/nokia_c3_00_mobile_phone_repair.html. The Broadcom BCM4329 datasheet is useful for understanding the generic SPI/gSPI framing and firmware/LMAC split, but does not by itself prove that this exact BOB1.0M-a module contains that silicon: https://www.digikey.com/en/htmldatasheets/production/1654863/0/0/1/bcm4329.html.
+
+### Next engineering steps
+
+1. Recover the exact IDB/device-code and NVMEM payload from the MCUSW package, establish its format and confirm the target chip/revision without relying on unrelated media metadata.
+2. Capture guest runtime SPI MMIO, chip-select, WLAN enable, CLK_REQ and IRQ activity when opening WLAN settings and scanning. Map these accesses to the Broadcom host transaction layer in c3emu; do not invent SoC register addresses.
+3. Implement only the observed gSPI subset: reset/wake/clock readiness, command framing, control/register access, packet FIFOs, interrupt/status and SDPCM/BDC framing. Keep unknown operations visible in diagnostics.
+4. Connect valid guest IP packets to the Android network bridge. Validate WLAN scan/association, IP configuration, DNS, TCP/HTTP and then HTTPS before attempting Browser JAD/JAR downloads.
+5. Keep GPRS/virtual SIM as a later phase; no SIM/ISI packet behavior should be fabricated from these WLAN findings.
+
+The firmware analysis narrows the design substantially, but it does not yet implement Internet or prove a working packet path. The acceptance criterion remains a real .jad/.jar download and MIDlet install/launch from the guest Series 40 Browser.
