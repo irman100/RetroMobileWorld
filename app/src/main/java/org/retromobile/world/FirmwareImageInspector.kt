@@ -114,21 +114,16 @@ object FirmwareImageInspector {
                     require(dataOffset <= fileLength) { "FPSX data block header is truncated." }
                     input.seek(lengthOffset)
                     val dataLength = readUInt32(input)
-                    val flashAddress = readUInt32(input)
                     require(dataLength <= MAX_FILE_BYTES) { "FPSX data block is too large." }
+                    input.seek(addressOffset)
+                    // Validate and consume the 32-bit address field, but do not reject
+                    // a region because address + length crosses 0xFFFFFFFF. FPSX stores
+                    // the start address as u32; the upstream c3emu parser accepts that
+                    // field as-is and maps named MCUSW/PPM regions in its boot layer.
+                    // Container safety is enforced by the file-boundary check below.
+                    readUInt32(input)
                     require(dataOffset + dataLength <= fileLength) {
                         "FPSX data block extends beyond the file."
-                    }
-                    // FPSX stores the target as a 32-bit flash address. Do not apply
-                    // an 8 MiB / 23-bit controller window to the container parser:
-                    // the selected device's physical map is a separate validation layer.
-                    // BB5 uses 0xFFFFFFFF for special unmapped blocks such as PAPUBKEYS;
-                    // that sentinel is not a normal flash address and must not be range-checked.
-                    require(
-                        flashAddress == UNMAPPED_FLASH_ADDRESS ||
-                            flashAddress + dataLength <= 0x1_0000_0000L
-                    ) {
-                        "FPSX flash address range overflows 32 bits."
                     }
 
                     payloadBytes += dataLength
