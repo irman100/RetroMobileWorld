@@ -110,7 +110,7 @@ The per-frame RGBA-to-ARGB conversion and Bitmap update have been moved off the 
 
 ### C3-00 keyboard tactile feedback and startup-splash diagnostics (8 November 2026)
 
-- Recalibrated the outer edges of the first two QWERTY rows downward to form a more pronounced symmetric curve; the third row is intentionally unchanged.
+- Recalibrated the outer edges of the first two QWERTY rows downward by 6 photo pixels for a moderate symmetric curve; the third row is intentionally unchanged.
 - Shifted only the two outermost bottom modifier hotspots (Function and Ctrl) 16 source-photo pixels inward.
 - Added one short Android-standard `KEYBOARD_TAP` haptic on each new key-down edge; key releases and duplicate multi-pointer ownership do not vibrate.
 - Added `C3EmuBoot` terminal diagnostics with the guest stop reason and final native stats. Periodic `C3EmuPerf` logs continue to report host cycle/FPS and guest LCD counters. The Nokia Connecting People splash interruption is still undiagnosed until the phone log is captured.
