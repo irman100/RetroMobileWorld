@@ -63,71 +63,71 @@ class C3DeviceView @JvmOverloads constructor(
      */
     private val hotspots = listOf(
         // Soft keys and the two small shortcut buttons next to the navigation ring.
-        Hotspot(140f, 1129f, 22f, 29),
-        Hotspot(256f, 1135f, 17f, 38),
-        Hotspot(824f, 1129f, 22f, 43),
-        Hotspot(675f, 1135f, 17f, 52),
+        Hotspot(140f, 1129f, 17f, 29),
+        Hotspot(256f, 1135f, 14f, 38),
+        Hotspot(824f, 1129f, 17f, 43),
+        Hotspot(675f, 1135f, 14f, 52),
 
         // Green call and red end keys.
-        Hotspot(197f, 1207f, 21f, 30),
-        Hotspot(755f, 1207f, 21f, 255),
+        Hotspot(197f, 1207f, 17f, 30),
+        Hotspot(755f, 1207f, 17f, 255),
 
         // Navigation ring: up, down, left, right and centre select.
-        Hotspot(480f, 1044f, 20f, 56),
-        Hotspot(480f, 1218f, 20f, 57),
-        Hotspot(343f, 1127f, 20f, 58),
-        Hotspot(616f, 1127f, 20f, 59),
-        Hotspot(480f, 1127f, 25f, 60),
+        Hotspot(480f, 1044f, 16f, 56),
+        Hotspot(480f, 1218f, 16f, 57),
+        Hotspot(343f, 1127f, 16f, 58),
+        Hotspot(616f, 1127f, 16f, 59),
+        Hotspot(480f, 1127f, 20f, 60),
 
         // Physical QWERTY / number row. Key centres follow the photographed caps.
-        Hotspot(95.5f, 1345f, 18f, 0),
-        Hotspot(180f, 1345f, 18f, 1),
-        Hotspot(266f, 1345f, 18f, 2),
-        Hotspot(351.5f, 1345f, 18f, 3),
-        Hotspot(437f, 1345f, 18f, 4),
-        Hotspot(523f, 1345f, 18f, 5),
-        Hotspot(608f, 1345f, 18f, 6),
-        Hotspot(694.5f, 1345f, 18f, 24),
-        Hotspot(780f, 1345f, 18f, 25),
-        Hotspot(865f, 1345f, 18f, 26),
+        Hotspot(95.5f, 1345f, 14f, 0),
+        Hotspot(180f, 1345f, 14f, 1),
+        Hotspot(266f, 1345f, 14f, 2),
+        Hotspot(351.5f, 1345f, 14f, 3),
+        Hotspot(437f, 1345f, 14f, 4),
+        Hotspot(523f, 1345f, 14f, 5),
+        Hotspot(608f, 1345f, 14f, 6),
+        Hotspot(694.5f, 1345f, 14f, 24),
+        Hotspot(780f, 1345f, 14f, 25),
+        Hotspot(865f, 1345f, 14f, 26),
 
-        Hotspot(95.5f, 1472f, 18f, 8),
-        Hotspot(180f, 1472f, 18f, 9),
-        Hotspot(266f, 1472f, 18f, 10),
-        Hotspot(351.5f, 1472f, 18f, 11),
-        Hotspot(437f, 1472f, 18f, 12),
-        Hotspot(523f, 1472f, 18f, 13),
-        Hotspot(608f, 1472f, 18f, 14),
-        Hotspot(694.5f, 1472f, 18f, 32),
-        Hotspot(780f, 1472f, 18f, 33),
-        Hotspot(865f, 1472f, 18f, 34),
+        Hotspot(95.5f, 1472f, 14f, 8),
+        Hotspot(180f, 1472f, 14f, 9),
+        Hotspot(266f, 1472f, 14f, 10),
+        Hotspot(351.5f, 1472f, 14f, 11),
+        Hotspot(437f, 1472f, 14f, 12),
+        Hotspot(523f, 1472f, 14f, 13),
+        Hotspot(608f, 1472f, 14f, 14),
+        Hotspot(694.5f, 1472f, 14f, 32),
+        Hotspot(780f, 1472f, 14f, 33),
+        Hotspot(865f, 1472f, 14f, 34),
 
-        Hotspot(95.5f, 1600f, 18f, 16),
-        Hotspot(180f, 1600f, 18f, 17),
-        Hotspot(266f, 1600f, 18f, 18),
-        Hotspot(351.5f, 1600f, 18f, 19),
-        Hotspot(437f, 1600f, 18f, 20),
-        Hotspot(523f, 1600f, 18f, 21),
-        Hotspot(608f, 1600f, 18f, 22),
-        Hotspot(694.5f, 1600f, 18f, 45),
-        Hotspot(780f, 1600f, 18f, 28),
-        Hotspot(865f, 1600f, 18f, 42),
+        Hotspot(95.5f, 1600f, 14f, 16),
+        Hotspot(180f, 1600f, 14f, 17),
+        Hotspot(266f, 1600f, 14f, 18),
+        Hotspot(351.5f, 1600f, 14f, 19),
+        Hotspot(437f, 1600f, 14f, 20),
+        Hotspot(523f, 1600f, 14f, 21),
+        Hotspot(608f, 1600f, 14f, 22),
+        Hotspot(694.5f, 1600f, 14f, 45),
+        Hotspot(780f, 1600f, 14f, 28),
+        Hotspot(865f, 1600f, 14f, 42),
 
         // Bottom modifier keys and the long space bar.
-        Hotspot(180f, 1715f, 18f, 35),
-        Hotspot(266f, 1742f, 18f, 48),
-        Hotspot(480f, 1738f, 25f, 49),
-        Hotspot(863f, 1700f, 18f, 50)
+        Hotspot(180f, 1715f, 14f, 35),
+        Hotspot(266f, 1742f, 14f, 48),
+        Hotspot(480f, 1738f, 20f, 49),
+        Hotspot(863f, 1700f, 14f, 50)
     )
 
     private val hotspotFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = Color.argb(20, 255, 255, 255)
+        color = Color.argb(8, 20, 24, 28)
     }
     private val hotspotStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.6f
-        color = Color.argb(76, 255, 255, 255)
+        strokeWidth = 1.25f
+        color = Color.argb(52, 20, 24, 28)
     }
 
     init {
