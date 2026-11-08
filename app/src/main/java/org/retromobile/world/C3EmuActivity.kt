@@ -289,7 +289,7 @@ class C3EmuActivity : Activity() {
                     } else {
                         startAudio()
                         startRunLoop()
-                        val variant = selection.variant?.uppercase(Locale.ROOT)
+                        val variant = selection.variant?.uppercase()
                         val warning = selection.warnings.firstOrNull()
                         showMessage(
                             warning ?: if (variant != null) {
