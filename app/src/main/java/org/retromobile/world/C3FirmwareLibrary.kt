@@ -68,7 +68,14 @@ class C3FirmwareLibrary(context: Context) {
                 }
             }
             require(total >= 9L) { "The selected firmware component is empty or truncated." }
-            val metadata = FirmwareImageInspector.inspect(staging, safeName)
+            val metadata = try {
+                FirmwareImageInspector.inspect(staging, safeName)
+            } catch (error: IllegalArgumentException) {
+                throw IllegalArgumentException(
+                    "Firmware component '$safeName': ${error.message}",
+                    error
+                )
+            }
             require(metadata.kind == kind)
             return commit(staging, safeName, digest.digest(), metadata)
         } catch (error: Exception) {
@@ -142,7 +149,14 @@ class C3FirmwareLibrary(context: Context) {
                             require(componentBytes >= 9L) {
                                 "Firmware component ${safeName} is truncated."
                             }
-                            val metadata = FirmwareImageInspector.inspect(temp!!, safeName!!)
+                            val metadata = try {
+                                FirmwareImageInspector.inspect(temp!!, safeName!!)
+                            } catch (error: IllegalArgumentException) {
+                                throw IllegalArgumentException(
+                                    "Phoenix ZIP entry '$safeName': ${error.message}",
+                                    error
+                                )
+                            }
                             imported += commit(temp, safeName, digest!!.digest(), metadata)
                             staged.remove(temp)
                         }
