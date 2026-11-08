@@ -44,7 +44,10 @@ A successful import is not a successful boot. A successful boot must be demonstr
 
 The Android backend uses c3emu's own RM-614 hardware model. It must not be selected for Nokia 6300 / RM-217 firmware.
 
-## C3-00 UI follow-up\n- First-pass touch geometry has been adjusted against the exact 968 × 1920 shell PNG: the four D-pad directions now sit on the chrome bezel, and the lowest alphabetic/modifier rows follow the photographed keycap centres. This is source-photo calibration only; visual alignment and press/release still require a physical-phone check.\n
+## C3-00 UI follow-up
+
+- First-pass touch geometry has been adjusted against the exact 968 × 1920 shell PNG: the four D-pad directions now sit on the chrome bezel, and the lowest alphabetic/modifier rows follow the photographed keycap centres. This is source-photo calibration only; visual alignment and press/release still require a physical-phone check.
+
 
 - User-selected image docs/75-205-263-02.png is the shell reference; do not substitute a marketplace photo or an unrelated generated image.
 - Verify the LCD overlay against the image's real display opening on the physical phone.

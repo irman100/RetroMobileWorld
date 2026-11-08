@@ -151,7 +151,7 @@ Android app version увеличена до 0.4.1-c3emu-rm614, versionCode 5, ч
 
 ## 8. Первая геометрическая калибровка D-pad и нижней клавиатуры — 8 ноября 2026
 
-В исходном PNG `docs/75-205-263-02.png` (968 × 1920), извлечённом из ранее собранного APK, повторно сверены центры D-pad и клавиш нижней части клавиатуры. Изменения находятся в `app/src/main/java/org/retromobile/world/C3DeviceView.kt`, commit `2b76c94f04c58d4a5406a99395d8c2d943f6171a`.
+В исходном PNG `docs/75-205-263-02.png` (968 × 1920), извлечённом из ранее собранного APK, повторно сверены центры D-pad и клавиш нижней части клавиатуры. Изменения находятся в `app/src/main/java/org/retromobile/world/C3DeviceView.kt`, commit `c3a2c554d8cf116017fc242b38611d2e3bf85701`.
 
 ### D-pad
 
