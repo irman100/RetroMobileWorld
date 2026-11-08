@@ -26,12 +26,42 @@ class FirmwareImageInspectorTest {
     fun recognizesPpmAndContentPackNaming() {
         assertEquals(
             FirmwareImageKind.LANGUAGE_PACK,
-            FirmwareImageInspector.classify("rm217__07.30.ppm_c")
+            FirmwareImageInspector.classify("rm614__08.71.ppm_mh1")
         )
         assertEquals(
             FirmwareImageKind.CONTENT_PACK,
-            FirmwareImageInspector.classify("rm217__07.30.image_c_tr")
+            FirmwareImageInspector.classify("rm614__08.71.image_mh1_059G792")
         )
+    }
+
+    @Test
+    fun acceptsRm614FactoryContentImageAndItsSparseFatBootSector() {
+        val file = fixtureFile(".image_mh1_059G792", contentImage())
+        val metadata = FirmwareImageInspector.inspect(
+            file,
+            "rm614__08.71.image_mh1_059G792"
+        )
+
+        assertEquals(FirmwareImageKind.CONTENT_PACK, metadata.kind)
+        assertEquals("Nokia RM-614 C: content image", metadata.format)
+        assertEquals(1, metadata.blockCount)
+        assertEquals(512L, metadata.payloadBytes)
+        file.delete()
+    }
+
+    @Test
+    fun rejectsContentImageWithoutFatBootSector() {
+        val file = fixtureFile(
+            ".image_mr_059B810",
+            contentImage(bootAddress = 1L)
+        )
+        val error = runCatching {
+            FirmwareImageInspector.inspect(file, "rm614__08.71.image_mr_059B810")
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+        assertTrue(error?.message.orEmpty().contains("boot sector"))
+        file.delete()
     }
 
     @Test
@@ -116,6 +146,31 @@ class FirmwareImageInspectorTest {
         out.write(u32(address))
         out.write(0) // block checksum placeholder
         out.write(byteArrayOf(1, 2, 3, 4))
+        return out.toByteArray()
+    }
+
+    private fun contentImage(bootAddress: Long = 0L): ByteArray {
+        val out = ByteArrayOutputStream()
+        // The IMAGE parser searches for its own sparse-volume block magic.
+        // A leading 0x7B byte must not be mistaken for an FPSX block type.
+        out.write(byteArrayOf(0xB2.toByte(), 0, 0, 0, 4, 0, 0, 0, 0, 0x7B))
+
+        val boot = ByteArray(512)
+        boot[11] = 0x00
+        boot[12] = 0x02 // 512 bytes per sector
+        val totalSectors = 150_656L
+        for (index in 0 until 4) {
+            boot[32 + index] = (totalSectors ushr (index * 8)).toByte()
+        }
+        boot[510] = 0x55
+        boot[511] = 0xAA
+
+        out.write(byteArrayOf(0x54, 0x01, 0x30, 0x15, 0x00, 0x03, 0x00))
+        out.write(ByteArray(10))
+        out.write(u32(boot.size.toLong()))
+        out.write(u32(bootAddress))
+        out.write(0) // header checksum placeholder
+        out.write(boot)
         return out.toByteArray()
     }
 
