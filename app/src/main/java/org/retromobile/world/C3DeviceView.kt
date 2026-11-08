@@ -8,7 +8,6 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -28,8 +27,17 @@ class C3DeviceView @JvmOverloads constructor(
         val bottom: Float,
         val matrixIndex: Int
     ) {
-        fun contains(x: Float, y: Float): Boolean =
-            x >= left && x <= right && y >= top && y <= bottom
+        val centerX: Float get() = (left + right) / 2f
+        val centerY: Float get() = (top + bottom) / 2f
+        val radius: Float get() = minOf(right - left, bottom - top) * 0.23f
+
+        // Each visible circle is also the actual touch target; no large invisible
+        // rectangles extend into neighboring keys.
+        fun contains(x: Float, y: Float): Boolean {
+            val dx = x - centerX
+            val dy = y - centerY
+            return dx * dx + dy * dy <= radius * radius
+        }
     }
 
     private val photo: Bitmap? = decodePhoto(context)
@@ -41,6 +49,15 @@ class C3DeviceView @JvmOverloads constructor(
     private val rgbaPixels = IntArray(C3EmuEngine.LCD_WIDTH * C3EmuEngine.LCD_HEIGHT)
     private val photoPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val lcdPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val hotspotFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.argb(24, 255, 255, 255)
+    }
+    private val hotspotStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.8f
+        color = Color.argb(82, 255, 255, 255)
+    }
     private val lcdMatrix = Matrix()
     private val displayPath = Path()
     private val activePointers = mutableMapOf<Int, Int>()
@@ -186,6 +203,17 @@ class C3DeviceView @JvmOverloads constructor(
         canvas.clipPath(displayPath)
         canvas.drawBitmap(lcd, lcdMatrix, lcdPaint)
         canvas.restore()
+
+        // Subtle calibration circles are centred on the current key estimates.
+        // Their geometry is shared with hit-testing so the visible and active
+        // touch areas are identical. Positions remain easy to tune after photo review.
+        hotspots.forEach { hotspot ->
+            val x = hotspot.centerX * photoUnits
+            val y = hotspot.centerY * photoUnits
+            val radius = hotspot.radius * photoUnits
+            canvas.drawCircle(x, y, radius, hotspotFillPaint)
+            canvas.drawCircle(x, y, radius, hotspotStrokePaint)
+        }
         canvas.restore()
     }
 
