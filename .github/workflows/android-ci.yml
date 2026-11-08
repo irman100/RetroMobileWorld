@@ -84,8 +84,8 @@ jobs:
           for attempt in 1 2 3; do
             set +e
             output="$(gradle --no-daemon :app:testDebugUnitTest 2>&1)"
-            set -e
             status=$?
+            set -e
             printf '%s\n' "$output"
             if [ "$status" -eq 0 ]; then exit 0; fi
             if ! printf '%s' "$output" | grep -Eiq 'HTTP[^0-9]*5[0-9][0-9]|timed out|Could not GET|Could not download|Could not resolve'; then
@@ -103,8 +103,8 @@ jobs:
           for attempt in 1 2 3; do
             set +e
             output="$(gradle --no-daemon :app:assembleDebug 2>&1)"
-            set -e
             status=$?
+            set -e
             printf '%s\n' "$output"
             if [ "$status" -eq 0 ]; then exit 0; fi
             if ! printf '%s' "$output" | grep -Eiq 'HTTP[^0-9]*5[0-9][0-9]|timed out|Could not GET|Could not download|Could not resolve'; then
