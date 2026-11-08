@@ -28,12 +28,13 @@ class C3DeviceView @JvmOverloads constructor(
         val centerX: Float,
         val centerY: Float,
         val radius: Float,
-        val matrixIndex: Int
+        val matrixIndex: Int,
+        val hitRadius: Float = maxOf(radius * 2.3f, 30f)
     ) {
         fun contains(x: Float, y: Float): Boolean {
             val dx = x - centerX
             val dy = y - centerY
-            return dx * dx + dy * dy <= radius * radius
+            return dx * dx + dy * dy <= hitRadius * hitRadius
         }
     }
 

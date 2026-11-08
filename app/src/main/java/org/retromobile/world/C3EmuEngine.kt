@@ -5,9 +5,11 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.TimeZone
 import android.os.SystemClock
+import android.util.Log
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.LockSupport
 
 /**
  * Nokia C3-00 / RM-614 Series 40 machine backed by upstream c3emu.
@@ -33,6 +35,13 @@ class C3EmuEngine : PhoneSystemEngine {
     private val executor = Executors.newSingleThreadExecutor { task ->
         Thread(task, "c3emu-rm614-native").apply { isDaemon = true }
     }
+    private val matrixInput = C3MatrixInputQueue { index, pressed ->
+        C3EmuNative.nativeKey(index, if (pressed) 1 else 0)
+    }
+    private val realtimeLoopLock = Any()
+    @Volatile private var realtimeLoopRequested = false
+    private var realtimeLoopScheduled = false
+    @Volatile private var pauseFlushPending = false
     @Volatile private var nativeThread: Thread? = null
     private var storageDirectory: File? = null
     @Volatile private var cachedFrame: PhoneMachineFrame? = null
@@ -121,9 +130,16 @@ class C3EmuEngine : PhoneSystemEngine {
             "The C3-00 machine is not ready to run (state=$state)."
         }
 
-        nextWaitMillis = C3EmuNative.nativeRun(
-            budgetMicros.coerceIn(250L, 50_000L) / 1000.0
-        )
+        // Apply queued key edges immediately before the guest CPU runs. A tap
+        // released before this point is held through one complete native slice.
+        matrixInput.beginSlice()
+        try {
+            nextWaitMillis = C3EmuNative.nativeRun(
+                budgetMicros.coerceIn(250L, 50_000L) / 1000.0
+            )
+        } finally {
+            matrixInput.completeSlice()
+        }
         if (!nextWaitMillis.isFinite() || nextWaitMillis < 0.0) {
             val diagnostic = C3EmuNative.nativeResultText()
                 .ifBlank { "c3emu остановил эмулятор без диагностического сообщения." }
@@ -170,27 +186,140 @@ class C3EmuEngine : PhoneSystemEngine {
     }
 
     /**
-     * Run, fetch the changed LCD frame and drain audio in one queue operation.
-     * This keeps the thread-local native session on its single owner thread and
-     * avoids a second executor hop for every 16 ms emulator slice.
+     * Drive c3emu continuously on its single owner thread, matching the upstream
+     * web worker. The UI receives only new frames; it no longer schedules every
+     * 16 ms CPU slice through a main-thread round trip.
      */
-    fun runCycleAsync(
+    fun startRealtimeLoop(
         budgetMicros: Long,
         callback: (Result<C3EmuCycle>) -> Unit
     ) {
-        executor.execute {
-            nativeThread = Thread.currentThread()
-            val result = runCatching {
-                val step = runSlice(budgetMicros)
-                val frame = if (step.frameChanged) latestFrame() else null
-                val audio = drainAudio()
-                C3EmuCycle(step, frame, audio, nextWaitMillis)
+        synchronized(realtimeLoopLock) {
+            realtimeLoopRequested = true
+            if (realtimeLoopScheduled) {
+                nativeThread?.let(LockSupport::unpark)
+                return
             }
-            callback(result)
+            realtimeLoopScheduled = true
+            executor.execute { runRealtimeLoop(budgetMicros, callback) }
         }
     }
 
-    /** Queue touch/key edges directly on the native session's owner thread. */
+    private fun runRealtimeLoop(
+        budgetMicros: Long,
+        callback: (Result<C3EmuCycle>) -> Unit
+    ) {
+        nativeThread = Thread.currentThread()
+        var windowStartNanos = SystemClock.elapsedRealtimeNanos()
+        var windowCycles = 0
+        var windowFrames = 0
+        var windowCycleNanos = 0L
+        var maxCycleNanos = 0L
+
+        try {
+            while (realtimeLoopRequested && !closed) {
+                if (pauseFlushPending) {
+                    runCatching { persistDirtyStorageIfDue(force = true) }
+                    pauseFlushPending = false
+                }
+                if (state == PhoneMachineState.PAUSED) {
+                    LockSupport.parkNanos(50_000_000L)
+                    continue
+                }
+                if (state != PhoneMachineState.READY && state != PhoneMachineState.RUNNING) {
+                    realtimeLoopRequested = false
+                    break
+                }
+
+                val startedAt = SystemClock.elapsedRealtimeNanos()
+                val result = runCatching {
+                    val step = runSlice(budgetMicros)
+                    val frame = if (step.frameChanged) latestFrame() else null
+                    val audio = drainAudio()
+                    C3EmuCycle(step, frame, audio, nextWaitMillis)
+                }
+                val elapsed = (SystemClock.elapsedRealtimeNanos() - startedAt).coerceAtLeast(0L)
+                windowCycles += 1
+                windowCycleNanos += elapsed
+                maxCycleNanos = maxOf(maxCycleNanos, elapsed)
+                if (result.getOrNull()?.frame != null) windowFrames += 1
+
+                val now = SystemClock.elapsedRealtimeNanos()
+                val windowElapsed = now - windowStartNanos
+                if (windowElapsed >= 2_000_000_000L) {
+                    val nativeStats = runCatching { C3EmuNative.nativeStats() }
+                        .getOrDefault("unavailable")
+                    val cycleHz = windowCycles * 1_000_000_000.0 / windowElapsed
+                    val frameHz = windowFrames * 1_000_000_000.0 / windowElapsed
+                    val averageMs = if (windowCycles == 0) 0.0
+                        else windowCycleNanos / 1_000_000.0 / windowCycles
+                    val maxMs = maxCycleNanos / 1_000_000.0
+                    Log.i(
+                        "C3EmuPerf",
+                        "cycleHz=$cycleHz deliveredFps=$frameHz " +
+                            "cycleAvgMs=$averageMs cycleMaxMs=$maxMs native=$nativeStats"
+                    )
+                    windowStartNanos = now
+                    windowCycles = 0
+                    windowFrames = 0
+                    windowCycleNanos = 0L
+                    maxCycleNanos = 0L
+                }
+
+                try {
+                    callback(result)
+                } catch (error: Throwable) {
+                    Log.e("C3EmuPerf", "Realtime loop callback failed", error)
+                    realtimeLoopRequested = false
+                }
+
+                val cycle = result.getOrNull()
+                if (cycle == null || cycle.step.state == PhoneMachineState.FAILED) {
+                    realtimeLoopRequested = false
+                    break
+                }
+                if (!realtimeLoopRequested) break
+
+                // c3_run returns a WFI sleep duration or zero when another slice
+                // should run immediately. parkNanos is interruptible by touch input.
+                val waitMillis = cycle.waitMillis
+                if (waitMillis.isFinite() && waitMillis > 0.0) {
+                    LockSupport.parkNanos(
+                        (waitMillis.coerceAtMost(20.0) * 1_000_000.0).toLong()
+                    )
+                } else {
+                    Thread.yield()
+                }
+            }
+        } finally {
+            if (pauseFlushPending || state == PhoneMachineState.PAUSED) {
+                runCatching { persistDirtyStorageIfDue(force = true) }
+                pauseFlushPending = false
+            }
+            synchronized(realtimeLoopLock) {
+                realtimeLoopScheduled = false
+                // A resume may race with the previous task's final return. Re-arm
+                // here rather than losing the start request or creating two loops.
+                if (realtimeLoopRequested && !closed &&
+                    state in setOf(
+                        PhoneMachineState.READY,
+                        PhoneMachineState.RUNNING,
+                        PhoneMachineState.PAUSED
+                    )
+                ) {
+                    realtimeLoopScheduled = true
+                    executor.execute { runRealtimeLoop(budgetMicros, callback) }
+                }
+            }
+        }
+    }
+
+    fun stopRealtimeLoop() {
+        realtimeLoopRequested = false
+        nativeThread?.let(LockSupport::unpark)
+    }
+
+    /** Queue matrix edges for consumption before the next CPU slice. */
     fun sendMatrixKeyAsync(index: Int, pressed: Boolean) {
         if (index !in 0..255 || closed || state !in setOf(
                 PhoneMachineState.READY,
@@ -198,28 +327,13 @@ class C3EmuEngine : PhoneSystemEngine {
                 PhoneMachineState.PAUSED
             )
         ) return
-        executor.execute {
-            nativeThread = Thread.currentThread()
-            if (!closed && state in setOf(
-                    PhoneMachineState.READY,
-                    PhoneMachineState.RUNNING,
-                    PhoneMachineState.PAUSED
-                )
-            ) {
-                C3EmuNative.nativeKey(index, if (pressed) 1 else 0)
-            }
-        }
+        matrixInput.enqueue(index, pressed)
+        nativeThread?.let(LockSupport::unpark)
     }
 
-    /** Send one C3-00 physical keyboard matrix index. */
+    /** Both press and release edges are consumed on the native owner thread. */
     fun sendMatrixKey(index: Int, pressed: Boolean) {
-        if (index !in 0..255 || state !in setOf(
-                PhoneMachineState.READY,
-                PhoneMachineState.RUNNING,
-                PhoneMachineState.PAUSED
-            )
-        ) return
-        onNativeThread { C3EmuNative.nativeKey(index, if (pressed) 1 else 0) }
+        sendMatrixKeyAsync(index, pressed)
     }
 
     override fun latestFrame(): PhoneMachineFrame? = cachedFrame
@@ -237,25 +351,34 @@ class C3EmuEngine : PhoneSystemEngine {
     override fun pause() {
         if (state == PhoneMachineState.RUNNING || state == PhoneMachineState.READY) {
             state = PhoneMachineState.PAUSED
-            if (!closed) {
+            pauseFlushPending = true
+            stopRealtimeLoop()
+            val loopActive = synchronized(realtimeLoopLock) { realtimeLoopScheduled }
+            if (!closed && !loopActive) {
                 executor.execute {
                     nativeThread = Thread.currentThread()
                     runCatching { persistDirtyStorageIfDue(force = true) }
+                    pauseFlushPending = false
                 }
             }
         }
     }
 
     override fun resume() {
-        if (state == PhoneMachineState.PAUSED) state = PhoneMachineState.RUNNING
+        if (state == PhoneMachineState.PAUSED) {
+            state = PhoneMachineState.RUNNING
+            nativeThread?.let(LockSupport::unpark)
+        }
     }
 
     override fun stop() {
         if (closed) return
+        stopRealtimeLoop()
         if (state != PhoneMachineState.STOPPED) {
             runCatching {
                 onNativeThread {
                     persistDirtyStorageIfDue(force = true)
+                    matrixInput.clear()
                     C3EmuNative.nativeStop()
                 }
             }

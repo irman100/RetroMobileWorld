@@ -27,7 +27,8 @@ import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.Executors
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
-import kotlin.math.ceil
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Nokia C3-00 / RM-614. The device photograph is the complete physical shell;
@@ -57,45 +58,15 @@ class C3EmuActivity : Activity() {
     )
 
     @Volatile private var audioTrack: AudioTrack? = null
-    private var runningLoop = false
-    private var cycleInFlight = false
-    private var destroyed = false
-
-    private val loopRunnable: Runnable = object : Runnable {
-        override fun run() {
-            if (!runningLoop || destroyed || cycleInFlight) return
-            cycleInFlight = true
-            engine.runCycleAsync(CPU_BUDGET_MICROS) { result ->
-                // Audio is handed to AudioTrack away from the UI thread.
-                result.getOrNull()?.audio?.samples?.let(::queueAudio)
-                runOnUiThread {
-                    cycleInFlight = false
-                    if (destroyed) return@runOnUiThread
-
-                    result.onSuccess { cycle ->
-                        cycle.frame?.let(deviceView::showFrame)
-                        if (cycle.step.state == PhoneMachineState.FAILED) {
-                            stopRunLoop()
-                            stopAudio()
-                            showMessage("Эмулятор остановлен: " + (cycle.step.diagnostic ?: "ошибка"))
-                        } else if (runningLoop) {
-                            // Match upstream c3emu's short WFI sleep cap. A long
-                            // host delay otherwise postpones key input and the next
-                            // visible frame even when the guest has become runnable.
-                            val delay = if (cycle.waitMillis > 0.0) {
-                                ceil(cycle.waitMillis).toLong().coerceIn(1L, 20L)
-                            } else {
-                                0L
-                            }
-                            mainHandler.postDelayed(loopRunnable, delay)
-                        }
-                    }.onFailure { error ->
-                        stopRunLoop()
-                        showMessage("Ошибка эмулятора: " + (error.message ?: error.javaClass.simpleName))
-                    }
-                }
-            }
-        }
+    @Volatile private var runningLoop = false
+    @Volatile private var destroyed = false
+    private val pendingFrame = AtomicReference<PhoneMachineFrame?>()
+    private val frameRenderScheduled = AtomicBoolean(false)
+    private val frameRenderRunnable = Runnable {
+        val frame = pendingFrame.getAndSet(null)
+        if (!destroyed) frame?.let(deviceView::showFrame)
+        frameRenderScheduled.set(false)
+        if (pendingFrame.get() != null) scheduleFrameRender()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -323,16 +294,50 @@ class C3EmuActivity : Activity() {
         }
     }
 
+    private fun postFrame(frame: PhoneMachineFrame) {
+        pendingFrame.set(frame)
+        scheduleFrameRender()
+    }
+
+    private fun scheduleFrameRender() {
+        if (frameRenderScheduled.compareAndSet(false, true)) {
+            mainHandler.post(frameRenderRunnable)
+        }
+    }
+
     private fun startRunLoop() {
-        if (runningLoop) return
+        if (runningLoop || destroyed) return
         runningLoop = true
-        mainHandler.removeCallbacks(loopRunnable)
-        mainHandler.post(loopRunnable)
+        engine.startRealtimeLoop(CPU_BUDGET_MICROS) { result ->
+            result.onSuccess { cycle ->
+                // Audio stays off the UI thread. Frames are coalesced so a slow
+                // renderer never builds a queue of stale LCD images.
+                cycle.audio?.samples?.let(::queueAudio)
+                cycle.frame?.let(::postFrame)
+                if (cycle.step.state == PhoneMachineState.FAILED) {
+                    runningLoop = false
+                    mainHandler.post {
+                        if (!destroyed) {
+                            stopAudio()
+                            showMessage("Эмулятор остановлен: " + (cycle.step.diagnostic ?: "ошибка"))
+                        }
+                    }
+                }
+            }.onFailure { error ->
+                runningLoop = false
+                mainHandler.post {
+                    if (!destroyed) {
+                        stopAudio()
+                        showMessage("Ошибка эмулятора: " + (error.message ?: error.javaClass.simpleName))
+                    }
+                }
+            }
+        }
     }
 
     private fun stopRunLoop() {
         runningLoop = false
-        mainHandler.removeCallbacks(loopRunnable)
+        engine.stopRealtimeLoop()
     }
 
     private fun queueAudio(samples: ShortArray) {
@@ -469,6 +474,8 @@ class C3EmuActivity : Activity() {
     override fun onDestroy() {
         destroyed = true
         stopRunLoop()
+        mainHandler.removeCallbacks(frameRenderRunnable)
+        pendingFrame.set(null)
         stopAudio()
         audioExecutor.shutdown()
         fileExecutor.execute { engine.close() }
