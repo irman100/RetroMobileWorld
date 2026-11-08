@@ -74,11 +74,12 @@ class C3DeviceView @JvmOverloads constructor(
         Hotspot(197f, 1207f, 17f, 30),
         Hotspot(755f, 1207f, 17f, 255),
 
-        // Navigation ring: up, down, left, right and centre select.
-        Hotspot(480f, 1044f, 16f, 56),
-        Hotspot(480f, 1218f, 16f, 57),
-        Hotspot(343f, 1127f, 16f, 58),
-        Hotspot(616f, 1127f, 16f, 59),
+        // Navigation ring: directional targets sit on the chrome bezel,
+        // while OK stays centred on the inner select button.
+        Hotspot(480f, 1022f, 16f, 56),
+        Hotspot(480f, 1236f, 16f, 57),
+        Hotspot(362f, 1127f, 16f, 58),
+        Hotspot(598f, 1127f, 16f, 59),
         Hotspot(480f, 1127f, 20f, 60),
 
         // Physical QWERTY / number row. Key centres follow the photographed caps.
@@ -104,25 +105,28 @@ class C3DeviceView @JvmOverloads constructor(
         Hotspot(780f, 1466f, 14f, 33),
         Hotspot(865f, 1460f, 14f, 34),
 
-        Hotspot(95.5f, 1588f, 14f, 16),
-        Hotspot(180f, 1594f, 14f, 17),
-        Hotspot(266f, 1597f, 14f, 18),
-        Hotspot(351.5f, 1599f, 14f, 19),
-        Hotspot(437f, 1600f, 14f, 20),
-        Hotspot(523f, 1600f, 14f, 21),
-        Hotspot(608f, 1599f, 14f, 22),
-        Hotspot(694.5f, 1597f, 14f, 45),
-        Hotspot(780f, 1594f, 14f, 28),
-        Hotspot(865f, 1588f, 14f, 42),
+        // Lowest QWERTY row: centres follow the curved dark separators
+        // between the actual keycaps rather than a flat keyboard baseline.
+        Hotspot(95.5f, 1553f, 14f, 16),
+        Hotspot(180f, 1571f, 14f, 17),
+        Hotspot(266f, 1586f, 14f, 18),
+        Hotspot(351.5f, 1598f, 14f, 19),
+        Hotspot(437f, 1605f, 14f, 20),
+        Hotspot(523f, 1605f, 14f, 21),
+        Hotspot(608f, 1598f, 14f, 22),
+        Hotspot(694.5f, 1586f, 14f, 45),
+        Hotspot(780f, 1571f, 14f, 28),
+        Hotspot(865f, 1553f, 14f, 42),
 
-        // Bottom modifier row: Function, Shift, Symbol, space, punctuation, Ctrl.
-        Hotspot(95f, 1678f, 14f, 39),   // Diagonal-arrow Function key
-        Hotspot(180f, 1715f, 14f, 35), // Shift
-        Hotspot(266f, 1742f, 14f, 48), // Symbol
-        Hotspot(480f, 1738f, 20f, 49), // Space
-        Hotspot(670f, 1730f, 14f, 40), // Punctuation / symbol key (: and slash)
-        Hotspot(767f, 1730f, 14f, 41), // Comma / period key
-        Hotspot(863f, 1700f, 14f, 50)  // Ctrl
+        // Bottom modifier row: centres of each keycap, measured between
+        // its dark neighbouring dividers. The curved row is not evenly spaced.
+        Hotspot(106f, 1677f, 14f, 39),  // Diagonal-arrow Function key
+        Hotspot(234f, 1709f, 14f, 35), // Shift
+        Hotspot(333f, 1730f, 14f, 48), // Symbol / Car-labelled key
+        Hotspot(532f, 1740f, 20f, 49), // Space
+        Hotspot(730f, 1722f, 14f, 40), // Punctuation / symbol key (: and slash)
+        Hotspot(829f, 1698f, 14f, 41), // Comma / period key
+        Hotspot(900f, 1666f, 14f, 50)  // Ctrl
     )
 
     private val hotspotFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
