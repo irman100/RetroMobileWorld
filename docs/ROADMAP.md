@@ -38,6 +38,7 @@
 - [ ] Build version 0.4.1 (versionCode 5) locally and install it on the connected physical phone.
 - [ ] Confirm import of the user's RM-614 Phoenix ZIP with no 32-bit FPSX range error.
 - [ ] Boot Series 40 to a real LCD frame/home screen and verify physical touch-key press/release.
+- [x] Measure the C3-00 D-pad rim and lower keyboard keycap centres against the selected front-facing PNG (photo-space geometry only; phone validation remains separate).
 - [ ] Calibrate LCD aperture and physical keypad hit regions against the selected PNG on the phone.
 - [ ] Verify audio and persistent C: storage on the target phone.
 

@@ -46,6 +46,11 @@ The Android backend uses c3emu's own RM-614 hardware model. It must not be selec
 
 ## C3-00 UI follow-up
 
+- Photo-space touch geometry has been re-measured against the exact 968×1920 shell image: D-pad directions now sit on the chrome bezel midline, the lowest QWERTY row is centred between the curved dark key separators, and bottom modifier markers are centred on their individual caps.
+- D-pad centres: UP (480,1035), DOWN (480,1226), LEFT (378,1127), RIGHT (582,1127); OK remains (480,1127). Lowest letter-row Y centres: 1557,1574,1587,1598,1602,1603,1599,1589,1577,1561.
+- This is still a photo-based geometry pass. Actual press/release response and final alignment must be confirmed on the physical phone; leave the device-calibration task open.
+
+
 - First-pass touch geometry has been adjusted against the exact 968 × 1920 shell PNG: the four D-pad directions now sit on the chrome bezel, and the lowest alphabetic/modifier rows follow the photographed keycap centres. This is source-photo calibration only; visual alignment and press/release still require a physical-phone check.
 
 
