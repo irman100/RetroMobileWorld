@@ -1,0 +1,187 @@
+[CmdletBinding()]
+param(
+    [string]$Serial,
+    [string]$Branch = "feature/c3emu-touch-shell-speed-20261107",
+    [string]$NdkVersion = "27.2.12479018"
+)
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+function Invoke-Checked {
+    param(
+        [Parameter(Mandatory = $true)][string]$File,
+        [Parameter(Mandatory = $true)][string[]]$Arguments
+    )
+    & $File @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$File exited with code $LASTEXITCODE."
+    }
+}
+
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+Set-Location $repoRoot
+
+# Never switch branches or pull over local edits. Preserve all user work.
+$dirty = @(& git status --porcelain)
+if ($LASTEXITCODE -ne 0) { throw "Could not read Git working-tree status." }
+if ($dirty.Count -gt 0) {
+    Write-Host "Uncommitted files were found:"
+    $dirty | ForEach-Object { Write-Host "  $_" }
+    throw "Save or commit these changes first. The script will not stash, reset or delete anything."
+}
+
+$currentBranch = (& git branch --show-current).Trim()
+Write-Host "Current branch: $currentBranch"
+Write-Host "Target branch:  $Branch"
+
+Invoke-Checked -File "git" -Arguments @("fetch", "origin", $Branch)
+if ($currentBranch -ne $Branch) {
+    $localBranch = @(& git branch --list $Branch)
+    if ($localBranch.Count -gt 0) {
+        Invoke-Checked -File "git" -Arguments @("switch", $Branch)
+    } else {
+        Invoke-Checked -File "git" -Arguments @("switch", "--track", "-c", $Branch, "origin/$Branch")
+    }
+}
+Invoke-Checked -File "git" -Arguments @("pull", "--ff-only", "origin", $Branch)
+
+$commit = (& git rev-parse HEAD).Trim()
+Write-Host "Building commit: $commit"
+
+# Discover the installed SDK, including the D:\Android\Sdk location used by this PC.
+$sdkCandidates = @()
+if ($env:ANDROID_SDK_ROOT) { $sdkCandidates += $env:ANDROID_SDK_ROOT }
+if ($env:ANDROID_HOME) { $sdkCandidates += $env:ANDROID_HOME }
+
+$localProperties = Join-Path $repoRoot "local.properties"
+if (Test-Path -LiteralPath $localProperties -PathType Leaf) {
+    $sdkLine = Get-Content -LiteralPath $localProperties |
+        Where-Object { $_ -match '^\s*sdk\.dir=' } |
+        Select-Object -First 1
+    if ($sdkLine) {
+        $localSdk = ($sdkLine -replace '^\s*sdk\.dir=', '').Trim()
+        $localSdk = $localSdk.Replace('\\', '\').Replace('\:', ':').Replace('\=', '=').Replace('\ ', ' ')
+        if ($localSdk) { $sdkCandidates += $localSdk }
+    }
+}
+$sdkCandidates += @(
+    'D:\Android\Sdk',
+    (Join-Path $env:LOCALAPPDATA 'Android\Sdk'),
+    (Join-Path $env:ProgramFiles 'Android\Sdk'),
+    'C:\Android\Sdk'
+)
+
+$sdkRoot = $null
+foreach ($candidate in ($sdkCandidates | Select-Object -Unique)) {
+    if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+    $ndkCandidate = Join-Path $candidate "ndk\$NdkVersion"
+    if (Test-Path -LiteralPath $ndkCandidate -PathType Container) {
+        $sdkRoot = (Resolve-Path -LiteralPath $candidate).Path
+        break
+    }
+}
+if (-not $sdkRoot) {
+    throw "Android SDK with NDK $NdkVersion was not found. This PC previously reported D:\Android\Sdk; verify that NDK $NdkVersion is installed there."
+}
+
+$env:ANDROID_SDK_ROOT = $sdkRoot
+$env:ANDROID_HOME = $sdkRoot
+$Adb = Join-Path $sdkRoot "platform-tools\adb.exe"
+if (-not (Test-Path -LiteralPath $Adb -PathType Leaf)) {
+    $adbCommand = Get-Command adb -ErrorAction SilentlyContinue
+    if ($adbCommand) { $Adb = $adbCommand.Source }
+    else { throw "adb.exe was not found under $sdkRoot\platform-tools." }
+}
+
+Write-Host " "
+Write-Host "=== BUILD NATIVE C3-00 ENGINE ==="
+& (Join-Path $repoRoot "scripts\build-c3emu-android.ps1") -NdkVersion $NdkVersion
+if ($LASTEXITCODE -ne 0) { throw "Native C3-00 build failed." }
+
+Write-Host " "
+Write-Host "=== ANDROID TESTS + DEBUG APK ==="
+Invoke-Checked -File (Join-Path $repoRoot "gradlew.bat") -Arguments @(
+    "--no-daemon", ":app:testDebugUnitTest", ":app:assembleDebug"
+)
+
+$Apk = Join-Path $repoRoot "app\build\outputs\apk\debug\app-debug.apk"
+if (-not (Test-Path -LiteralPath $Apk -PathType Leaf)) {
+    throw "Debug APK was not produced: $Apk"
+}
+Write-Host " "
+Write-Host "APK ready:"
+Get-Item -LiteralPath $Apk | Select-Object FullName, Length, LastWriteTime
+
+Write-Host " "
+Write-Host "=== PHYSICAL ANDROID DEVICES ==="
+$deviceLines = @(& $Adb devices -l)
+if ($LASTEXITCODE -ne 0) { throw "adb devices failed." }
+$deviceLines | ForEach-Object { Write-Host $_ }
+
+$rows = @(& $Adb devices | Select-Object -Skip 1 | Where-Object { $_ -match '^\S+\s+\S+$' })
+$availablePhones = @()
+$unauthorizedPhones = @()
+foreach ($row in $rows) {
+    $parts = $row.Trim() -split '\s+'
+    $deviceSerial = $parts[0]
+    $deviceState = $parts[1]
+    if ($deviceSerial -match '^emulator[-_]') { continue }
+    if ($deviceState -eq "device") { $availablePhones += $deviceSerial }
+    if ($deviceState -eq "unauthorized") { $unauthorizedPhones += $deviceSerial }
+}
+
+if ($Serial) {
+    if ($Serial -match '^emulator[-_]') {
+        throw "Serial '$Serial' identifies an Android emulator, not a physical phone."
+    }
+    if ($Serial -notin $availablePhones) {
+        if ($Serial -in $unauthorizedPhones) {
+            throw "Phone $Serial is unauthorized. Unlock it and accept the USB debugging RSA prompt, then rerun this script."
+        }
+        throw "Phone $Serial is not in the ADB 'device' state. Check the USB cable, USB mode and USB debugging."
+    }
+} else {
+    if ($availablePhones.Count -eq 0) {
+        if ($unauthorizedPhones.Count -gt 0) {
+            throw "Phone detected but unauthorized: $($unauthorizedPhones -join ', '). Unlock it and accept the USB debugging RSA prompt, then rerun."
+        }
+        throw "No authorized physical phone found. Keep the phone connected, enable USB debugging and rerun."
+    }
+    if ($availablePhones.Count -ne 1) {
+        throw "Found $($availablePhones.Count) physical phones: $($availablePhones -join ', '). Rerun with -Serial <phone-serial>."
+    }
+    $Serial = $availablePhones[0]
+}
+
+Write-Host " "
+Write-Host "Selected physical phone: $Serial"
+$state = (& $Adb -s $Serial get-state).Trim()
+if ($state -ne "device") { throw "ADB state is '$state', expected 'device'." }
+
+$manufacturer = (& $Adb -s $Serial shell getprop ro.product.manufacturer).Trim()
+$model = (& $Adb -s $Serial shell getprop ro.product.model).Trim()
+$devOptions = (& $Adb -s $Serial shell settings get global development_settings_enabled).Trim()
+$adbEnabled = (& $Adb -s $Serial shell settings get global adb_enabled).Trim()
+Write-Host "Phone: $manufacturer $model"
+Write-Host "Developer options flag: $devOptions"
+Write-Host "USB debugging flag: $adbEnabled"
+
+if ($adbEnabled -ne "1") {
+    Write-Warning "Android does not report adb_enabled=1. Check Developer options > USB debugging on the phone."
+}
+
+Write-Host " "
+Write-Host "=== INSTALL LOCALLY BUILT APK ON THE PHYSICAL PHONE ==="
+Invoke-Checked -File $Adb -Arguments @("-s", $Serial, "install", "-r", $Apk)
+
+Write-Host " "
+Write-Host "=== LAUNCH RETRO MOBILE WORLD ON THE PHONE ==="
+Invoke-Checked -File $Adb -Arguments @("-s", $Serial, "shell", "monkey", "-p", "org.retromobile.world", "1")
+
+Write-Host " "
+Write-Host "=== INSTALLED PACKAGE ==="
+& $Adb -s $Serial shell dumpsys package org.retromobile.world |
+    Select-String -Pattern "versionCode=|versionName="
+Write-Host " "
+Write-Host "SUCCESS: locally built C3-00-enabled APK installed and launched on physical phone $Serial."
