@@ -366,15 +366,15 @@ class C3EmuEngine : PhoneSystemEngine {
 
         /** C3-00 matrix positions documented in the upstream c3emu KEYMAP. */
         fun matrixIndexFor(key: CanonicalKey): Int? = when (key) {
-            CanonicalKey.UP -> 56
-            CanonicalKey.DOWN -> 57
-            CanonicalKey.LEFT -> 58
-            CanonicalKey.RIGHT -> 59
-            CanonicalKey.SELECT -> 60
-            CanonicalKey.SOFT_LEFT -> 29
-            CanonicalKey.SOFT_RIGHT -> 43
-            CanonicalKey.CALL -> 30
-            CanonicalKey.END -> 255
+            CanonicalKey.UP -> C3KeyMatrix.UP
+            CanonicalKey.DOWN -> C3KeyMatrix.DOWN
+            CanonicalKey.LEFT -> C3KeyMatrix.LEFT
+            CanonicalKey.RIGHT -> C3KeyMatrix.RIGHT
+            CanonicalKey.SELECT -> C3KeyMatrix.SELECT
+            CanonicalKey.SOFT_LEFT -> C3KeyMatrix.SOFT_LEFT
+            CanonicalKey.SOFT_RIGHT -> C3KeyMatrix.SOFT_RIGHT
+            CanonicalKey.CALL -> C3KeyMatrix.CALL
+            CanonicalKey.END -> C3KeyMatrix.END
             CanonicalKey.BACK -> 34
             CanonicalKey.DIGIT_1 -> 3
             CanonicalKey.DIGIT_2 -> 4
