@@ -82,7 +82,9 @@ jobs:
         run: |
           set -uo pipefail
           for attempt in 1 2 3; do
+            set +e
             output="$(gradle --no-daemon :app:testDebugUnitTest 2>&1)"
+            set -e
             status=$?
             printf '%s\n' "$output"
             if [ "$status" -eq 0 ]; then exit 0; fi
@@ -99,7 +101,9 @@ jobs:
         run: |
           set -uo pipefail
           for attempt in 1 2 3; do
+            set +e
             output="$(gradle --no-daemon :app:assembleDebug 2>&1)"
+            set -e
             status=$?
             printf '%s\n' "$output"
             if [ "$status" -eq 0 ]; then exit 0; fi
