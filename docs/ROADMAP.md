@@ -39,6 +39,14 @@
 - [ ] Confirm import of the user's RM-614 Phoenix ZIP with no 32-bit FPSX range error.
 - [ ] Boot Series 40 to a real LCD frame/home screen and verify physical touch-key press/release.
 - [x] Measure the C3-00 D-pad rim and lower keyboard keycap centres against the selected front-facing PNG (photo-space geometry only; phone validation remains separate).
+- [x] Draw near-transparent touch markers at the physical keycap centres and bind them to the same hit regions.
+- [x] Centralize physical key matrix indices and test key down/up, pointer movement, multi-touch and cancel.
+- [x] Parse RM-614 `.image_*` sparse FAT16 content images and cover multiple sparse blocks in unit tests.
+- [x] Pair PPM and IMAGE only when software release and regional suffix match.
+- [x] Transfer imported firmware from app-private file paths directly into native c3emu buffers.
+- [x] Reduce host-side stalls: offload blocking audio, match upstream 16 ms slices / 15 ms frame cadence / 20 ms WFI cap, and throttle flash persistence.
+- [ ] Import the actual user-supplied RM-614 IMAGE file on the physical phone and confirm factory C: content appears on first boot.
+- [ ] Measure guest frame rate and input-to-screen latency on the physical phone after installation.
 - [ ] Calibrate LCD aperture and physical keypad hit regions against the selected PNG on the phone.
 - [ ] Verify audio and persistent C: storage on the target phone.
 

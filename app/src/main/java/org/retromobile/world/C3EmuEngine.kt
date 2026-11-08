@@ -172,7 +172,7 @@ class C3EmuEngine : PhoneSystemEngine {
     /**
      * Run, fetch the changed LCD frame and drain audio in one queue operation.
      * This keeps the thread-local native session on its single owner thread and
-     * avoids a second executor hop for every 12 ms emulator slice.
+     * avoids a second executor hop for every 16 ms emulator slice.
      */
     fun runCycleAsync(
         budgetMicros: Long,

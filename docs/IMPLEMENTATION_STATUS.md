@@ -46,18 +46,22 @@ The Android backend uses c3emu's own RM-614 hardware model. It must not be selec
 
 ## C3-00 UI follow-up
 
-- Photo-space touch geometry has been re-measured against the exact 968×1920 shell image: D-pad directions now sit on the chrome bezel midline, the lowest QWERTY row is centred between the curved dark key separators, and bottom modifier markers are centred on their individual caps.
-- D-pad centres: UP (480,1035), DOWN (480,1226), LEFT (378,1127), RIGHT (582,1127); OK remains (480,1127). Lowest letter-row Y centres: 1557,1574,1587,1598,1602,1603,1599,1589,1577,1561.
-- This is still a photo-based geometry pass. Actual press/release response and final alignment must be confirmed on the physical phone; leave the device-calibration task open.
+- The exact front-facing shell image `docs/75-205-263-02.png` (968×1920) is the only geometry reference. Do not replace it with another photo.
+- The LCD source is 320×240 and is stretched to the full cutout using exclusive photo edges (82,289)–(885,899). A physical-phone screenshot check is still required.
+- Touch circles have a near-transparent fill and low-alpha outline (fill alpha 2/255, stroke alpha 24/255); marker centres and touch hit centres are identical.
+- Physical matrix indices are centralized in `C3KeyMatrix.kt` and cross-checked against pinned upstream c3emu. Contacts=38, Messaging=52, Function=50, Ctrl=27; D-pad=56–60; soft keys=29/43; Call=30; End=255.
+- `C3KeyPressLedger` handles key-down/key-up, pointer movement, multi-touch ref-counting and cancel. Unit tests cover those behaviours.
+- Lowest QWERTY row and bottom modifier keycap centres follow the photographed curved separators, recorded in `docs/experiments/C3EMU_PROGRESS_LOG.md`.
+- These are source-photo calibrations and unit-level input-path checks. Real phone alignment and physical touch response are still pending.
 
+## C3-00 firmware intake and host-loop tuning
 
-- First-pass touch geometry has been adjusted against the exact 968 × 1920 shell PNG: the four D-pad directions now sit on the chrome bezel, and the lowest alphabetic/modifier rows follow the photographed keycap centres. This is source-photo calibration only; visual alignment and press/release still require a physical-phone check.
-
-
-- User-selected image docs/75-205-263-02.png is the shell reference; do not substitute a marketplace photo or an unrelated generated image.
-- Verify the LCD overlay against the image's real display opening on the physical phone.
-- Verify touch hit regions against the physical keypad and confirm press/release behaviour.
-- Do not mark LCD geometry or all physical-key coordinates calibrated until a screenshot and touch test confirm alignment.
+- `.image_*` uses the RM-614 sparse FAT16 content-image parser, not the generic FPSX parser. The parser validates the boot sector and multi-block boundaries; actual import of the user's IMAGE file on the phone is not yet confirmed.
+- MCUSW, PPM and IMAGE selection is matched by software release and shared regional suffix (MH1 with MH1; MR with MR). A saved C: disk is preserved; a new IMAGE only seeds C: when no saved disk exists.
+- JNI now reads imported app-private firmware paths directly into c3emu-owned native buffers to avoid several copies of large IMAGE files.
+- Host loop uses 16 ms native slices, 15 ms LCD frame cadence and a 20 ms WFI wait cap, matching upstream worker timing. Blocking audio writes run on a separate bounded worker; dirty flash storage is throttled to 1 second with forced flush on pause/stop/failure.
+- These are host-overhead optimizations, not a measured increase beyond upstream real-time emulation. Physical-device FPS/latency measurement remains pending.
+- CI now installs Gradle 9.6.0 through `gradle/actions/setup-gradle@v6`, caches distributions/dependencies and retries transient HTTP 5xx/network failures. Current head checks remain linked from PR #3.
 
 ## RM-217 verification
 
