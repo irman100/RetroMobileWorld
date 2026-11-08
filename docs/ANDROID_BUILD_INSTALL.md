@@ -51,7 +51,7 @@
 Только если вы подтверждаете потерю приватных данных приложения, можно явно разрешить удаление старой установки и повторную установку локальной сборки:
 
 ```powershell
-.\scripts\build-install-c3emu-phone.ps1 -UninstallOnSignatureMismatch
+.\scripts\build-install-c3emu-phone.ps1 -InstallOnly -UninstallOnSignatureMismatch
 ```
 
 После первой попытки сборки APK и commit-stamp уже сохранены, поэтому -InstallOnly не повторяет native build и тесты. Эти флаги удаляют установленный пакет org.retromobile.world только после того, как ADB подтвердил конфликт сертификатов; Android при удалении стирает app-private firmware library, C: storage и настройки. Исходные ZIP-файлы вне приложения при этом не удаляются.
