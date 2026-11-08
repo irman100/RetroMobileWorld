@@ -34,6 +34,7 @@
 - [x] Add a regression test for an FPSX region crossing the unsigned 32-bit address boundary.
 - [x] Package the user-selected front-facing C3-00 shell image with a pinned Git blob integrity check.
 - [x] Add Windows SDK discovery and a safe local build/test/install workflow for a physical Android phone.
+- [x] Reposition first-pass C3 D-pad and lower-keyboard hotspots against the exact shell PNG (physical-phone verification remains pending).
 - [ ] Build version 0.4.1 (versionCode 5) locally and install it on the connected physical phone.
 - [ ] Confirm import of the user's RM-614 Phoenix ZIP with no 32-bit FPSX range error.
 - [ ] Boot Series 40 to a real LCD frame/home screen and verify physical touch-key press/release.
