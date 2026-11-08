@@ -198,7 +198,7 @@ class FirmwareImageInspectorTest {
             boot[32 + index] = (totalSectors ushr (index * 8)).toByte()
         }
         boot[510] = 0x55
-        boot[511] = 0xAA
+        boot[511] = 0xAA.toByte()
 
         out.write(byteArrayOf(0x54, 0x01, 0x30, 0x15, 0x00, 0x03, 0x00))
         out.write(ByteArray(10))
