@@ -83,3 +83,21 @@ The RM-217 desktop probe still does not boot the Nokia 6300 operating system. It
 - Android frame and audio delivery need measurement on the test phone.
 - C3-00 QWERTY support is via an on-screen key matrix; device-specific key mapping still needs end-to-end verification.
 - No successful RM-217 OS boot has been achieved.
+
+
+## C3-00 — first confirmed physical Series 40 boot and responsiveness follow-up (8 November 2026)
+
+The user has confirmed that the RM-614 Phoenix ZIP imports and launches the full Series 40 firmware on the physical phone. The user can navigate the firmware menus and attempt to launch applications. Some touch keys still appear to miss taps and transitions are sluggish; full input/performance verification is not complete.
+
+New responsiveness code at `51e60a11dc5b1c4be1eb20cff0324c26ce81c086`:
+- `C3MatrixInputQueue` applies input edges immediately before native CPU slices and guarantees a quick tap is visible for at least one complete slice.
+- Touch hit areas are larger without changing the faint visible marker diameter/alpha.
+- c3emu runs in a continuous single-owner native worker rather than bouncing through the Activity main thread after every slice.
+- LCD frames are coalesced to avoid a backlog of stale images.
+- `C3EmuPerf` Logcat telemetry reports cycle rate, delivered FPS, average/max cycle time and upstream c3emu stats every two seconds.
+
+**CI run 42475334037 on 51e60a1: SUCCESS** — native build for arm64-v8a/armeabi-v7a/x86_64, Android unit tests (including 4 C3MatrixInputQueue tests), debug APK assembly and upload.
+
+Artifact ID: `13615556057`; ZIP SHA-256: `9e6cf0f7eeb7cbdf55611a97576cbd9cc1820e4a546ebb743b93d3c496ffb531`; APK SHA-256: `d5ccb5e691afd1b9c0ae886c8fd314bb19bd14cc0bb3d18775f0fe063dbc0a30`. CI run: https://github.com/irman100/RetroMobileWorld/actions/runs/42475334037.
+
+The new build has not yet been installed and measured on the physical phone. Do not claim a measured speed/FPS gain until `C3EmuPerf` logs and real key tests are captured. Preserve existing app-private storage and C: data.

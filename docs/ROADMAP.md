@@ -35,9 +35,10 @@
 - [x] Package the user-selected front-facing C3-00 shell image with a pinned Git blob integrity check.
 - [x] Add Windows SDK discovery and a safe local build/test/install workflow for a physical Android phone.
 - [x] Reposition first-pass C3 D-pad and lower-keyboard hotspots against the exact shell PNG (physical-phone verification remains pending).
-- [ ] Build version 0.4.1 (versionCode 5) locally and install it on the connected physical phone.
-- [ ] Confirm import of the user's RM-614 Phoenix ZIP with no 32-bit FPSX range error.
-- [ ] Boot Series 40 to a real LCD frame/home screen and verify physical touch-key press/release.
+- [ ] Install the latest responsiveness build from commit `51e60a1` over the existing app without clearing app data.
+- [x] Confirm import of the user's RM-614 Phoenix ZIP and successful launch of the full Series 40 firmware on the physical phone (user-confirmed 8 November 2026).
+- [x] Confirm guest firmware UI appears and the user can navigate menus / attempt to open applications.
+- [ ] Verify every physical touch key, including fast taps, holds, releases, D-pad and QWERTY after installing the input-queue fix.
 - [x] Measure the C3-00 D-pad rim and lower keyboard keycap centres against the selected front-facing PNG (photo-space geometry only; phone validation remains separate).
 - [x] Draw near-transparent touch markers at the physical keycap centres and bind them to the same hit regions.
 - [x] Centralize physical key matrix indices and test key down/up, pointer movement, multi-touch and cancel.
@@ -45,11 +46,14 @@
 - [x] Pair PPM and IMAGE only when software release and regional suffix match.
 - [x] Transfer imported firmware from app-private file paths directly into native c3emu buffers.
 - [x] Reduce host-side stalls: offload blocking audio, match upstream 16 ms slices / 15 ms frame cadence / 20 ms WFI cap, and throttle flash persistence.
+- [x] Fix dropped quick taps by retaining key-down through one complete native CPU slice; enlarge invisible touch hit areas while preserving faint marker appearance.
+- [x] Replace Activity-per-slice round trips with a continuous single-owner native worker and coalesce stale LCD frames.
+- [x] Add `C3EmuPerf` Logcat counters for cycle rate, delivered FPS and native c3emu stats; CI run 42475334037 green on commit 51e60a1.
 - [x] Pass Android CI on C3 touch matrix / key-edge tests and sparse multi-block IMAGE fixture; assemble and upload debug APK artifact `13614395927` (latest branch head `4c00850`, push + PR runs both green).
 - [x] Pin only Kotlin compiler embeddable to exclusive WSO2 Maven POM/artifact source to avoid the recurring Kotlin 2.2.10 GitHub Releases HTTP 504.
 
 - [ ] Import the actual user-supplied RM-614 IMAGE file on the physical phone and confirm factory C: content appears on first boot.
-- [ ] Measure guest frame rate and input-to-screen latency on the physical phone after installation.
+- [ ] Install commit `51e60a1` build and measure guest frame rate and input-to-screen latency on the physical phone from `C3EmuPerf` logs.
 - [ ] Calibrate LCD aperture and physical keypad hit regions against the selected PNG on the phone.
 - [ ] Verify audio and persistent C: storage on the target phone.
 

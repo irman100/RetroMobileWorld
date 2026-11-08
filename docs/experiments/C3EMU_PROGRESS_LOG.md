@@ -307,3 +307,54 @@ The selected 968×1920 shell PNG contains a fully transparent rectangular screen
 - Check LCD fit on the device, sound, C: persistence, and measure frame/input latency.
 
 CI proves source compilation, native ABI build, unit tests and APK assembly only. It does not prove the user's actual firmware boots or that touch/LCD/audio are correct on the handset.
+
+
+## 12. Первый подтверждённый запуск RM-614 и отзывчивость клавиатуры — 8 ноября 2026
+
+### Результат на физическом телефоне
+
+Пользователь подтвердил:
+- выбран Phoenix ZIP для RM-614;
+- ZIP импортировался и запустил полноценную Nokia Series 40;
+- после загрузки пользователь смог перейти к меню и попробовать запускать разные приложения;
+- при этом часть touch-клавиш субъективно не реагировала, а переходы/запуск приложений выглядели заторможенными или зависающими.
+
+Это первый подтверждённый пользователем запуск полноценной гостевой прошивки C3-00 на телефоне. Это не следует путать с завершённой проверкой всех физических клавиш, FPS или стабильности приложений: эти проверки остаются открытыми.
+
+### Найденная причина потери коротких нажатий
+
+До этого исправления `sendMatrixKeyAsync` ставил key-down и key-up двумя независимыми задачами в executor. Если короткий тап полностью происходил между двумя CPU slices, native worker мог обработать down и up подряд до следующего `c3_run`. Гостевой CPU в таком случае вообще не видел клавишу нажатой.
+
+### Исправление в коммите `51e60a11dc5b1c4be1eb20cff0324c26ce81c086`
+
+- Добавлен `C3MatrixInputQueue`: key edges принимаются потокобезопасно и применяются непосредственно перед очередным native CPU slice. Быстрый тап удерживает клавишу как минимум на один полный slice; отпускание происходит на следующей границе цикла.
+- Очередь корректно отменяет отложенное отпускание при повторном нажатии и сбрасывает удерживаемые клавиши перед остановкой native-машины.
+- Touch hit-radius увеличен до `max(radius * 2.3, 30)` в фото-координатах. Сами нарисованные едва заметные маркеры не увеличивались, их видимость не изменилась.
+- Activity больше не делает main-thread round trip после каждого 16 ms native slice. Вместо этого один непрерывный цикл выполняется на единственном native owner thread, по модели upstream c3emu web worker.
+- Для LCD обновлений используется coalescing: если UI не успевает отрисовать очередной кадр, сохраняется только последний кадр, устаревшая очередь не накапливается.
+- Добавлена двухсекундная диагностика Logcat с тегом `C3EmuPerf`: cycleHz, deliveredFps, среднее/максимальное время цикла и upstream `c3_stats()`.
+
+### Проверка
+
+**GitHub Actions run `42475334037` — SUCCESS** для коммита `51e60a1`.
+- Native c3emu JNI libraries: arm64-v8a, armeabi-v7a, x86_64 — success.
+- Android `:app:testDebugUnitTest` — success, включая 4 новых теста очереди коротких нажатий и отпускания клавиш.
+- Android `:app:assembleDebug` — success.
+- Debug APK upload — success.
+
+Артефакт:
+- artifact ID: `13615556057`;
+- ZIP SHA-256: `9e6cf0f7eeb7cbdf55611a97576cbd9cc1820e4a546ebb743b93d3c496ffb531`;
+- APK size: 12,494,146 bytes;
+- APK SHA-256: `d5ccb5e691afd1b9c0ae886c8fd314bb19bd14cc0bb3d18775f0fe063dbc0a30`;
+- run: https://github.com/irman100/RetroMobileWorld/actions/runs/42475334037;
+- artifact expires 22 November 2026 11:23 UTC.
+
+### Что ещё нельзя считать доказанным
+
+Новый код скомпилирован и прошёл unit tests, но пока не установлен и не измерен на физическом телефоне. Поэтому фактический прирост FPS/скорости не заявляется. Следующий device checkpoint:
+- установить новую сборку поверх существующего приложения, не очищая данные и не удаляя C:;
+- отдельно проверить короткие нажатия, удержание, D-pad, soft keys и клавиатуру;
+- собрать `C3EmuPerf` Logcat после загрузки, переходов меню и запуска приложения;
+- по cycleHz/deliveredFps/native stats определить, где остаётся предел: CPU interpreter, LCD refresh, audio или app launch/storage.
+
