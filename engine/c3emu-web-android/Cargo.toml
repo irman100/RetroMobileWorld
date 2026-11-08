@@ -1,0 +1,13 @@
+[package]
+name = "c3emu-web"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+c3emu = { git = "https://github.com/androettop/c3emu", rev = "9b0d3ae2da326e109428f64d8760ea823ee1b648", default-features = false }
+fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc"] }

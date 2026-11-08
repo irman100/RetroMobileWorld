@@ -85,3 +85,12 @@
 - [ ] Add a compatibility database and community correction workflow.
 - [ ] Add more verified phone profiles and original shell skins.
 - [ ] Consider sound packs, themes, wallpapers and local preservation bundles with rights metadata.
+
+
+## C3-00 follow-up boundaries — 8 November 2026
+
+- [x] Re-centre first/second-row key markers and expand their touch regions to match the physical keycaps; preserve rows three and four.
+- [x] Add Android KEYBOARD_TAP diagnostics and display-vsync frame invalidation.
+- [x] Synchronize the running guest PMU RTC from Android local time/timezone, including time/timezone broadcasts.
+- [x] Contain Rust panics inside the c3emu C ABI and preserve persistent flash for a manual guest reboot.
+- [ ] Implement real guest Internet: first model SIM/modem/ISI and packet transport, then bridge to Android connectivity and verify DNS/TCP/TLS from a Series 40 application. This is not available in the pinned upstream core yet.

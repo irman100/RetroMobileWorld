@@ -10,6 +10,7 @@ import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.LockSupport
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Nokia C3-00 / RM-614 Series 40 machine backed by upstream c3emu.
@@ -39,6 +40,8 @@ class C3EmuEngine : PhoneSystemEngine {
         C3EmuNative.nativeKey(index, if (pressed) 1 else 0)
     }
     private val realtimeLoopLock = Any()
+    private data class HostClock(val unixSeconds: Long, val utcOffsetSeconds: Long)
+    private val pendingHostClock = AtomicReference<HostClock?>(null)
     @Volatile private var realtimeLoopRequested = false
     private var realtimeLoopScheduled = false
     @Volatile private var pauseFlushPending = false
@@ -106,6 +109,7 @@ class C3EmuEngine : PhoneSystemEngine {
             nowMillis / 1000.0,
             TimeZone.getDefault().getOffset(nowMillis) / 1000.0
         )
+        pendingHostClock.set(null)
 
         restorePersistentStorage(persistentStorageDirectory)
         val error = C3EmuNative.nativeBoot()
@@ -130,8 +134,9 @@ class C3EmuEngine : PhoneSystemEngine {
             "The C3-00 machine is not ready to run (state=$state)."
         }
 
-        // Apply queued key edges immediately before the guest CPU runs. A tap
-        // released before this point is held through one complete native slice.
+        // Apply host clock changes and queued key edges on the same native owner
+        // thread as c3emu. No JNI call is made from Android's broadcast/UI thread.
+        applyPendingHostClockSync()
         matrixInput.beginSlice()
         try {
             nextWaitMillis = C3EmuNative.nativeRun(
@@ -329,6 +334,28 @@ class C3EmuEngine : PhoneSystemEngine {
     fun stopRealtimeLoop() {
         realtimeLoopRequested = false
         nativeThread?.let(LockSupport::unpark)
+    }
+
+    /**
+     * Receive a host clock update without crossing into JNI from the UI thread.
+     * The realtime owner thread applies it at the next CPU-slice boundary.
+     */
+    fun requestHostClockSync(unixSeconds: Long, utcOffsetSeconds: Long) {
+        if (closed) return
+        pendingHostClock.set(HostClock(unixSeconds, utcOffsetSeconds))
+        nativeThread?.let(LockSupport::unpark)
+    }
+
+    private fun applyPendingHostClockSync() {
+        val update = pendingHostClock.getAndSet(null) ?: return
+        runCatching {
+            C3EmuNative.nativeSetTime(
+                update.unixSeconds.toDouble(),
+                update.utcOffsetSeconds.toDouble()
+            )
+        }.onFailure { error ->
+            Log.e("C3EmuClock", "Unable to sync host date/time to the guest RTC", error)
+        }
     }
 
     /** Queue matrix edges for consumption before the next CPU slice. */

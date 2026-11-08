@@ -2,7 +2,10 @@ package org.retromobile.world
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.database.Cursor
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -22,6 +25,7 @@ import android.widget.FrameLayout
 import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import java.io.File
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.Executors
@@ -41,6 +45,12 @@ class C3EmuActivity : Activity() {
     private var pendingPickerKind: FirmwareImageKind? = null
 
     private val engine = C3EmuEngine()
+    private var hostClockReceiverRegistered = false
+    private val hostClockReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            syncHostClock()
+        }
+    }
     private val fileExecutor = Executors.newSingleThreadExecutor { task ->
         Thread(task, "c3emu-files").apply { isDaemon = true }
     }
@@ -79,7 +89,30 @@ class C3EmuActivity : Activity() {
         window.navigationBarColor = Color.BLACK
         library = C3FirmwareLibrary(this)
         buildDeviceUi()
+        registerHostClockReceiver()
+        syncHostClock()
         refreshFirmwareStatus()
+    }
+
+    private fun registerHostClockReceiver() {
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+            addAction(Intent.ACTION_TIME_TICK)
+        }
+        ContextCompat.registerReceiver(
+            this,
+            hostClockReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        hostClockReceiverRegistered = true
+    }
+
+    private fun syncHostClock() {
+        val nowMillis = System.currentTimeMillis()
+        val offsetSeconds = TimeZone.getDefault().getOffset(nowMillis).toLong() / 1000L
+        engine.requestHostClockSync(nowMillis / 1000L, offsetSeconds)
     }
 
     private fun buildDeviceUi() {
@@ -323,7 +356,11 @@ class C3EmuActivity : Activity() {
                     mainHandler.post {
                         if (!destroyed) {
                             stopAudio()
-                            showMessage("Эмулятор остановлен: " + (cycle.step.diagnostic ?: "ошибка"))
+                            showMessage(
+                            "Гостевая Nokia остановилась. Память C: сохранена. " +
+                                "Открой меню и выбери «Запустить / перезапустить». " +
+                                (cycle.step.diagnostic ?: "ошибка")
+                        )
                         }
                     }
                 }
@@ -461,6 +498,7 @@ class C3EmuActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        syncHostClock()
         if (engine.state == PhoneMachineState.PAUSED) engine.resume()
         if (engine.state == PhoneMachineState.RUNNING || engine.state == PhoneMachineState.READY) {
             runCatching { audioTrack?.play() }
@@ -477,6 +515,10 @@ class C3EmuActivity : Activity() {
 
     override fun onDestroy() {
         destroyed = true
+        if (hostClockReceiverRegistered) {
+            runCatching { unregisterReceiver(hostClockReceiver) }
+            hostClockReceiverRegistered = false
+        }
         stopRunLoop()
         pendingFrame.set(null)
         stopAudio()

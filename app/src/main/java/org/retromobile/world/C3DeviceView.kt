@@ -9,6 +9,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.util.AttributeSet
+import android.util.Log
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
@@ -30,12 +31,13 @@ class C3DeviceView @JvmOverloads constructor(
         val centerY: Float,
         val radius: Float,
         val matrixIndex: Int,
-        val hitRadius: Float = maxOf(radius * 2.3f, 30f)
+        val hitRadiusX: Float = maxOf(radius * 2.3f, 30f),
+        val hitRadiusY: Float = maxOf(radius * 2.3f, 30f)
     ) {
         fun contains(x: Float, y: Float): Boolean {
-            val dx = x - centerX
-            val dy = y - centerY
-            return dx * dx + dy * dy <= hitRadius * hitRadius
+            val nx = (x - centerX) / hitRadiusX
+            val ny = (y - centerY) / hitRadiusY
+            return nx * nx + ny * ny <= 1f
         }
     }
 
@@ -52,15 +54,21 @@ class C3DeviceView @JvmOverloads constructor(
     private val lcdMatrix = Matrix()
     private val displayPath = Path()
     private val keyPressLedger = C3KeyPressLedger { key, pressed ->
-        // One short system-standard keyboard haptic per new key-down edge.
-        // The ledger suppresses duplicate feedback for held/multi-touch keys.
-        if (pressed) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        // One short Android keyboard haptic per unique key-down. Respect the
+        // device-wide haptics preference; do not force vibration over user settings.
+        if (pressed) {
+            val performed = performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            Log.d("C3EmuHaptics", "matrixKey=$key keyboardTap=$performed")
+        }
         onMatrixKey?.invoke(key, pressed)
     }
 
     private var imageScale = 1f
     private var imageLeft = 0f
     private var imageTop = 0f
+    private var photoScaleX = 1f
+    private var photoScaleY = 1f
+    private var geometryReady = false
 
     var onMatrixKey: ((Int, Boolean) -> Unit)? = null
 
@@ -91,27 +99,29 @@ class C3DeviceView @JvmOverloads constructor(
         Hotspot(480f, 1127f, 20f, C3KeyMatrix.SELECT),
 
         // Physical QWERTY / number row. Key centres follow the photographed caps.
-        Hotspot(95.5f, 1339f, 14f, 0),
-        Hotspot(180f, 1341f, 14f, 1),
-        Hotspot(266f, 1343f, 14f, 2),
-        Hotspot(351.5f, 1344f, 14f, 3),
-        Hotspot(437f, 1345f, 14f, 4),
-        Hotspot(523f, 1345f, 14f, 5),
-        Hotspot(608f, 1344f, 14f, 6),
-        Hotspot(694.5f, 1343f, 14f, 24),
-        Hotspot(780f, 1341f, 14f, 25),
-        Hotspot(865f, 1339f, 14f, 26),
+        // Centres measured at the midpoint between the photographed keycap dividers.
+        // Elliptical targets cover each physical key face without crossing its neighbours.
+        Hotspot(95.5f, 1315f, 14f, 0, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(180f, 1324f, 14f, 1, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(266f, 1330f, 14f, 2, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(351.5f, 1335f, 14f, 3, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(437f, 1337f, 14f, 4, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(523f, 1338f, 14f, 5, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(609f, 1336f, 14f, 6, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(694.5f, 1332f, 14f, 24, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(780f, 1327f, 14f, 25, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(865f, 1320f, 14f, 26, hitRadiusX = 40f, hitRadiusY = 52f),
 
-        Hotspot(95.5f, 1466f, 14f, 8),
-        Hotspot(180f, 1467f, 14f, 9),
-        Hotspot(266f, 1469f, 14f, 10),
-        Hotspot(351.5f, 1471f, 14f, 11),
-        Hotspot(437f, 1472f, 14f, 12),
-        Hotspot(523f, 1472f, 14f, 13),
-        Hotspot(608f, 1471f, 14f, 14),
-        Hotspot(694.5f, 1469f, 14f, 32),
-        Hotspot(780f, 1467f, 14f, 33),
-        Hotspot(865f, 1466f, 14f, 34),
+        Hotspot(97.5f, 1436f, 14f, 8, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(181f, 1449f, 14f, 9, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(266f, 1459f, 14f, 10, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(352f, 1467f, 14f, 11, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(437.5f, 1470f, 14f, 12, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(523f, 1471f, 14f, 13, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(608.5f, 1468f, 14f, 14, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(693f, 1461f, 14f, 32, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(778f, 1452f, 14f, 33, hitRadiusX = 40f, hitRadiusY = 52f),
+        Hotspot(863f, 1440f, 14f, 34, hitRadiusX = 40f, hitRadiusY = 52f),
 
         // Lowest QWERTY row: centres follow the curved dark separators
         // between the actual keycaps rather than a flat keyboard baseline.
@@ -150,7 +160,58 @@ class C3DeviceView @JvmOverloads constructor(
     init {
         setLayerType(LAYER_TYPE_HARDWARE, null)
         isClickable = true
+        isHapticFeedbackEnabled = true
         contentDescription = "Nokia C3-00 with interactive physical keyboard"
+    }
+
+    override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight)
+        updatePhotoGeometry(width, height)
+    }
+
+    /**
+     * Cache the shell/LCD transform when the view size changes, not on every
+     * LCD frame. This keeps matrix and path construction out of the draw path.
+     */
+    private fun updatePhotoGeometry(viewWidth: Int, viewHeight: Int) {
+        val image = photo ?: return
+        if (viewWidth <= 0 || viewHeight <= 0) {
+            geometryReady = false
+            return
+        }
+        imageScale = minOf(
+            viewWidth.toFloat() / image.width.coerceAtLeast(1),
+            viewHeight.toFloat() / image.height.coerceAtLeast(1)
+        )
+        imageLeft = (viewWidth - image.width * imageScale) / 2f
+        imageTop = (viewHeight - image.height * imageScale) / 2f
+        photoScaleX = image.width / PHOTO_REFERENCE_WIDTH
+        photoScaleY = image.height / PHOTO_REFERENCE_HEIGHT
+
+        val points = floatArrayOf(
+            LCD_LEFT * photoScaleX, LCD_TOP * photoScaleY,
+            LCD_RIGHT * photoScaleX, LCD_TOP * photoScaleY,
+            LCD_RIGHT * photoScaleX, LCD_BOTTOM * photoScaleY,
+            LCD_LEFT * photoScaleX, LCD_BOTTOM * photoScaleY
+        )
+        val source = floatArrayOf(
+            0f, 0f,
+            C3EmuEngine.LCD_WIDTH.toFloat(), 0f,
+            C3EmuEngine.LCD_WIDTH.toFloat(), C3EmuEngine.LCD_HEIGHT.toFloat(),
+            0f, C3EmuEngine.LCD_HEIGHT.toFloat()
+        )
+        if (!lcdMatrix.setPolyToPoly(source, 0, points, 0, 4)) {
+            geometryReady = false
+            return
+        }
+
+        displayPath.reset()
+        displayPath.moveTo(points[0], points[1])
+        displayPath.lineTo(points[2], points[3])
+        displayPath.lineTo(points[4], points[5])
+        displayPath.lineTo(points[6], points[7])
+        displayPath.close()
+        geometryReady = true
     }
 
     fun showFrame(frame: PhoneMachineFrame) {
@@ -188,51 +249,22 @@ class C3DeviceView @JvmOverloads constructor(
                 C3EmuEngine.LCD_HEIGHT
             )
         }
-        postInvalidate()
+        postInvalidateOnAnimation()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.drawColor(Color.rgb(13, 16, 19))
         val image = photo ?: return
-
-        imageScale = minOf(
-            width.toFloat() / image.width.coerceAtLeast(1),
-            height.toFloat() / image.height.coerceAtLeast(1)
-        )
-        imageLeft = (width - image.width * imageScale) / 2f
-        imageTop = (height - image.height * imageScale) / 2f
-
-        val photoScaleX = image.width / PHOTO_REFERENCE_WIDTH
-        val photoScaleY = image.height / PHOTO_REFERENCE_HEIGHT
+        if (!geometryReady) updatePhotoGeometry(width, height)
+        if (!geometryReady) return
 
         canvas.save()
         canvas.translate(imageLeft, imageTop)
         canvas.scale(imageScale, imageScale)
         canvas.drawBitmap(image, 0f, 0f, photoPaint)
 
-        // Exact transparent LCD aperture in docs/75-205-263-02.png (968 x 1920).
-        val points = floatArrayOf(
-            LCD_LEFT * photoScaleX, LCD_TOP * photoScaleY,
-            LCD_RIGHT * photoScaleX, LCD_TOP * photoScaleY,
-            LCD_RIGHT * photoScaleX, LCD_BOTTOM * photoScaleY,
-            LCD_LEFT * photoScaleX, LCD_BOTTOM * photoScaleY
-        )
-        val source = floatArrayOf(
-            0f, 0f,
-            C3EmuEngine.LCD_WIDTH.toFloat(), 0f,
-            C3EmuEngine.LCD_WIDTH.toFloat(), C3EmuEngine.LCD_HEIGHT.toFloat(),
-            0f, C3EmuEngine.LCD_HEIGHT.toFloat()
-        )
-        lcdMatrix.setPolyToPoly(source, 0, points, 0, 4)
-
-        displayPath.reset()
-        displayPath.moveTo(points[0], points[1])
-        displayPath.lineTo(points[2], points[3])
-        displayPath.lineTo(points[4], points[5])
-        displayPath.lineTo(points[6], points[7])
-        displayPath.close()
-
+        // The LCD aperture transform and clip path are cached by updatePhotoGeometry().
         canvas.save()
         canvas.clipPath(displayPath)
         synchronized(lcdLock) {
@@ -299,7 +331,7 @@ class C3DeviceView @JvmOverloads constructor(
 
     private fun matrixKeyAt(x: Float, y: Float): Int? {
         val image = photo ?: return null
-        if (imageScale <= 0f) return null
+        if (!geometryReady || imageScale <= 0f) return null
 
         val localX = (x - imageLeft) / imageScale
         val localY = (y - imageTop) / imageScale

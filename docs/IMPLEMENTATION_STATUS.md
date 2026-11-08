@@ -114,3 +114,14 @@ The per-frame RGBA-to-ARGB conversion and Bitmap update have been moved off the 
 - Shifted only the two outermost bottom modifier hotspots (Function and Ctrl) 16 source-photo pixels inward.
 - Added one short Android-standard `KEYBOARD_TAP` haptic on each new key-down edge; key releases and duplicate multi-pointer ownership do not vibrate.
 - Added `C3EmuBoot` terminal diagnostics with the guest stop reason and final native stats. Periodic `C3EmuPerf` logs continue to report host cycle/FPS and guest LCD counters. The Nokia Connecting People splash interruption is still undiagnosed until the phone log is captured.
+
+
+### C3-00 keyboard, frame-pacing, clock and failure containment — 8 November 2026
+
+- Re-measured the first two QWERTY rows against the original 968×1920 shell photo. Their marker centres now sit at the geometric centres of each photographed keycap; invisible touch regions are per-key ellipses (40×52 source-photo px) to improve finger capture without overlapping adjacent keys.
+- The third QWERTY row and fourth modifier row are unchanged by this calibration.
+- The View explicitly enables Android keyboard haptics and logs whether KEYBOARD_TAP was accepted. It continues to respect the device-wide haptic preference; no forced vibration bypass is used.
+- Cached shell/LCD geometry is rebuilt only when the View size changes. Frame invalidation is scheduled on the next display animation frame instead of posting an unconstrained invalidation for every decoded frame.
+- The Android activity refreshes guest time at boot/resume and after Android time, timezone and minute-tick broadcasts. Updates are applied on the one native owner thread; the local c3emu-web wrapper now writes the live PMU RTC registers as well as the next-boot epoch.
+- The pinned c3emu-web wrapper is vendored at the exact upstream revision with narrow Android hardening: Rust panics during boot/run are contained inside the C ABI, converted into diagnostics, and the failed volatile machine instance is dropped. Persistent flash remains available for manual reboot. Normal guest fatal errors remain visible instead of being silently ignored.
+- Internet remains unsupported in this build. The pinned upstream c3emu has no modem/network device or packet bridge; its SIM model explicitly represents no card, and its ISI layer traces internal messages without a network transport. Enabling Android INTERNET permission alone would not provide guest connectivity. A real implementation needs a virtual SIM/modem + GPRS/packet/ISI transport bridge and guest-side validation; it is recorded as a separate follow-up rather than a fake toggle.
