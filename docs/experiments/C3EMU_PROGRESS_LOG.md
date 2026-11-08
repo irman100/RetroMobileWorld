@@ -535,3 +535,8 @@ The latest firmware inventory search paginated through 383 Library ZIPs plus the
 adb logcat -v time -s C3EmuPerf:I C3EmuTrace:I C3EmuBoot:E |
     Tee-Object "$env:TEMP\\emulator-mmio-trace.txt"
 ```
+
+
+## 25. Исправление первой ошибки CI для компактной трассы — 8 ноября 2026
+
+Push CI №489 дошёл до нового шага `cargo test`, но компилятор сообщил о незакрытом модуле `android_wrapper_tests` в конце `engine/c3emu-web-android/src/lib.rs`. Это синтаксическая ошибка вставки теста: отсутствовала закрывающая фигурная скобка модуля. Она добавлена. Сетевой и эмуляционный runtime-код этим исправлением не менялся. Повторный CI обязателен до выдачи APK.

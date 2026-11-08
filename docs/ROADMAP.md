@@ -164,3 +164,7 @@ The archive is analyzed locally only (SHA-256 `5239534da21345e5fc7bc1fbe5277f7d2
 - [x] Add the c3emu wrapper Rust test to Android CI before JNI ABI builds.
 - [ ] Capture the compact output during the next device WLAN settings/refresh test.
 - [ ] Add a later access-by-access MMIO range trace for repeated SPI reads/writes; first-touch diagnostics do not contain transaction sequences.
+
+
+- [x] Fix the missing closing delimiter in the new Rust compact-MMIO test module found by CI run 489.
+- [ ] Pass fresh push and PR CI, including the Rust size/retention test, JNI builds, Android unit tests and debug APK assembly.

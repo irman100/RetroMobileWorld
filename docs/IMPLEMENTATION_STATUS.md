@@ -204,3 +204,8 @@ Implementation boundary is now explicit: add opt-in bounded MMIO tracing; decode
 Periodic logging no longer appends the full native statistics JSON to the performance line. A dedicated JNI/C ABI method emits a compact `C3EmuTrace` snapshot with at most 40 recent unique SoC/peripheral first-touch records, running/stop state and small SIM/ISI totals. Each entry preserves region, read/write op, address, value and guest PC. Stop reason is truncated to 160 characters. A Rust test limits the line to 3,072 bytes and is now part of CI.
 
 This prevents the Logcat truncation found in the user's previous capture. It remains first-touch address discovery; repeated register transactions and timing are not part of this snapshot.
+
+
+## CI correction — compact MMIO trace test — 8 November 2026
+
+The first push CI for commit `eff0b81` failed in the new `cargo test` step because the Rust `android_wrapper_tests` module was missing its final closing delimiter. The compiler reported an unclosed delimiter at end of file. The missing module brace has been added; the corrected follow-up commit is subject to a fresh push and PR run. No APK from the failed attempt was produced or distributed.

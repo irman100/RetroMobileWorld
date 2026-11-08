@@ -215,3 +215,8 @@ Device capture:
 adb logcat -v time -s C3EmuPerf:I C3EmuTrace:I C3EmuBoot:E |
     Tee-Object "$env:TEMP\\emulator-mmio-trace.txt"
 ```
+
+
+## Diagnostic-test CI correction — 8 November 2026
+
+The first CI run for the compact trace change reached `cargo test` and exposed an unclosed `android_wrapper_tests` module after the new test was inserted. The helper/string escaping was already corrected before that run; the compiler reported only the missing final module delimiter. A closing brace was added. No runtime implementation or existing phone state was changed. The follow-up push/PR CI must pass this Rust test before any APK is distributed.

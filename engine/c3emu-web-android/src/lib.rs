@@ -703,3 +703,4 @@ mod android_wrapper_tests {
         assert!(!trace.contains("0880003B"));
         assert_eq!(trace.matches("],[").count(), TRACE_TOUCH_LIMIT - 1);
     }
+}
