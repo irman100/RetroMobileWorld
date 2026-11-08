@@ -120,13 +120,13 @@ class C3DeviceView @JvmOverloads constructor(
 
         // Bottom modifier row: centres of each keycap, measured between
         // its dark neighbouring dividers. The curved row is not evenly spaced.
-        Hotspot(106f, 1677f, 14f, 39),  // Diagonal-arrow Function key
-        Hotspot(234f, 1709f, 14f, 35), // Shift
-        Hotspot(333f, 1730f, 14f, 48), // Symbol / Car-labelled key
-        Hotspot(532f, 1740f, 20f, 49), // Space
-        Hotspot(730f, 1722f, 14f, 40), // Punctuation / symbol key (: and slash)
-        Hotspot(829f, 1698f, 14f, 41), // Comma / period key
-        Hotspot(900f, 1666f, 14f, 50)  // Ctrl
+        Hotspot(95f, 1677f, 14f, 39),   // Diagonal-arrow Function key
+        Hotspot(181f, 1709f, 14f, 35),  // Shift
+        Hotspot(266f, 1730f, 14f, 48),  // Symbol / Car-labelled key
+        Hotspot(479f, 1740f, 20f, 49),  // Space
+        Hotspot(690f, 1722f, 14f, 40),  // Punctuation / symbol key (: and slash)
+        Hotspot(775f, 1698f, 14f, 41),  // Comma / period key
+        Hotspot(869f, 1666f, 14f, 50)   // Ctrl
     )
 
     private val hotspotFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
