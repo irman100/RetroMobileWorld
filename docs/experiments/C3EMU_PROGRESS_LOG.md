@@ -72,6 +72,17 @@ Artifact:
 
 Этот artifact был собран до увеличения Android versionCode до 5. Он подтверждает исправление инспектора на уровне кода и тестов, но для текущей локальной установки следует собирать APK из обновлённого локального репозитория.
 
+Последний complete checkpoint для version 0.4.1 и Windows build/install scripts:
+- commit: 1c63d991738e2b209000271ea86dfb170894f508;
+- Android CI push run 42458429582: success; all steps including native build, Android unit tests, APK assembly and artifact upload passed;
+- Android CI PR run 42458434131: success;
+- artifact ID: 13608921375, name retro-mobile-world-c3emu-debug;
+- artifact ZIP SHA-256: 51c17e2b59980ec370ba9957dab1ac8771859cdf705c2e921d08795709de8c81;
+- artifact expiry: 22 November 2026 07:24 UTC.
+
+The CI artifact is built with GitHub Actions debug signing. Local Windows Gradle may use a different debug certificate; local physical-device install script deliberately preserves an existing app if Android reports INSTALL_FAILED_UPDATE_INCOMPATIBLE. Do not uninstall unless the user explicitly accepts losing app-private firmware files, saved C: storage and settings.
+
+
 ## 4. Shell и UI
 
 Пользователь выбрал точный front-facing asset docs/75-205-263-02.png; APK получает pinned asset с проверкой Git blob SHA-1. Не заменять его случайной фотографией или внешним изображением.
