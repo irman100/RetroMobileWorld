@@ -405,18 +405,33 @@ pub extern "C" fn c3_key(index: u32, down: u32) {
 #[unsafe(no_mangle)]
 pub extern "C" fn c3_stats() {
     with(|e| {
-        let s = match &e.machine {
-            None => "{\"running\":false}".to_string(),
+        let stopped = e.stopped.as_deref().map(json_str).unwrap_or("null".into());
+        let host_epoch = e.epoch.map(|value| value.to_string()).unwrap_or("null".into());
+        let snapshot = match &e.machine {
+            None => format!(
+                "{{\"running\":false,\"stopped\":{stopped},\"host_epoch\":{host_epoch}}}"
+            ),
             Some(m) => {
                 let st = m.st.borrow();
-                format!("{{\"running\":{},\"stopped\":{},\"frames\":{},\"changed\":{},\"idle\":{},\"flash_writes\":{}}}",
-                        e.stopped.is_none(),
-                        e.stopped.as_deref().map(json_str).unwrap_or("null".into()),
-                        st.panel.frames, st.panel.frames_changed, st.soc.wfi_count,
-                        st.hle_calls.get("storage:write").copied().unwrap_or(0))
+                let rtc = (0..7)
+                    .map(|index| c3emu::rtc::pmu_read(&st, c3emu::rtc::RTC_FIRST + index).to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let isi_messages: u64 = st.isi_counts.values().copied().sum();
+                format!(
+                    "{{\"running\":{},\"stopped\":{stopped},\"host_epoch\":{host_epoch},\"rtc\":[{rtc}],\"sim_timeouts\":{},\"sim_status\":{},\"isi_messages\":{},\"frames\":{},\"changed\":{},\"idle\":{},\"flash_writes\":{}}}",
+                    e.stopped.is_none(),
+                    st.sim.timeouts,
+                    st.sim.status,
+                    isi_messages,
+                    st.panel.frames,
+                    st.panel.frames_changed,
+                    st.soc.wfi_count,
+                    st.hle_calls.get("storage:write").copied().unwrap_or(0)
+                )
             }
         };
-        e.result = s.into_bytes();
+        e.result = snapshot.into_bytes();
     })
 }
 
@@ -547,5 +562,14 @@ mod android_wrapper_tests {
     fn local_host_calendar_fields_match_leap_day_and_weekday() {
         let epoch = c3emu::rtc::epoch_from_unix(1_709_197_445, 0);
         assert_eq!(host_rtc_fields(epoch), [5, 4, 9, 4, 29, 2, 24]);
+    }
+
+    #[test]
+    fn host_timezone_offset_is_applied_to_guest_local_clock() {
+        let unix = 1_709_197_445;
+        let utc = c3emu::rtc::epoch_from_unix(unix, 0);
+        let central_europe = c3emu::rtc::epoch_from_unix(unix, 3_600);
+        assert_eq!(host_rtc_fields(utc), [5, 4, 9, 4, 29, 2, 24]);
+        assert_eq!(host_rtc_fields(central_europe), [5, 4, 10, 4, 29, 2, 24]);
     }
 }

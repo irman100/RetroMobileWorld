@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
+import android.util.Log
 import android.view.Gravity
 import android.view.Menu
 import android.view.MotionEvent
@@ -112,8 +113,14 @@ class C3EmuActivity : Activity() {
 
     private fun syncHostClock() {
         val nowMillis = System.currentTimeMillis()
-        val offsetSeconds = TimeZone.getDefault().getOffset(nowMillis).toLong() / 1000L
-        engine.requestHostClockSync(nowMillis / 1000L, offsetSeconds)
+        val zone = TimeZone.getDefault()
+        val offsetSeconds = zone.getOffset(nowMillis).toLong() / 1000L
+        val unixSeconds = nowMillis / 1000L
+        Log.i(
+            "C3EmuClock",
+            "hostClock unix=$unixSeconds zone=${zone.id} offsetSeconds=$offsetSeconds"
+        )
+        engine.requestHostClockSync(unixSeconds, offsetSeconds)
     }
 
     private fun buildDeviceUi() {

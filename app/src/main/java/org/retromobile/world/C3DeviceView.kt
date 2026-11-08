@@ -8,6 +8,10 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.provider.Settings
 import android.util.AttributeSet
 import android.util.Log
 import android.view.HapticFeedbackConstants
@@ -53,14 +57,63 @@ class C3DeviceView @JvmOverloads constructor(
     private val lcdLock = Any()
     private val lcdMatrix = Matrix()
     private val displayPath = Path()
+    private val keyVibrator =
+        context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+
     private val keyPressLedger = C3KeyPressLedger { key, pressed ->
-        // One short Android keyboard haptic per unique key-down. Respect the
-        // device-wide haptics preference; do not force vibration over user settings.
-        if (pressed) {
-            val performed = performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-            Log.d("C3EmuHaptics", "matrixKey=$key keyboardTap=$performed")
-        }
+        // Only a new key-down edge produces haptics; releases and duplicate
+        // pointers remain silent. Use the platform click effect, with a short
+        // one-shot fallback on Android versions before predefined effects.
+        if (pressed) performKeyHaptic(key)
         onMatrixKey?.invoke(key, pressed)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun performKeyHaptic(matrixKey: Int) {
+        if (!isHapticFeedbackEnabled) {
+            Log.d("C3EmuHaptics", "matrixKey=$matrixKey skipped=view-disabled")
+            return
+        }
+
+        val systemEnabled = runCatching {
+            Settings.System.getInt(
+                context.contentResolver,
+                Settings.System.HAPTIC_FEEDBACK_ENABLED,
+                1
+            ) != 0
+        }.getOrDefault(true)
+        if (!systemEnabled) {
+            Log.d("C3EmuHaptics", "matrixKey=$matrixKey skipped=system-disabled")
+            return
+        }
+
+        val deviceVibrator = keyVibrator
+        if (deviceVibrator == null || !deviceVibrator.hasVibrator()) {
+            val accepted = performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            Log.i(
+                "C3EmuHaptics",
+                "matrixKey=$matrixKey vibratorAvailable=false frameworkAccepted=$accepted"
+            )
+            return
+        }
+
+        runCatching {
+            val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK)
+            } else {
+                VibrationEffect.createOneShot(12L, VibrationEffect.DEFAULT_AMPLITUDE)
+            }
+            deviceVibrator.vibrate(effect)
+        }.onSuccess {
+            Log.i("C3EmuHaptics", "matrixKey=$matrixKey effect=platform-click requested=true")
+        }.onFailure { error ->
+            val accepted = performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            Log.w(
+                "C3EmuHaptics",
+                "matrixKey=$matrixKey vibrator-request-failed frameworkAccepted=$accepted",
+                error
+            )
+        }
     }
 
     private var imageScale = 1f

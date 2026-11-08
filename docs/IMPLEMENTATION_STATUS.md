@@ -125,3 +125,14 @@ The per-frame RGBA-to-ARGB conversion and Bitmap update have been moved off the 
 - The Android activity refreshes guest time at boot/resume and after Android time, timezone and minute-tick broadcasts. Updates are applied on the one native owner thread; the local c3emu-web wrapper now writes the live PMU RTC registers as well as the next-boot epoch.
 - The pinned c3emu-web wrapper is vendored at the exact upstream revision with narrow Android hardening: Rust panics during boot/run are contained inside the C ABI, converted into diagnostics, and the failed volatile machine instance is dropped. Persistent flash remains available for manual reboot. Normal guest fatal errors remain visible instead of being silently ignored.
 - Internet remains unsupported in this build. The pinned upstream c3emu has no modem/network device or packet bridge; its SIM model explicitly represents no card, and its ISI layer traces internal messages without a network transport. Enabling Android INTERNET permission alone would not provide guest connectivity. A real implementation needs a virtual SIM/modem + GPRS/packet/ISI transport bridge and guest-side validation; it is recorded as a separate follow-up rather than a fake toggle.
+
+
+## C3-00 device feedback — 8 November 2026
+
+The user confirmed that the corrected upper-row key marker/hit-region placement now lands on the intended physical keys. Preserve this calibration; rows three and four were not part of it.
+
+The previous `KEYBOARD_TAP` View feedback did not produce perceptible vibration on the user's phone. A direct short platform `VibrationEffect.EFFECT_CLICK` path with the normal VIBRATE permission and system-setting check has been added, but it is not yet device-verified.
+
+The host-to-guest RTC path exists in code, but the user reports the displayed guest date/time still does not follow Android. New diagnostics log host Unix time, Android timezone/offset, and guest PMU RTC register values. Do not mark RTC sync as complete until those values and the Series 40 display agree.
+
+Guest Internet is not implemented in the pinned c3emu revision: there is no virtual modem or packet bridge, the SIM model has no card, and ISI only records internal messages. Launching a network-dependent guest application can stop/freeze the guest; root cause remains unconfirmed until its stop reason and SIM/ISI counters are captured. Panic containment does not imply arbitrary guest errors are recoverable.

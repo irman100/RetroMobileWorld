@@ -105,9 +105,13 @@ class C3EmuEngine : PhoneSystemEngine {
                 .requireNativeSuccess("IMAGE")
         }
         val nowMillis = System.currentTimeMillis()
-        C3EmuNative.nativeSetTime(
-            nowMillis / 1000.0,
-            TimeZone.getDefault().getOffset(nowMillis) / 1000.0
+        val hostZone = TimeZone.getDefault()
+        val hostOffsetSeconds = hostZone.getOffset(nowMillis).toLong() / 1000L
+        val hostUnixSeconds = nowMillis / 1000L
+        C3EmuNative.nativeSetTime(hostUnixSeconds.toDouble(), hostOffsetSeconds.toDouble())
+        Log.i(
+            "C3EmuClock",
+            "bootRtc set unix=$hostUnixSeconds zone=${hostZone.id} offsetSeconds=$hostOffsetSeconds"
         )
         pendingHostClock.set(null)
 
@@ -352,6 +356,10 @@ class C3EmuEngine : PhoneSystemEngine {
             C3EmuNative.nativeSetTime(
                 update.unixSeconds.toDouble(),
                 update.utcOffsetSeconds.toDouble()
+            )
+            Log.i(
+                "C3EmuClock",
+                "liveRtc applied unix=${update.unixSeconds} offsetSeconds=${update.utcOffsetSeconds}"
             )
         }.onFailure { error ->
             Log.e("C3EmuClock", "Unable to sync host date/time to the guest RTC", error)

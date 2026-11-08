@@ -49,7 +49,7 @@
 - [x] Fix dropped quick taps by retaining key-down through one complete native CPU slice; enlarge invisible touch hit areas while preserving faint marker appearance.
 - [x] Replace Activity-per-slice round trips with a continuous single-owner native worker and coalesce stale LCD frames.
 - [x] Invert only the first two QWERTY row curves so outer keys sit higher than the fixed central pair. The third QWERTY row and fourth modifier row are unchanged by this correction; the pre-existing inward placement of Function/Ctrl hotspots is preserved.
-- [x] Add short Android-standard KEYBOARD_TAP haptics on unique key-down edges.
+- [x] Add Android key-down haptics with a short platform click effect and system-setting respect (physical-phone verification pending).
 - [x] Add C3EmuBoot terminal error + native stats diagnostics for the remaining startup-splash interruption.
 - [x] Add `C3EmuPerf` Logcat counters for cycle rate, delivered FPS and native c3emu stats; CI run 42475334037 green on commit 51e60a1.
 - [x] Pass Android CI on C3 touch matrix / key-edge tests and sparse multi-block IMAGE fixture; assemble and upload debug APK artifact `13614395927` (latest branch head `4c00850`, push + PR runs both green).
@@ -91,6 +91,16 @@
 
 - [x] Re-centre first/second-row key markers and expand their touch regions to match the physical keycaps; preserve rows three and four.
 - [x] Add Android KEYBOARD_TAP diagnostics and display-vsync frame invalidation.
-- [x] Synchronize the running guest PMU RTC from Android local time/timezone, including time/timezone broadcasts.
+- [x] Add host-to-guest PMU RTC updates from Android local time/timezone, including time/timezone broadcasts (device display still reported incorrect; validation/fix pending).
 - [x] Contain Rust panics inside the c3emu C ABI and preserve persistent flash for a manual guest reboot.
 - [ ] Implement real guest Internet: first model SIM/modem/ISI and packet transport, then bridge to Android connectivity and verify DNS/TCP/TLS from a Series 40 application. This is not available in the pinned upstream core yet.
+
+
+### Physical validation still open — 8 November 2026
+
+- [x] Confirm with the user that the corrected first/second-row key positions now hit the intended physical keys; preserve them.
+- [ ] Confirm perceptible short vibration on the user's phone after the direct Vibrator fallback.
+- [ ] Confirm the date and time shown by Series 40 match Android; compare host clock and guest PMU RTC telemetry.
+- [ ] Reproduce the guest stop/freeze from one network-dependent application and classify the exact native/guest stop reason before changing CPU/MMIO behavior.
+- [ ] Implement a real SIM/modem + GPRS/ISI packet transport + Android network bridge. Current pinned c3emu has no packet backend, so Internet remains unsupported.
+- [ ] Measure frame delivery and input latency on the physical device; host-side caching/coalescing is not proof of higher guest speed.
