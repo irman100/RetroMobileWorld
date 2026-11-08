@@ -64,24 +64,24 @@ class C3DeviceView @JvmOverloads constructor(
      */
     private val hotspots = listOf(
         // Selection keys: the two short horizontal bars above Contacts/Messaging.
-        Hotspot(194f, 1050f, 14f, 29), // Left: Names / Options
-        Hotspot(775f, 1050f, 14f, 43), // Right: Alarm / Exit
+        Hotspot(194f, 1050f, 14f, C3KeyMatrix.SOFT_LEFT), // Left: Names / Options
+        Hotspot(775f, 1050f, 14f, C3KeyMatrix.SOFT_RIGHT), // Right: Alarm / Exit
 
         // Dedicated chrome Contacts and Messaging buttons; not the printed icons.
-        Hotspot(140f, 1129f, 17f, 38),
-        Hotspot(824f, 1129f, 17f, 52),
+        Hotspot(140f, 1129f, 17f, C3KeyMatrix.CONTACTS),
+        Hotspot(824f, 1129f, 17f, C3KeyMatrix.MESSAGING),
 
         // Green call and red end keys.
-        Hotspot(197f, 1207f, 17f, 30),
-        Hotspot(755f, 1207f, 17f, 255),
+        Hotspot(197f, 1207f, 17f, C3KeyMatrix.CALL),
+        Hotspot(755f, 1207f, 17f, C3KeyMatrix.END),
 
         // Navigation ring: directional targets sit on the chrome bezel,
         // while OK stays centred on the inner select button.
-        Hotspot(480f, 1035f, 16f, 56),
-        Hotspot(480f, 1226f, 16f, 57),
-        Hotspot(378f, 1127f, 16f, 58),
-        Hotspot(582f, 1127f, 16f, 59),
-        Hotspot(480f, 1127f, 20f, 60),
+        Hotspot(480f, 1035f, 16f, C3KeyMatrix.UP),
+        Hotspot(480f, 1226f, 16f, C3KeyMatrix.DOWN),
+        Hotspot(378f, 1127f, 16f, C3KeyMatrix.LEFT),
+        Hotspot(582f, 1127f, 16f, C3KeyMatrix.RIGHT),
+        Hotspot(480f, 1127f, 20f, C3KeyMatrix.SELECT),
 
         // Physical QWERTY / number row. Key centres follow the photographed caps.
         Hotspot(95.5f, 1333f, 14f, 0),
@@ -121,13 +121,13 @@ class C3DeviceView @JvmOverloads constructor(
 
         // Bottom modifier row: centres of each keycap, measured between
         // its dark neighbouring dividers. The curved row is not evenly spaced.
-        Hotspot(88f, 1668f, 14f, 50),   // Diagonal-arrow Function key (upstream F12 / matrix 50)
-        Hotspot(176f, 1699f, 14f, 35),  // Shift
-        Hotspot(266f, 1716f, 14f, 48),  // Symbol / Car-labelled key
-        Hotspot(483f, 1735f, 20f, 49),  // Space
-        Hotspot(700f, 1717f, 14f, 40),  // Punctuation / symbol key (: and slash)
-        Hotspot(792f, 1699f, 14f, 41),  // Comma / period key
-        Hotspot(881f, 1660f, 14f, 27)   // Ctrl (ControlLeft / ControlRight, matrix 27)
+        Hotspot(88f, 1668f, 14f, C3KeyMatrix.FUNCTION),   // Diagonal-arrow Function key (upstream F12 / matrix 50)
+        Hotspot(176f, 1699f, 14f, C3KeyMatrix.SHIFT),  // Shift
+        Hotspot(266f, 1716f, 14f, C3KeyMatrix.SYMBOL),  // Symbol / Car-labelled key
+        Hotspot(483f, 1735f, 20f, C3KeyMatrix.SPACE),  // Space
+        Hotspot(700f, 1717f, 14f, C3KeyMatrix.PUNCTUATION),  // Punctuation / symbol key (: and slash)
+        Hotspot(792f, 1699f, 14f, C3KeyMatrix.COMMA_PERIOD),  // Comma / period key
+        Hotspot(881f, 1660f, 14f, C3KeyMatrix.CTRL)   // Ctrl (ControlLeft / ControlRight, matrix 27)
     )
 
     private val hotspotFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
