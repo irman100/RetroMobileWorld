@@ -48,7 +48,7 @@
 - [x] Reduce host-side stalls: offload blocking audio, match upstream 16 ms slices / 15 ms frame cadence / 20 ms WFI cap, and throttle flash persistence.
 - [x] Fix dropped quick taps by retaining key-down through one complete native CPU slice; enlarge invisible touch hit areas while preserving faint marker appearance.
 - [x] Replace Activity-per-slice round trips with a continuous single-owner native worker and coalesce stale LCD frames.
-- [x] Recalibrate first two QWERTY rows to a more pronounced down-curved edge, retain the accurate third row, and move the two extreme bottom modifier hotspots inward.
+- [x] Invert only the first two QWERTY row curves so outer keys sit higher than the fixed central pair. The third QWERTY row and fourth modifier row are unchanged by this correction; the pre-existing inward placement of Function/Ctrl hotspots is preserved.
 - [x] Add short Android-standard KEYBOARD_TAP haptics on unique key-down edges.
 - [x] Add C3EmuBoot terminal error + native stats diagnostics for the remaining startup-splash interruption.
 - [x] Add `C3EmuPerf` Logcat counters for cycle rate, delivered FPS and native c3emu stats; CI run 42475334037 green on commit 51e60a1.
