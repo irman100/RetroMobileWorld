@@ -54,7 +54,7 @@
 .\scripts\build-install-c3emu-phone.ps1 -UninstallOnSignatureMismatch
 ```
 
-Этот флаг удаляет установленный пакет org.retromobile.world только после того, как ADB подтвердил конфликт сертификатов; Android при удалении стирает app-private firmware library, C: storage и настройки. Исходные ZIP-файлы вне приложения при этом не удаляются.
+После первой попытки сборки APK и commit-stamp уже сохранены, поэтому -InstallOnly не повторяет native build и тесты. Эти флаги удаляют установленный пакет org.retromobile.world только после того, как ADB подтвердил конфликт сертификатов; Android при удалении стирает app-private firmware library, C: storage и настройки. Исходные ZIP-файлы вне приложения при этом не удаляются.
 
 
 ## Если подключено несколько телефонов
