@@ -102,3 +102,6 @@ A feature is not complete when a menu says "connected". It is complete only afte
 8. The MIDlet appears in the phone UI and launches in the emulator.
 
 No Internet support is declared until the complete download/install path succeeds on the physical Android device.
+
+
+Implementation note: the runtime MMIO trace window is a rolling view over the latest 64 unique SoC/peripheral register addresses encountered, in chronological order. It is intended to help identify register accesses that occur when opening WLAN/GPRS settings or Browser; it does not emulate those devices.

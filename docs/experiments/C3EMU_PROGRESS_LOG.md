@@ -463,3 +463,8 @@ The user indicated that firmware was supplied in the preceding chat. No firmware
 Первый CI для коммита 8156a2d собрал native JNI libraries для трёх ABI, но Kotlin compile остановился на новом обработчике выбора телефона: C3EmuActivity.showMessage принимает одну строку, а новый вызов передавал две. Это ошибка реализации меню, а не ошибка сетевого/native кода.
 
 Исправление: сообщение о неподдерживаемом RM-217 теперь передаётся одним аргументом. После исправления требуется повторить push и PR CI, включая Kotlin compile, unit tests и APK assembly. APK от 8156a2d не создавался и не выдавался.
+
+
+### MMIO diagnostic window refinement — 8 November 2026
+
+The native stats register-touch window now returns the most recently first-touched 64 unique SoC/peripheral MMIO addresses rather than the earliest 64 from boot. This is more useful when the guest reaches WLAN settings after startup: newly touched controller registers are no longer hidden behind early boot activity. Existing ISI recent-message ring remains separate. This is still observational telemetry, not a controller implementation.

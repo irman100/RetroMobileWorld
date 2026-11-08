@@ -434,8 +434,9 @@ pub extern "C" fn c3_stats() {
                     .collect::<Vec<_>>();
                 isi_recent.reverse();
                 let isi_recent = isi_recent.join(",");
-                let io_touches = st.touches
+                let mut io_touches = st.touches
                     .iter()
+                    .rev()
                     .filter(|touch| touch.region == "periph" || touch.region == "soc")
                     .take(64)
                     .map(|touch| {
@@ -448,8 +449,9 @@ pub extern "C" fn c3_stats() {
                             touch.pc
                         )
                     })
-                    .collect::<Vec<_>>()
-                    .join(",");
+                    .collect::<Vec<_>>();
+                io_touches.reverse();
+                let io_touches = io_touches.join(",");
                 format!(
                     "{{\"running\":{},\"stopped\":{stopped},\"host_epoch\":{host_epoch},\"rtc\":[{rtc}],\"sim_timeouts\":{},\"sim_status\":{},\"isi_messages\":{},\"isi_counts\":{{{isi_counts}}},\"isi_recent\":[{isi_recent}],\"io_touches\":[{io_touches}],\"frames\":{},\"changed\":{},\"idle\":{},\"flash_writes\":{}}}",
                     e.stopped.is_none(),

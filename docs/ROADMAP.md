@@ -123,3 +123,6 @@
 
 
 - [ ] Re-run Android CI after fixing the phone-picker showMessage call signature. Commit 8156a2d native JNI build succeeded; Kotlin compile failed on this single-argument API mismatch.
+
+
+- [x] Make native MMIO diagnostics return the most recent 64 unique SoC/peripheral register addresses, so later WLAN/GPRS activity is visible instead of being buried by first-boot register touches.

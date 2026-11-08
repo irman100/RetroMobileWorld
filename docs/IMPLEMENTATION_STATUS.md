@@ -165,3 +165,8 @@ No Internet capability is claimed. Acceptance requires actual Series 40 Browser 
 ### CI correction — 8 November 2026
 
 The first CI for commit 8156a2d built all c3emu JNI ABIs, then failed Kotlin compilation because the new phone-picker dialog called showMessage with two arguments while the Activity helper accepts one String. The call has been corrected to one String. Re-run full Android CI before marking the launcher/menu change validated or distributing an APK.
+
+
+### Network register telemetry refinement — 8 November 2026
+
+Native stats now return the latest 64 unique SoC/peripheral register touches in chronological order, improving visibility when WLAN/GPRS services are entered later in a running Series 40 session. This only exposes activity; it does not provide network support.
