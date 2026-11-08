@@ -515,3 +515,23 @@ The latest firmware inventory search paginated through 383 Library ZIPs plus the
 - `Machine::iolog(addr,len)` позволяет логировать каждое чтение/запись выбранного диапазона вместе со значением и PC; общий event log ограничен 20 000 записями и выводится через `Machine::report()`. Android C ABI/JNI пока не предоставляет включение диапазона и выгрузку событий.
 
 Следующий технический шаг: после обнаружения кандидатов через first-touch добавить opt-in ограниченную трассу выбранных MMIO-диапазонов. Затем определить реальную конфигурацию SPI-master, CS/CLK, WLAN enable, CLK_REQ и IRQ; реализовать сначала host peripheral и разводку сигналов, затем Broadcom gSPI target и только после этого packet bridge. Адреса и значения регистров не угадывать.
+
+
+## 24. Исправление формата MMIO-журнала — 8 ноября 2026
+
+В предыдущем тесте длинная строка `C3EmuPerf` включала полный JSON native stats. Большая карта ISI-счётчиков и текстовые ISI-сообщения переполняли лимит записи Android Logcat, из-за чего хвост с MMIO-адресами обрезался.
+
+Теперь вывод разделён:
+- `C3EmuPerf` содержит только cycleHz/deliveredFps/cycleAvgMs/cycleMaxMs.
+- `C3EmuTrace` содержит отдельный компактный JSON с максимум 40 последними уникальными first-touch адресами SoC/peripheral.
+- Запись адреса имеет вид `[region, op, addr, value, pc]`; `s` — SoC, `p` — периферия; HEX-поля — восемь цифр в верхнем регистре.
+- Поля running/stopped/simTimeouts/isiMessages помогают связать трассу с остановкой гостевой ОС. Stop text ограничен 160 символами.
+- Добавлен Rust unit test на максимум 3072 байта и сохранение последних 40 адресов; CI запускает его перед Android ABI сборками.
+
+Это исправляет обрезание диагностической строки. Важно: список остаётся first-touch, то есть не содержит повторные чтения/записи SPI-регистров и их временной порядок. Полная access-by-access трассировка не заявляется в этой правке.
+
+Команда съёма:
+```powershell
+adb logcat -v time -s C3EmuPerf:I C3EmuTrace:I C3EmuBoot:E |
+    Tee-Object "$env:TEMP\\emulator-mmio-trace.txt"
+```

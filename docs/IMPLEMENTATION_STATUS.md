@@ -197,3 +197,10 @@ A direct review of the pinned c3emu source confirms that it currently has no SPI
 The current Android `io_touches` report contains first-touch information for unique MMIO addresses, not the repeated register transaction sequence needed to implement SPI. Upstream exposes `Machine::iolog(addr,len)` for selected access-by-access logging, but the Android wrapper does not yet expose range selection/event retrieval. The event list is capped at 20,000 entries and is printed by `Machine::report()`.
 
 Implementation boundary is now explicit: add opt-in bounded MMIO tracing; decode the actual Nokia SoC SPI-master/GPIO register use; implement SoC SPI and board signals; attach the Broadcom gSPI target; then bridge guest IP packets. No guessed register map has been added.
+
+
+## Compact native diagnostic output — 8 November 2026
+
+Periodic logging no longer appends the full native statistics JSON to the performance line. A dedicated JNI/C ABI method emits a compact `C3EmuTrace` snapshot with at most 40 recent unique SoC/peripheral first-touch records, running/stop state and small SIM/ISI totals. Each entry preserves region, read/write op, address, value and guest PC. Stop reason is truncated to 160 characters. A Rust test limits the line to 3,072 bytes and is now part of CI.
+
+This prevents the Logcat truncation found in the user's previous capture. It remains first-touch address discovery; repeated register transactions and timing are not part of this snapshot.

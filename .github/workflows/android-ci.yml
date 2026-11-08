@@ -64,6 +64,10 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
 
+      - name: Test bounded c3emu MMIO diagnostic
+        working-directory: engine/c3emu-web-android
+        run: cargo test
+
       - name: Build c3emu JNI libraries for Android ABIs
         working-directory: engine/c3emu-android
         run: |

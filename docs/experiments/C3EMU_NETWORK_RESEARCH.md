@@ -196,3 +196,22 @@ The pinned dependency `androettop/c3emu@9b0d3ae2da326e109428f64d8760ea823ee1b648
 5. Verify WLAN scan and packet traffic end to end before declaring network support.
 
 This confirms the architecture is two connected emulated layers — Nokia SoC SPI/GPIO host plus Broadcom gSPI WLAN device — followed by the Android packet bridge. No addresses, register values or successful network behavior are assumed yet.
+
+
+## Compact MMIO diagnostics for the next device capture — 8 November 2026
+
+The previous periodic performance line embedded the full native stats JSON. The growing ISI counter map and recent ISI text caused Android Logcat to truncate the tail of the line before the MMIO list. The logging path is now split:
+
+- `C3EmuPerf`: performance counters only (`cycleHz`, `deliveredFps`, `cycleAvgMs`, `cycleMaxMs`).
+- `C3EmuTrace`: one compact JSON record, capped at 40 most-recent unique SoC/peripheral first-touch entries. Fields: `running`, `stopped`, `simTimeouts`, `isiMessages`, `firstTouch`.
+- Each first-touch row is `[region, op, addr, value, pc]`; `s` = SoC and `p` = peripheral. Hex fields are eight uppercase digits. Stop text is limited to 160 characters.
+- A Rust unit test enforces a payload size of at most 3,072 bytes and verifies the newest 40 first-touch records are retained. CI now runs this Rust test before the Android native builds.
+
+The compact log fixes the truncation seen in the previous capture, but intentionally does not claim to be a repeated-access SPI bus trace: upstream `State::touch` still records only the first access per unique address. Range-based, access-by-access tracing is separate follow-up work.
+
+Device capture:
+
+```powershell
+adb logcat -v time -s C3EmuPerf:I C3EmuTrace:I C3EmuBoot:E |
+    Tee-Object "$env:TEMP\\emulator-mmio-trace.txt"
+```

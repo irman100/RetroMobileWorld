@@ -221,6 +221,15 @@ pub extern "system" fn Java_org_retromobile_world_C3EmuNative_nativeStats(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_org_retromobile_world_C3EmuNative_nativeTraceStats(
+    env: JNIEnv<'_>,
+    _receiver: JObject<'_>,
+) -> jstring {
+    c3emu_web::c3_trace_stats();
+    make_string(env, &result_text())
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_org_retromobile_world_C3EmuNative_nativeSetTime(
     _env: JNIEnv<'_>,
     _receiver: JObject<'_>,

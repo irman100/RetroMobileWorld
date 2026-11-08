@@ -154,3 +154,13 @@ The archive is analyzed locally only (SHA-256 `5239534da21345e5fc7bc1fbe5277f7d2
 - [ ] Map and implement the Nokia SoC SPI-master + WLAN board-pin/IRQ signals using captured MCUSW runtime accesses.
 - [ ] Connect the firmware-observed Broadcom gSPI target model to the SoC SPI master.
 - [ ] Bridge guest IP packets and complete the Series 40 Browser JAD/JAR acceptance test.
+
+
+### Compact MMIO trace output — 8 November 2026
+
+- [x] Split periodic `C3EmuPerf` metrics from a separate `C3EmuTrace` JSON record.
+- [x] Emit at most 40 latest unique SoC/peripheral first-touch addresses with region, op, address, value and guest PC.
+- [x] Cap stop text and test a maximum output size of 3,072 bytes.
+- [x] Add the c3emu wrapper Rust test to Android CI before JNI ABI builds.
+- [ ] Capture the compact output during the next device WLAN settings/refresh test.
+- [ ] Add a later access-by-access MMIO range trace for repeated SPI reads/writes; first-touch diagnostics do not contain transaction sequences.

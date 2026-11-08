@@ -24,6 +24,9 @@ const PPM: usize = 1;
 const CONTENT: usize = 2;
 /// The C: drive (XSR device 0).
 const DRIVE_C: u32 = 0;
+/// Limit periodic Android diagnostics to a comfortably Logcat-safe payload.
+const TRACE_TOUCH_LIMIT: usize = 40;
+const TRACE_LOG_MAX_BYTES: usize = 3_072;
 
 #[derive(Default)]
 struct Emu {
@@ -91,14 +94,58 @@ fn json_str(s: &str) -> String {
     let mut o = String::from("\"");
     for c in s.chars() {
         match c {
-            '"' => o.push_str("\\\""),
-            '\\' => o.push_str("\\\\"),
+            '"' => o.push_str("\""),
+            '\\' => o.push_str("\\"),
             c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
             c => o.push(c),
         }
     }
     o.push('"');
     o
+}
+
+/// Compact, bounded diagnostic of recent unique MMIO first-touch records.
+/// This is address discovery, not an access-by-access SPI transaction trace.
+fn compact_trace_json(
+    running: bool,
+    stopped: Option<&str>,
+    sim_timeouts: u64,
+    isi_messages: u64,
+    touches: &[c3emu::machine::Touch],
+) -> String {
+    let stopped_json = stopped
+        .map(|message| {
+            let shortened: String = message.chars().take(160).collect();
+            json_str(&shortened)
+        })
+        .unwrap_or_else(|| "null".into());
+
+    let mut recent = touches
+        .iter()
+        .rev()
+        .filter(|touch| touch.region == "periph" || touch.region == "soc")
+        .take(TRACE_TOUCH_LIMIT)
+        .collect::<Vec<_>>();
+    recent.reverse();
+
+    let first_touch = recent
+        .iter()
+        .map(|touch| {
+            let region = if touch.region == "soc" { "s" } else { "p" };
+            format!(
+                "[\"{region}\",\"{}\",\"{:08X}\",\"{:08X}\",\"{:08X}\"]",
+                touch.op,
+                touch.addr as u32,
+                touch.value as u32,
+                touch.pc as u32
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+
+    format!(
+        "{{\"running\":{running},\"stopped\":{stopped_json},\"simTimeouts\":{sim_timeouts},\"isiMessages\":{isi_messages},\"firstTouch\":[{first_touch}]}}"
+    )
 }
 
 /// # Safety
@@ -469,6 +516,27 @@ pub extern "C" fn c3_stats() {
     })
 }
 
+/// Compact Android trace separated from the verbose native statistics snapshot.
+#[unsafe(no_mangle)]
+pub extern "C" fn c3_trace_stats() {
+    with(|e| {
+        let snapshot = match e.machine.as_ref() {
+            Some(machine) => {
+                let st = machine.st.borrow();
+                compact_trace_json(
+                    e.stopped.is_none(),
+                    e.stopped.as_deref(),
+                    st.sim.timeouts,
+                    st.isi_counts.values().copied().sum(),
+                    &st.touches,
+                )
+            }
+            None => compact_trace_json(false, e.stopped.as_deref(), 0, 0, &[]),
+        };
+        e.result = snapshot.into_bytes();
+    })
+}
+
 /// Stop the phone (before changing its files; boot again afterwards).
 #[unsafe(no_mangle)]
 pub extern "C" fn c3_stop() {
@@ -606,4 +674,32 @@ mod android_wrapper_tests {
         assert_eq!(host_rtc_fields(utc), [5, 4, 9, 4, 29, 2, 24]);
         assert_eq!(host_rtc_fields(central_europe), [5, 4, 10, 4, 29, 2, 24]);
     }
-}
+
+    #[test]
+    fn compact_mmio_trace_is_bounded_and_keeps_latest_first_touches() {
+        let touches = (0..100)
+            .map(|index| c3emu::machine::Touch {
+                icount: index,
+                region: if index % 2 == 0 { "periph" } else { "soc" },
+                op: if index % 2 == 0 { 'R' } else { 'W' },
+                addr: 0x0880_0000 + index,
+                value: 0xA500_0000 + index,
+                pc: 0x8070_0000 + index,
+            })
+            .collect::<Vec<_>>();
+
+        let trace = compact_trace_json(
+            true,
+            Some(&"watchdog diagnostic ".repeat(20)),
+            2,
+            5_437,
+            &touches,
+        );
+
+        assert!(trace.len() <= TRACE_LOG_MAX_BYTES, "trace was {} bytes", trace.len());
+        assert!(trace.starts_with("{\"running\":true"));
+        assert!(trace.contains("\"firstTouch\":["));
+        assert!(trace.contains("08800063"));
+        assert!(!trace.contains("0880003B"));
+        assert_eq!(trace.matches("],[").count(), TRACE_TOUCH_LIMIT - 1);
+    }

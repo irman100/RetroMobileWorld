@@ -256,7 +256,7 @@ class C3EmuEngine : PhoneSystemEngine {
                 val now = SystemClock.elapsedRealtimeNanos()
                 val windowElapsed = now - windowStartNanos
                 if (windowElapsed >= 2_000_000_000L) {
-                    val nativeStats = runCatching { C3EmuNative.nativeStats() }
+                    val nativeTrace = runCatching { C3EmuNative.nativeTraceStats() }
                         .getOrDefault("unavailable")
                     val cycleHz = windowCycles * 1_000_000_000.0 / windowElapsed
                     val frameHz = windowFrames * 1_000_000_000.0 / windowElapsed
@@ -266,8 +266,9 @@ class C3EmuEngine : PhoneSystemEngine {
                     Log.i(
                         "C3EmuPerf",
                         "cycleHz=$cycleHz deliveredFps=$frameHz " +
-                            "cycleAvgMs=$averageMs cycleMaxMs=$maxMs native=$nativeStats"
+                            "cycleAvgMs=$averageMs cycleMaxMs=$maxMs"
                     )
+                    Log.i("C3EmuTrace", "capture=first-touch $nativeTrace")
                     windowStartNanos = now
                     windowCycles = 0
                     windowFrames = 0
@@ -290,12 +291,13 @@ class C3EmuEngine : PhoneSystemEngine {
                     break
                 }
                 if (cycle.step.state == PhoneMachineState.FAILED) {
-                    val finalStats = runCatching { C3EmuNative.nativeStats() }
+                    val finalTrace = runCatching { C3EmuNative.nativeTraceStats() }
                         .getOrDefault("unavailable")
                     Log.e(
                         "C3EmuBoot",
-                        "Guest OS stopped: ${cycle.step.diagnostic ?: "no diagnostic"}; native=$finalStats"
+                        "Guest OS stopped: ${cycle.step.diagnostic ?: "no diagnostic"}"
                     )
+                    Log.e("C3EmuTrace", "capture=first-touch $finalTrace")
                     realtimeLoopRequested = false
                     break
                 }
