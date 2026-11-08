@@ -12,6 +12,7 @@ internal object C3EmuNative {
     }
 
     external fun nativeSetFile(kind: Int, data: ByteArray): String
+    external fun nativeSetFileFromPath(kind: Int, absolutePath: String): String
     external fun nativeBoot(): String
     external fun nativeRun(budgetMillis: Double): Double
     external fun nativeResultText(): String
