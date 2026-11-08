@@ -48,8 +48,9 @@ class C3DeviceView @JvmOverloads constructor(
     private val lcdPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val lcdMatrix = Matrix()
     private val displayPath = Path()
-    private val activePointers = mutableMapOf<Int, Int>()
-    private val activeKeyPointerCounts = mutableMapOf<Int, Int>()
+    private val keyPressLedger = C3KeyPressLedger { key, pressed ->
+        onMatrixKey?.invoke(key, pressed)
+    }
 
     private var imageScale = 1f
     private var imageLeft = 0f
@@ -265,11 +266,7 @@ class C3DeviceView @JvmOverloads constructor(
                 if (event.actionMasked == MotionEvent.ACTION_UP) performClick()
             }
 
-            MotionEvent.ACTION_CANCEL -> {
-                activePointers.values.toList().forEach(::releaseKeyPointer)
-                activePointers.clear()
-                activeKeyPointerCounts.clear()
-            }
+            MotionEvent.ACTION_CANCEL -> keyPressLedger.clear()
         }
         return true
     }
@@ -280,39 +277,11 @@ class C3DeviceView @JvmOverloads constructor(
     }
 
     private fun updatePointer(pointerId: Int, x: Float, y: Float) {
-        val nextKey = matrixKeyAt(x, y)
-        val previousKey = activePointers[pointerId]
-        if (previousKey == nextKey) return
-
-        if (previousKey != null) {
-            activePointers.remove(pointerId)
-            releaseKeyPointer(previousKey)
-        }
-        if (nextKey != null) {
-            activePointers[pointerId] = nextKey
-            pressKeyPointer(nextKey)
-        }
-    }
-
-    private fun pressKeyPointer(key: Int) {
-        val pointerCount = activeKeyPointerCounts[key] ?: 0
-        if (pointerCount == 0) onMatrixKey?.invoke(key, true)
-        activeKeyPointerCounts[key] = pointerCount + 1
-    }
-
-    private fun releaseKeyPointer(key: Int) {
-        val pointerCount = activeKeyPointerCounts[key] ?: return
-        if (pointerCount <= 1) {
-            activeKeyPointerCounts.remove(key)
-            onMatrixKey?.invoke(key, false)
-        } else {
-            activeKeyPointerCounts[key] = pointerCount - 1
-        }
+        keyPressLedger.move(pointerId, matrixKeyAt(x, y))
     }
 
     private fun releasePointer(pointerId: Int) {
-        val key = activePointers.remove(pointerId) ?: return
-        releaseKeyPointer(key)
+        keyPressLedger.release(pointerId)
     }
 
     private fun matrixKeyAt(x: Float, y: Float): Int? {
