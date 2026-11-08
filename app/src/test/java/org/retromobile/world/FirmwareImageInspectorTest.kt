@@ -65,6 +65,20 @@ class FirmwareImageInspectorTest {
     }
 
     @Test
+    fun keepsLegacyFpsimageComponentsOnTheExistingFpsxPath() {
+        val file = fixtureFile(".fpsimage", fpsx("CONTENT"))
+        val metadata = FirmwareImageInspector.inspect(
+            file,
+            "rm217__07.30_sd_euro_512.fpsimage"
+        )
+
+        assertEquals(FirmwareImageKind.CONTENT_PACK, metadata.kind)
+        assertEquals("Nokia BB5 FPSX", metadata.format)
+        assertEquals(1, metadata.blockCount)
+        file.delete()
+    }
+
+    @Test
     fun acceptsBb5SpecialUnmappedAddress() {
         val file = fixtureFile(".ppm_c", fpsx("PAPUBKEYS", 0xFFFF_FFFFL))
         val metadata = FirmwareImageInspector.inspect(file)
