@@ -136,3 +136,27 @@ The previous `KEYBOARD_TAP` View feedback did not produce perceptible vibration 
 The host-to-guest RTC path exists in code, but the user reports the displayed guest date/time still does not follow Android. New diagnostics log host Unix time, Android timezone/offset, and guest PMU RTC register values. Do not mark RTC sync as complete until those values and the Series 40 display agree.
 
 Guest Internet is not implemented in the pinned c3emu revision: there is no virtual modem or packet bridge, the SIM model has no card, and ISI only records internal messages. Launching a network-dependent guest application can stop/freeze the guest; root cause remains unconfirmed until its stop reason and SIM/ISI counters are captured. Panic containment does not imply arbitrary guest errors are recoverable.
+
+
+## C3-00 guest Internet investigation — 8 November 2026
+
+Research confirms that Nokia C3-00 supports both WLAN and GPRS packet data in the original Series 40 user guide. The RM-614 service schematic shows a separate WLAN controller interface with enable/IRQ and SPI/SDIO signal names.
+
+The pinned c3emu Android port currently emulates neither path. The SIM model is no-card; ISI instrumentation is observational only; no WLAN/SDIO peripheral or packet bridge exists. Android INTERNET permission alone is insufficient.
+
+A WLAN-first architecture note has been added at docs/experiments/C3EMU_NETWORK_RESEARCH.md. Candidate libraries reviewed:
+- smoltcp (Rust TCP/IP and Ethernet/TAP interfaces, not a WLAN chip emulator);
+- lwIP (TCP/IP APIs, not a WLAN chip emulator);
+- Linux Phonet documentation (Nokia modem IPC/RPC framing, not the IP stack);
+- Android VpnService TUN + protected bridge sockets.
+
+New native diagnostics expose ISI resource/message counters, recent TX/RX trace lines, and first-touch peripheral/SoC MMIO addresses. This is preparation for mapping the actual WLAN/GPRS protocol, not a working network feature.
+
+Firmware-specific disassembly is blocked: the Phoenix archive mentioned in the previous chat is not present in the current conversation or found in the first 100 Library ZIP entries. Reattach the same user-owned RM-614 Phoenix ZIP in this chat. No firmware bytes were included in this commit.
+
+Launcher/navigation update:
+- The old landing page is no longer the Android launcher.
+- The app now opens directly into the C3-00 shell/emulator.
+- The three-dot menu has a "Выбрать телефон…" entry; C3-00 is selectable, while RM-217 is clearly marked not yet implemented. The current C3 session is not disturbed by opening this picker.
+
+No Internet capability is claimed. Acceptance requires actual Series 40 Browser .jad + .jar download and installation.

@@ -1,6 +1,7 @@
 package org.retromobile.world
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -167,6 +168,7 @@ class C3EmuActivity : Activity() {
 
     private fun showDeviceMenu() {
         PopupMenu(this, menuView).apply {
+            menu.add(Menu.NONE, MENU_SELECT_PHONE, Menu.NONE, "Выбрать телефон…")
             menu.add(Menu.NONE, MENU_IMPORT_ZIP, Menu.NONE, "Импорт Phoenix ZIP (RM-614)…")
             menu.add(Menu.NONE, MENU_IMPORT_CORE, Menu.NONE, "Импорт MCUSW отдельно…")
             menu.add(Menu.NONE, MENU_IMPORT_PPM, Menu.NONE, "Импорт PPM отдельно…")
@@ -175,6 +177,10 @@ class C3EmuActivity : Activity() {
             menu.add(Menu.NONE, MENU_STOP, Menu.NONE, "Остановить и сохранить")
             setOnMenuItemClickListener { item ->
                 when (item.itemId) {
+                    MENU_SELECT_PHONE -> {
+                        showPhonePicker()
+                        true
+                    }
                     MENU_IMPORT_ZIP -> {
                         openPicker(null)
                         true
@@ -204,6 +210,27 @@ class C3EmuActivity : Activity() {
             }
             show()
         }
+    }
+
+    private fun showPhonePicker() {
+        val phones = arrayOf(
+            "Nokia C3-00 · RM-614 — доступен",
+            "Nokia 6300 · RM-217 — эмулятор ещё не готов"
+        )
+        AlertDialog.Builder(this)
+            .setTitle("Выбрать телефон")
+            .setSingleChoiceItems(phones, 0) { dialog, which ->
+                dialog.dismiss()
+                if (which == 1) {
+                    showMessage(
+                        "Nokia 6300",
+                        "Эмулятор RM-217 пока находится в разработке. " +
+                            "Текущая сессия Nokia C3-00 не затронута."
+                    )
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun sendKey(index: Int, pressed: Boolean) {
@@ -539,6 +566,7 @@ class C3EmuActivity : Activity() {
 
     companion object {
         private const val REQUEST_IMPORT_C3_FIRMWARE = 6140
+        private const val MENU_SELECT_PHONE = 7
         private const val MENU_IMPORT_ZIP = 1
         private const val MENU_IMPORT_CORE = 2
         private const val MENU_IMPORT_PPM = 3

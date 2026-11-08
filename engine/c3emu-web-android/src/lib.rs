@@ -418,8 +418,40 @@ pub extern "C" fn c3_stats() {
                     .collect::<Vec<_>>()
                     .join(",");
                 let isi_messages: u64 = st.isi_counts.values().copied().sum();
+                let isi_counts = st.isi_counts
+                    .iter()
+                    .map(|((resource, message), count)| {
+                        format!("\"{:02x}:{:02x}\":{}", resource, message, count)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let mut isi_recent = st.oslog
+                    .iter()
+                    .rev()
+                    .filter(|(_, line)| line.starts_with("ISI ") || line.starts_with("RECV "))
+                    .take(24)
+                    .map(|(_, line)| json_str(line))
+                    .collect::<Vec<_>>();
+                isi_recent.reverse();
+                let isi_recent = isi_recent.join(",");
+                let io_touches = st.touches
+                    .iter()
+                    .filter(|touch| touch.region == "periph" || touch.region == "soc")
+                    .take(64)
+                    .map(|touch| {
+                        format!(
+                            "{{\"region\":{},\"op\":{},\"addr\":\"0x{:08x}\",\"value\":\"0x{:08x}\",\"pc\":\"0x{:08x}\"}}",
+                            json_str(touch.region),
+                            json_str(&touch.op.to_string()),
+                            touch.addr,
+                            touch.value,
+                            touch.pc
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
                 format!(
-                    "{{\"running\":{},\"stopped\":{stopped},\"host_epoch\":{host_epoch},\"rtc\":[{rtc}],\"sim_timeouts\":{},\"sim_status\":{},\"isi_messages\":{},\"frames\":{},\"changed\":{},\"idle\":{},\"flash_writes\":{}}}",
+                    "{{\"running\":{},\"stopped\":{stopped},\"host_epoch\":{host_epoch},\"rtc\":[{rtc}],\"sim_timeouts\":{},\"sim_status\":{},\"isi_messages\":{},\"isi_counts\":{{{isi_counts}}},\"isi_recent\":[{isi_recent}],\"io_touches\":[{io_touches}],\"frames\":{},\"changed\":{},\"idle\":{},\"flash_writes\":{}}}",
                     e.stopped.is_none(),
                     st.sim.timeouts,
                     st.sim.status,

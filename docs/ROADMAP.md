@@ -104,3 +104,19 @@
 - [ ] Reproduce the guest stop/freeze from one network-dependent application and classify the exact native/guest stop reason before changing CPU/MMIO behavior.
 - [ ] Implement a real SIM/modem + GPRS/ISI packet transport + Android network bridge. Current pinned c3emu has no packet backend, so Internet remains unsupported.
 - [ ] Measure frame delivery and input latency on the physical device; host-side caching/coalescing is not proof of higher guest speed.
+
+
+## Milestone 1A — C3-00 WLAN/Internet and direct emulator entry
+
+- [x] Confirm from the RM-614 user guide that the original device supports both WLAN Internet and GPRS packet data.
+- [x] Confirm from the RM-614 service schematic that WLAN has a separate enable/IRQ/SPI/SDIO controller interface.
+- [x] Document the WLAN-first architecture and evaluate smoltcp, lwIP, Phonet and Android VpnService without confusing a TCP/IP stack with a wireless chipset.
+- [x] Expose ISI TX/RX resource/message counters and recent messages plus initial SoC/peripheral register touches in native diagnostics.
+- [x] Bypass the old landing screen and launch the C3-00 shell directly.
+- [x] Add "Выбрать телефон…" to the three-dot menu; only implemented emulator is available.
+- [ ] Inspect the exact user's RM-614 MCUSW/PPM firmware for WLAN driver, chip ID, firmware image, SDIO/SPI init and interrupt/packet protocol (archive must be attached in this chat).
+- [ ] Implement the minimal firmware-observed WLAN controller state machine.
+- [ ] Bridge guest IP packets through a consent-based Android network interface.
+- [ ] Verify WLAN scan, association, IP assignment, DNS, TCP, HTTP and HTTPS.
+- [ ] Download a real JAD/JAR from Series 40 Browser, validate the files and launch the MIDlet.
+- [ ] After WLAN works, study GPRS/ISI and implement virtual SIM/modem packet data only from captured protocol evidence.

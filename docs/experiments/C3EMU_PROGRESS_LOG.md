@@ -427,3 +427,32 @@ CI proves source compilation, native ABI build, unit tests and APK assembly only
 - Следующий диагностический запуск должен одновременно проверить вибрацию, часы и воспроизвести один проблемный сетевой запуск; один Logcat файл с тегами `C3EmuHaptics`, `C3EmuClock`, `C3EmuBoot`, `C3EmuPerf` позволит понять, что именно произошло.
 
 Не заявлять, что вибрация, синхронизация часов, реальный Интернет или устойчивость гостевых сетевых приложений уже проверены на физическом телефоне.
+
+
+## 18. Internet architecture discovery — WLAN-first — 8 November 2026
+
+### Hardware/firmware evidence found
+- The Nokia C3-00 user guide describes WLAN Internet access, scan/refresh, connect, saved networks and per-app connection policy (Ask first / Do not ask).
+- The same user guide documents GPRS packet data with on-demand and always-online modes.
+- The RM-614 service schematic shows a dedicated WLAN signal group: enable, IRQ, clock, MOSI/MISO, chip-select and clock-request, with SDIO aliases on the same lines.
+- This means the device has a genuine WLAN hardware path in the target design; a modem-only emulation plan would have missed the more direct first target.
+
+### Codebase gap confirmed
+- Pinned c3emu has no WLAN/SDIO controller model, wireless MAC, virtual AP, IP packet endpoint or Android bridge.
+- Its SIM controller explicitly behaves as no card and its ISI hooks are observers/counters, not a virtual modem.
+- INTERNET permission alone cannot make the guest operating system network-capable.
+
+### Libraries reviewed
+- smoltcp is a Rust TCP/IP stack with Ethernet and raw/TAP device interfaces; it can help with a virtual NIC/test harness, but is not a WLAN/SDIO emulation.
+- lwIP offers raw/sequential/BSD socket APIs, but likewise is not a WLAN controller.
+- Linux Phonet documentation clarifies the cellular modem IPC/RPC packet layer; it is not an IP stack.
+- Android VpnService can provide a TUN interface with explicit user consent; protect(Socket) can keep bridge sockets on the underlying Android network and avoid VPN routing loops.
+
+### Decision and next steps
+- Prioritize WLAN controller emulation and Android TUN/socket bridge first; defer GPRS until exact ISI traffic is captured.
+- Before creating a fake chipset, inspect the exact user-supplied RM-614 firmware and extract driver/device IDs, initialization register writes, GPIO/SPI/SDIO sequence and packet-buffer format.
+- This commit exposes recent ISI TX/RX messages and first-touch SoC/peripheral MMIO addresses in native stats.
+- Acceptance is end-to-end: scan virtual AP, associate, configure IP, DNS, TCP/HTTP, HTTPS, Browser downloads .jad and .jar, verify stored files and launch a MIDlet.
+
+### Firmware attachment availability
+The user indicated that firmware was supplied in the preceding chat. No firmware archive is attached to this conversation runtime, and a search of the current conversation and the first 100 Library ZIP entries found no RM-614/Phoenix/MCUSW/PPM/IMAGE file. Do not claim firmware inspection has happened. The exact Phoenix ZIP must be re-attached in this chat before driver disassembly and firmware-specific protocol mapping.
