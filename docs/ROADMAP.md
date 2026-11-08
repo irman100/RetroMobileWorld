@@ -25,6 +25,21 @@
 - [ ] Render the firmware's actual screen inside the retained display aperture; do not create a parallel simulated Series 40 menu system.
 - [ ] Port only the validated machine core to Android ARM64 via Rust JNI and a bounded render/input loop.
 
+## Milestone 1A — experimental Nokia C3-00 / RM-614 Series 40 runtime
+
+- [x] Integrate the pinned upstream c3emu native backend through Rust JNI.
+- [x] Add separate C3-00 Phoenix ZIP / MCUSW / PPM / IMAGE intake without mixing it with RM-217.
+- [x] Build native libraries for arm64-v8a, armeabi-v7a and x86_64 in Android CI.
+- [x] Fix the FPSX preflight check to accept upstream-compatible 32-bit address metadata while preserving container file-boundary checks.
+- [x] Add a regression test for an FPSX region crossing the unsigned 32-bit address boundary.
+- [x] Package the user-selected front-facing C3-00 shell image with a pinned Git blob integrity check.
+- [x] Add Windows SDK discovery and a safe local build/test/install workflow for a physical Android phone.
+- [ ] Build version 0.4.1 (versionCode 5) locally and install it on the connected physical phone.
+- [ ] Confirm import of the user's RM-614 Phoenix ZIP with no 32-bit FPSX range error.
+- [ ] Boot Series 40 to a real LCD frame/home screen and verify physical touch-key press/release.
+- [ ] Calibrate LCD aperture and physical keypad hit regions against the selected PNG on the phone.
+- [ ] Verify audio and persistent C: storage on the target phone.
+
 ## Milestone 2 — integrated Java ME applications
 
 - [ ] Replace the temporary J2ME Loader handoff with an in-app MIDP/CLDC runtime surface.
