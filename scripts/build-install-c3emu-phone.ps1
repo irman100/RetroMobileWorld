@@ -42,16 +42,24 @@ if ($InstallOnly) {
         throw "-InstallOnly requires the current branch to be $Branch; current branch is $currentBranch."
     }
 } else {
-    Invoke-Checked -File "git" -Arguments @("fetch", "origin", $Branch)
+    # Explicitly update the remote-tracking ref. Fetching only the branch name
+    # may populate FETCH_HEAD without creating origin/<branch> on some clones.
+    $sourceRef = "refs/heads/$Branch"
+    $remoteRef = "refs/remotes/origin/$Branch"
+    Invoke-Checked -File "git" -Arguments @("fetch", "origin", "${sourceRef}:${remoteRef}")
+
     if ($currentBranch -ne $Branch) {
         $localBranch = @(& git branch --list $Branch)
         if ($localBranch.Count -gt 0) {
             Invoke-Checked -File "git" -Arguments @("switch", $Branch)
         } else {
-            Invoke-Checked -File "git" -Arguments @("switch", "--track", "-c", $Branch, "origin/$Branch")
+            Invoke-Checked -File "git" -Arguments @("switch", "--track", "-c", $Branch, $remoteRef)
         }
     }
-    Invoke-Checked -File "git" -Arguments @("pull", "--ff-only", "origin", $Branch)
+
+    # The fetch above already retrieved the remote head. Avoid a second TLS
+    # handshake; advance the local branch only when a fast-forward is possible.
+    Invoke-Checked -File "git" -Arguments @("merge", "--ff-only", $remoteRef)
 }
 
 $commit = (& git rev-parse HEAD).Trim()
