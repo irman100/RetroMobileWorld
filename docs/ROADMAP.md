@@ -143,3 +143,14 @@
 - [ ] Verify a real Series 40 Browser JAD/JAR download, integrity, MIDlet installation and launch.
 
 The archive is analyzed locally only (SHA-256 `5239534da21345e5fc7bc1fbe5277f7d25a7798e9196742fcc77dc5d34445b11`); firmware binaries are not committed.
+
+
+### Pinned c3emu SPI host and trace audit — 8 November 2026
+
+- [x] Verify pinned upstream MMIO dispatch: no SPI-master, SDIO-host or WLAN target model; unknown registers fall back to sparse backing.
+- [x] Verify GPIO/IRQ model and identify missing board-level WLAN enable/CLK_REQ/IRQ pin behavior.
+- [x] Confirm existing `io_touches` entries are first-touch-only; identify upstream filtered `Machine::iolog(addr,len)` but note it is not exposed through Android JNI.
+- [ ] Add opt-in bounded access-by-access MMIO tracing for selected host-peripheral address ranges.
+- [ ] Map and implement the Nokia SoC SPI-master + WLAN board-pin/IRQ signals using captured MCUSW runtime accesses.
+- [ ] Connect the firmware-observed Broadcom gSPI target model to the SoC SPI master.
+- [ ] Bridge guest IP packets and complete the Series 40 Browser JAD/JAR acceptance test.

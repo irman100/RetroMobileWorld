@@ -175,3 +175,24 @@ Schematic/parts references: https://documents.cdn.ifixit.com/ORvCvsmrQTL2IJVq.pd
 5. Keep GPRS/virtual SIM as a later phase; no SIM/ISI packet behavior should be fabricated from these WLAN findings.
 
 The firmware analysis narrows the design substantially, but it does not yet implement Internet or prove a working packet path. The acceptance criterion remains a real .jad/.jar download and MIDlet install/launch from the guest Series 40 Browser.
+
+
+## Pinned c3emu host-side SPI and trace limitations — 8 November 2026
+
+The pinned dependency `androettop/c3emu@9b0d3ae2da326e109428f64d8760ea823ee1b648` was reviewed directly to determine what must be emulated on the Nokia host side before connecting the Broadcom gSPI target.
+
+- `crates/c3emu/src/bus.rs` maps only the DMAC, LCDC, SOC_IO and PERIPH MMIO windows. Its read/write dispatch covers the existing SoC, I2C, LCD, SIM, DMAC, keypad, general timer, GPIO, RTC and DSP handlers; it has no SPI-master, SDIO-host or WLAN device model.
+- A register not claimed by a device handler falls back to the sparse MMIO backing store. The guest can read back stored values, but there is no SPI transfer, FIFO, chip-select, clock or WLAN side effect. Thus, adding only a Broadcom gSPI target would still not connect it to the guest CPU: the host SoC SPI controller must also be implemented.
+- The current GPIO implementation models the interrupt status latches and raises INTC line 6; it is not a general board-pin output/edge model for WLAN enable, CLK_REQ and IRQ wiring. These signals need an explicit board-level model once their guest register accesses are mapped.
+- The Android wrapper's `io_touches` diagnostic takes the last 64 unique addresses. In upstream, `State::touch` records only the first access to each (region,address), so this is useful for address discovery but not for reconstructing repeated SPI transactions or polling sequences.
+- Upstream `Machine::iolog(addr,len)` can log every read/write in a selected MMIO range, including value and guest PC, into the machine event log. That event log is capped at 20,000 entries and emitted by `Machine::report()`; the current Android C ABI/JNI wrapper does not expose range selection or event retrieval. A targeted, bounded trace interface must be added before attempting protocol recovery. Do not permanently log every MMIO address because that can generate excessive volume and slow the guest.
+
+### Correct implementation order
+
+1. Use the existing first-touch MMIO list during WLAN-menu/scan activity to identify candidate host SPI/GPIO register ranges and guest call sites.
+2. Add a narrow, opt-in, bounded access-by-access trace for selected ranges to the Android wrapper (or a small rolling trace buffer in the vendored/forked c3emu bus layer).
+3. Recover host SPI-master configuration, transfer framing, GPIO enable/CLK_REQ, chip-select and IRQ routing from the trace and MCUSW call sites.
+4. Implement the SoC SPI master and board signal routing first; then attach the Broadcom gSPI device model and its observed firmware/SDPCM/BDC command subset.
+5. Verify WLAN scan and packet traffic end to end before declaring network support.
+
+This confirms the architecture is two connected emulated layers — Nokia SoC SPI/GPIO host plus Broadcom gSPI WLAN device — followed by the Android packet bridge. No addresses, register values or successful network behavior are assumed yet.

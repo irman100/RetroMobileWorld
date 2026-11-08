@@ -188,3 +188,12 @@ The MCUSW contains a Broadcom S60 WLAN HAL/PDD (`BcmWha`), explicit `802.11n gSP
 The `BCM4329B1...` text in MCUSW is located in a WMV3/Windows Media block and is not treated as chip-ID proof. The BOB-specific NVS labels likewise need a direct board/profile mapping. No controller registers or packet behavior have been invented, and guest Internet is still not implemented.
 
 Next: recover the WLAN IDB code/NVMEM sections; trace SPI MMIO, chip-select, enable, clock-request and IRQ while the guest scans; implement the minimal observed gSPI/SDPCM controller; then validate real Browser JAD/JAR downloads. The original firmware archive remains outside the repository.
+
+
+## C3-00 host-side SPI emulation gap — 8 November 2026
+
+A direct review of the pinned c3emu source confirms that it currently has no SPI-master, SDIO-host or WLAN target device. Unclaimed MMIO falls back to a sparse backing store, so writes can be read back without producing hardware side effects. The GPIO model only handles its existing interrupt-status latches and INTC line; WLAN enable/CLK_REQ/IRQ pin behavior is not yet modeled.
+
+The current Android `io_touches` report contains first-touch information for unique MMIO addresses, not the repeated register transaction sequence needed to implement SPI. Upstream exposes `Machine::iolog(addr,len)` for selected access-by-access logging, but the Android wrapper does not yet expose range selection/event retrieval. The event list is capped at 20,000 entries and is printed by `Machine::report()`.
+
+Implementation boundary is now explicit: add opt-in bounded MMIO tracing; decode the actual Nokia SoC SPI-master/GPIO register use; implement SoC SPI and board signals; attach the Broadcom gSPI target; then bridge guest IP packets. No guessed register map has been added.

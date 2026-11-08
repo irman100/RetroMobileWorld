@@ -502,3 +502,16 @@ The latest firmware inventory search paginated through 383 Library ZIPs plus the
 Точный кристалл и ревизия N6300/BOB1.0M-a остаются открытыми. Строка `BCM4329B1 Class 1.5 For Nokia Phones` находится внутри отдельного WMV3/Windows Media блока и не используется как доказательство маркировки чипа. Не подменять модуль TI WL1271 от другой версии BOB.
 
 Следующий шаг — определить IDB code/NVMEM payload, снять runtime SPI/IRQ трассу при сканировании WLAN, затем реализовать минимальную наблюдённую gSPI state machine и packet path. Проверка сети остаётся незавершённой до реального скачивания JAD/JAR встроенным Series 40 Browser и запуска MIDlet.
+
+
+## 22. Проверка SPI/MMIO-границы закреплённого c3emu — 8 ноября 2026
+
+Проверен upstream `androettop/c3emu@9b0d3ae2da326e109428f64d8760ea823ee1b648`.
+
+- `bus.rs` отображает окна DMAC, LCDC, SOC_IO и PERIPH; обработчики чтения/записи включают SoC, I2C, LCD, SIM, DMAC, keypad, timer, GPIO, RTC и DSP. SPI-master, SDIO-host и WLAN target отсутствуют.
+- Необслуживаемые MMIO-регистры читаются/записываются через sparse backing store: значения могут запоминаться, но SPI transfer/FIFO/CS/clock/IRQ side effects отсутствуют. Следовательно, нужен не только Broadcom gSPI target, но и отдельная эмуляция SPI-master со стороны Nokia SoC.
+- Текущий GPIO моделирует статусные защёлки и IRQ line 6, но не общий вывод/состояние физических линий WLAN enable, CLK_REQ и IRQ.
+- `c3_stats.io_touches` показывает последние 64 уникальных адреса. В upstream `State::touch` сохраняет только первое обращение к каждой паре region/address — это помогает обнаружить адрес, но не раскрывает повторные транзакции.
+- `Machine::iolog(addr,len)` позволяет логировать каждое чтение/запись выбранного диапазона вместе со значением и PC; общий event log ограничен 20 000 записями и выводится через `Machine::report()`. Android C ABI/JNI пока не предоставляет включение диапазона и выгрузку событий.
+
+Следующий технический шаг: после обнаружения кандидатов через first-touch добавить opt-in ограниченную трассу выбранных MMIO-диапазонов. Затем определить реальную конфигурацию SPI-master, CS/CLK, WLAN enable, CLK_REQ и IRQ; реализовать сначала host peripheral и разводку сигналов, затем Broadcom gSPI target и только после этого packet bridge. Адреса и значения регистров не угадывать.
