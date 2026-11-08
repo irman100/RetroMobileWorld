@@ -101,3 +101,8 @@ New responsiveness code at `51e60a11dc5b1c4be1eb20cff0324c26ce81c086`:
 Artifact ID: `13615556057`; ZIP SHA-256: `9e6cf0f7eeb7cbdf55611a97576cbd9cc1820e4a546ebb743b93d3c496ffb531`; APK SHA-256: `d5ccb5e691afd1b9c0ae886c8fd314bb19bd14cc0bb3d18775f0fe063dbc0a30`. CI run: https://github.com/irman100/RetroMobileWorld/actions/runs/42475334037.
 
 The new build has not yet been installed and measured on the physical phone. Do not claim a measured speed/FPS gain until `C3EmuPerf` logs and real key tests are captured. Preserve existing app-private storage and C: data.
+
+
+### C3-00 LCD rendering responsiveness follow-up (8 November 2026)
+
+The per-frame RGBA-to-ARGB conversion and Bitmap update have been moved off the Android UI/input thread to a dedicated single-thread frame-render executor. Frame coalescing remains in place, so stale LCD frames do not queue up. The final Bitmap update is synchronized against drawing and requests redraw with `postInvalidate()`. Physical FPS/input latency still require measurement.

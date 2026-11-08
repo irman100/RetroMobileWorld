@@ -47,6 +47,7 @@ class C3DeviceView @JvmOverloads constructor(
     private val rgbaPixels = IntArray(C3EmuEngine.LCD_WIDTH * C3EmuEngine.LCD_HEIGHT)
     private val photoPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val lcdPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val lcdLock = Any()
     private val lcdMatrix = Matrix()
     private val displayPath = Path()
     private val keyPressLedger = C3KeyPressLedger { key, pressed ->
@@ -169,16 +170,21 @@ class C3DeviceView @JvmOverloads constructor(
                 offset += 4
             }
         }
-        lcd.setPixels(
-            rgbaPixels,
-            0,
-            C3EmuEngine.LCD_WIDTH,
-            0,
-            0,
-            C3EmuEngine.LCD_WIDTH,
-            C3EmuEngine.LCD_HEIGHT
-        )
-        invalidate()
+        // Called by the dedicated frame-render worker. Keep the sizeable RGBA
+        // conversion off the UI thread; synchronize only the final Bitmap copy
+        // against onDraw, then post an ordinary invalidation to the UI thread.
+        synchronized(lcdLock) {
+            lcd.setPixels(
+                rgbaPixels,
+                0,
+                C3EmuEngine.LCD_WIDTH,
+                0,
+                0,
+                C3EmuEngine.LCD_WIDTH,
+                C3EmuEngine.LCD_HEIGHT
+            )
+        }
+        postInvalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -225,7 +231,9 @@ class C3DeviceView @JvmOverloads constructor(
 
         canvas.save()
         canvas.clipPath(displayPath)
-        canvas.drawBitmap(lcd, lcdMatrix, lcdPaint)
+        synchronized(lcdLock) {
+            canvas.drawBitmap(lcd, lcdMatrix, lcdPaint)
+        }
         canvas.restore()
 
         // The drawn marker and its touch target use the same native-photo centre.

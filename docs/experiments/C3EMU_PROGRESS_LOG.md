@@ -358,3 +358,18 @@ CI proves source compilation, native ABI build, unit tests and APK assembly only
 - собрать `C3EmuPerf` Logcat после загрузки, переходов меню и запуска приложения;
 - по cycleHz/deliveredFps/native stats определить, где остаётся предел: CPU interpreter, LCD refresh, audio или app launch/storage.
 
+
+
+## 13. Перенос LCD frame conversion с UI-потока — 8 ноября 2026
+
+После перехода на непрерывный native worker осталось ещё одно измеримо тяжёлое действие на UI-потоке: `C3DeviceView.showFrame()` вручную конвертировал все 320×240 RGBA пикселей в ARGB и обновлял Bitmap при каждом кадре. Это могло задерживать обработку касаний даже при быстром CPU worker.
+
+Изменение:
+- Добавлен отдельный single-thread executor `c3emu-frame-render`.
+- Последний готовый guest frame преобразуется и передаётся в Bitmap на frame worker, не на main/UI thread.
+- Coalescing последнего кадра сохранён: render executor не получает бесконечную очередь старых frame объектов.
+- Итоговый короткий Bitmap copy синхронизирован с `onDraw`; затем вызывается `postInvalidate()` для UI.
+- Audio и native CPU остаются на отдельных потоках; native c3emu по-прежнему вызывается только на одном owner thread.
+
+Это целевая оптимизация отзывчивости интерфейса, но реальный input-to-screen latency/FPS требуется повторно проверить на телефоне. Не заявлять прирост до анализа `C3EmuPerf` и тестов ввода.
+

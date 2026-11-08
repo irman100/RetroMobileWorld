@@ -45,6 +45,10 @@ class C3EmuActivity : Activity() {
         Thread(task, "c3emu-files").apply { isDaemon = true }
     }
     private val mainHandler = Handler(Looper.getMainLooper())
+    // Pixel conversion and Bitmap updates must not run on Android's input/UI thread.
+    private val frameExecutor = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "c3emu-frame-render").apply { isDaemon = true }
+    }
     // Keep blocking AudioTrack writes off the single native-emulation worker.
     // A small bounded queue drops stale audio rather than slowing CPU execution.
     private val audioExecutor = ThreadPoolExecutor(
@@ -300,9 +304,9 @@ class C3EmuActivity : Activity() {
     }
 
     private fun scheduleFrameRender() {
-        if (frameRenderScheduled.compareAndSet(false, true)) {
-            mainHandler.post(frameRenderRunnable)
-        }
+        if (destroyed || !frameRenderScheduled.compareAndSet(false, true)) return
+        runCatching { frameExecutor.execute(frameRenderRunnable) }
+            .onFailure { frameRenderScheduled.set(false) }
     }
 
     private fun startRunLoop() {
@@ -474,9 +478,9 @@ class C3EmuActivity : Activity() {
     override fun onDestroy() {
         destroyed = true
         stopRunLoop()
-        mainHandler.removeCallbacks(frameRenderRunnable)
         pendingFrame.set(null)
         stopAudio()
+        frameExecutor.shutdown()
         audioExecutor.shutdown()
         fileExecutor.execute { engine.close() }
         fileExecutor.shutdown()
