@@ -2,7 +2,8 @@
 param(
     [string]$Serial,
     [string]$Branch = "feature/c3emu-touch-shell-speed-20261107",
-    [string]$NdkVersion = "27.2.12479018"
+    [string]$NdkVersion = "27.2.12479018",
+    [switch]$UninstallOnSignatureMismatch
 )
 
 $ErrorActionPreference = "Stop"
@@ -173,7 +174,24 @@ if ($adbEnabled -ne "1") {
 
 Write-Host " "
 Write-Host "=== INSTALL LOCALLY BUILT APK ON THE PHYSICAL PHONE ==="
-Invoke-Checked -File $Adb -Arguments @("-s", $Serial, "install", "-r", $Apk)
+$installOutput = @(& $Adb -s $Serial install -r $Apk 2>&1)
+$installExitCode = $LASTEXITCODE
+$installOutput | ForEach-Object { Write-Host "$_" }
+
+if ($installExitCode -ne 0) {
+    $installText = $installOutput -join [Environment]::NewLine
+    $signatureMismatch = $installText -match "INSTALL_FAILED_UPDATE_INCOMPATIBLE|signatures do not match"
+    if ($signatureMismatch) {
+        if (-not $UninstallOnSignatureMismatch) {
+            throw "The installed GitHub APK and this local APK have different signing certificates. The existing app and its private data were left untouched. Only rerun with -UninstallOnSignatureMismatch after confirming you can lose this app's private firmware library and C: storage."
+        }
+        Write-Warning "Removing the existing app will delete its private firmware library, saved C: storage and app settings."
+        Invoke-Checked -File $Adb -Arguments @("-s", $Serial, "uninstall", "org.retromobile.world")
+        Invoke-Checked -File $Adb -Arguments @("-s", $Serial, "install", "-r", $Apk)
+    } else {
+        throw "APK installation failed with exit code $installExitCode."
+    }
+}
 
 Write-Host " "
 Write-Host "=== LAUNCH RETRO MOBILE WORLD ON THE PHONE ==="
