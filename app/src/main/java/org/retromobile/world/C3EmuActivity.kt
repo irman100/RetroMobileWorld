@@ -263,7 +263,7 @@ class C3EmuActivity : Activity() {
         fileExecutor.execute {
             val result = runCatching {
                 val core = library.find(FirmwareImageKind.CORE)
-                    ?: error("Сначала импортируй Phoenix ZIP для Nokia C3-00 / RM-614.")
+                    ?: error("Импортируй Phoenix ZIP или отдельный RM-614 MCUSW.")
                 val firmware = PhoneFirmwareSet(
                     core = core,
                     languagePack = library.find(FirmwareImageKind.LANGUAGE_PACK),
