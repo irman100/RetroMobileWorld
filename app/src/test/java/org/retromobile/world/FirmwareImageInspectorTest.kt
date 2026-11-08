@@ -50,6 +50,24 @@ class FirmwareImageInspectorTest {
     }
 
     @Test
+    fun acceptsMultipleSparseBlocksInOneFactoryContentImage() {
+        val extraBlock = byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8)
+        val file = fixtureFile(
+            ".image_mh1_059G792",
+            contentImage(extraBlocks = listOf(4096L to extraBlock))
+        )
+        val metadata = FirmwareImageInspector.inspect(
+            file,
+            "rm614__08.71.image_mh1_059G792"
+        )
+
+        assertEquals(FirmwareImageKind.CONTENT_PACK, metadata.kind)
+        assertEquals(2, metadata.blockCount)
+        assertEquals(520L, metadata.payloadBytes)
+        file.delete()
+    }
+
+    @Test
     fun rejectsContentImageWithoutFatBootSector() {
         val file = fixtureFile(
             ".image_mr_059B810",
@@ -163,7 +181,10 @@ class FirmwareImageInspectorTest {
         return out.toByteArray()
     }
 
-    private fun contentImage(bootAddress: Long = 0L): ByteArray {
+    private fun contentImage(
+        bootAddress: Long = 0L,
+        extraBlocks: List<Pair<Long, ByteArray>> = emptyList()
+    ): ByteArray {
         val out = ByteArrayOutputStream()
         // The IMAGE parser searches for its own sparse-volume block magic.
         // A leading 0x7B byte must not be mistaken for an FPSX block type.
@@ -185,6 +206,15 @@ class FirmwareImageInspectorTest {
         out.write(u32(bootAddress))
         out.write(0) // header checksum placeholder
         out.write(boot)
+
+        extraBlocks.forEach { (address, payload) ->
+            out.write(byteArrayOf(0x54, 0x01, 0x30, 0x15, 0x00, 0x03, 0x00))
+            out.write(ByteArray(10))
+            out.write(u32(payload.size.toLong()))
+            out.write(u32(address))
+            out.write(0) // header checksum placeholder
+            out.write(payload)
+        }
         return out.toByteArray()
     }
 
