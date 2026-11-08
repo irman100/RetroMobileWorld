@@ -49,6 +49,7 @@ class C3DeviceView @JvmOverloads constructor(
     private val lcdMatrix = Matrix()
     private val displayPath = Path()
     private val activePointers = mutableMapOf<Int, Int>()
+    private val activeKeyPointerCounts = mutableMapOf<Int, Int>()
 
     private var imageScale = 1f
     private var imageLeft = 0f
@@ -120,23 +121,23 @@ class C3DeviceView @JvmOverloads constructor(
 
         // Bottom modifier row: centres of each keycap, measured between
         // its dark neighbouring dividers. The curved row is not evenly spaced.
-        Hotspot(88f, 1668f, 14f, 39),   // Diagonal-arrow Function key
+        Hotspot(88f, 1668f, 14f, 50),   // Diagonal-arrow Function key (upstream F12 / matrix 50)
         Hotspot(176f, 1699f, 14f, 35),  // Shift
         Hotspot(266f, 1716f, 14f, 48),  // Symbol / Car-labelled key
         Hotspot(483f, 1735f, 20f, 49),  // Space
         Hotspot(700f, 1717f, 14f, 40),  // Punctuation / symbol key (: and slash)
         Hotspot(792f, 1699f, 14f, 41),  // Comma / period key
-        Hotspot(881f, 1660f, 14f, 50)   // Ctrl
+        Hotspot(881f, 1660f, 14f, 27)   // Ctrl (ControlLeft / ControlRight, matrix 27)
     )
 
     private val hotspotFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = Color.argb(8, 20, 24, 28)
+        color = Color.argb(2, 20, 24, 28)
     }
     private val hotspotStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.25f
-        color = Color.argb(52, 20, 24, 28)
+        strokeWidth = 1.0f
+        color = Color.argb(24, 20, 24, 28)
     }
 
     init {
@@ -265,8 +266,9 @@ class C3DeviceView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_CANCEL -> {
-                activePointers.values.forEach { onMatrixKey?.invoke(it, false) }
+                activePointers.values.toList().forEach(::releaseKeyPointer)
                 activePointers.clear()
+                activeKeyPointerCounts.clear()
             }
         }
         return true
@@ -283,18 +285,34 @@ class C3DeviceView @JvmOverloads constructor(
         if (previousKey == nextKey) return
 
         if (previousKey != null) {
-            onMatrixKey?.invoke(previousKey, false)
             activePointers.remove(pointerId)
+            releaseKeyPointer(previousKey)
         }
         if (nextKey != null) {
             activePointers[pointerId] = nextKey
-            onMatrixKey?.invoke(nextKey, true)
+            pressKeyPointer(nextKey)
+        }
+    }
+
+    private fun pressKeyPointer(key: Int) {
+        val pointerCount = activeKeyPointerCounts[key] ?: 0
+        if (pointerCount == 0) onMatrixKey?.invoke(key, true)
+        activeKeyPointerCounts[key] = pointerCount + 1
+    }
+
+    private fun releaseKeyPointer(key: Int) {
+        val pointerCount = activeKeyPointerCounts[key] ?: return
+        if (pointerCount <= 1) {
+            activeKeyPointerCounts.remove(key)
+            onMatrixKey?.invoke(key, false)
+        } else {
+            activeKeyPointerCounts[key] = pointerCount - 1
         }
     }
 
     private fun releasePointer(pointerId: Int) {
         val key = activePointers.remove(pointerId) ?: return
-        onMatrixKey?.invoke(key, false)
+        releaseKeyPointer(key)
     }
 
     private fun matrixKeyAt(x: Float, y: Float): Int? {
@@ -326,7 +344,9 @@ class C3DeviceView @JvmOverloads constructor(
         // Edge coordinates of the transparent screen window in the original photo.
         private const val LCD_LEFT = 82f
         private const val LCD_TOP = 289f
-        private const val LCD_RIGHT = 884f
-        private const val LCD_BOTTOM = 898f
+        // Right/bottom are exclusive pixel edges: transparent pixels x=82..884,
+        // y=289..898 must all be covered by the stretched guest LCD.
+        private const val LCD_RIGHT = 885f
+        private const val LCD_BOTTOM = 899f
     }
 }
