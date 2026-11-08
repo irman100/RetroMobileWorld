@@ -274,7 +274,19 @@ class C3EmuEngine : PhoneSystemEngine {
                 }
 
                 val cycle = result.getOrNull()
-                if (cycle == null || cycle.step.state == PhoneMachineState.FAILED) {
+                if (cycle == null) {
+                    val failure = result.exceptionOrNull()
+                    Log.e("C3EmuBoot", "Native run-cycle failed: ${failure?.message ?: "unknown error"}", failure)
+                    realtimeLoopRequested = false
+                    break
+                }
+                if (cycle.step.state == PhoneMachineState.FAILED) {
+                    val finalStats = runCatching { C3EmuNative.nativeStats() }
+                        .getOrDefault("unavailable")
+                    Log.e(
+                        "C3EmuBoot",
+                        "Guest OS stopped: ${cycle.step.diagnostic ?: "no diagnostic"}; native=$finalStats"
+                    )
                     realtimeLoopRequested = false
                     break
                 }

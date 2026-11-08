@@ -9,6 +9,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.util.AttributeSet
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 
@@ -51,6 +52,9 @@ class C3DeviceView @JvmOverloads constructor(
     private val lcdMatrix = Matrix()
     private val displayPath = Path()
     private val keyPressLedger = C3KeyPressLedger { key, pressed ->
+        // One short system-standard keyboard haptic per new key-down edge.
+        // The ledger suppresses duplicate feedback for held/multi-touch keys.
+        if (pressed) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         onMatrixKey?.invoke(key, pressed)
     }
 
@@ -87,27 +91,27 @@ class C3DeviceView @JvmOverloads constructor(
         Hotspot(480f, 1127f, 20f, C3KeyMatrix.SELECT),
 
         // Physical QWERTY / number row. Key centres follow the photographed caps.
-        Hotspot(95.5f, 1333f, 14f, 0),
-        Hotspot(180f, 1339f, 14f, 1),
-        Hotspot(266f, 1342f, 14f, 2),
-        Hotspot(351.5f, 1344f, 14f, 3),
+        Hotspot(95.5f, 1357f, 14f, 0),
+        Hotspot(180f, 1353f, 14f, 1),
+        Hotspot(266f, 1349f, 14f, 2),
+        Hotspot(351.5f, 1346f, 14f, 3),
         Hotspot(437f, 1345f, 14f, 4),
         Hotspot(523f, 1345f, 14f, 5),
-        Hotspot(608f, 1344f, 14f, 6),
-        Hotspot(694.5f, 1342f, 14f, 24),
-        Hotspot(780f, 1339f, 14f, 25),
-        Hotspot(865f, 1333f, 14f, 26),
+        Hotspot(608f, 1346f, 14f, 6),
+        Hotspot(694.5f, 1349f, 14f, 24),
+        Hotspot(780f, 1353f, 14f, 25),
+        Hotspot(865f, 1357f, 14f, 26),
 
-        Hotspot(95.5f, 1460f, 14f, 8),
-        Hotspot(180f, 1466f, 14f, 9),
-        Hotspot(266f, 1469f, 14f, 10),
-        Hotspot(351.5f, 1471f, 14f, 11),
+        Hotspot(95.5f, 1484f, 14f, 8),
+        Hotspot(180f, 1480f, 14f, 9),
+        Hotspot(266f, 1476f, 14f, 10),
+        Hotspot(351.5f, 1473f, 14f, 11),
         Hotspot(437f, 1472f, 14f, 12),
         Hotspot(523f, 1472f, 14f, 13),
-        Hotspot(608f, 1471f, 14f, 14),
-        Hotspot(694.5f, 1469f, 14f, 32),
-        Hotspot(780f, 1466f, 14f, 33),
-        Hotspot(865f, 1460f, 14f, 34),
+        Hotspot(608f, 1473f, 14f, 14),
+        Hotspot(694.5f, 1476f, 14f, 32),
+        Hotspot(780f, 1480f, 14f, 33),
+        Hotspot(865f, 1484f, 14f, 34),
 
         // Lowest QWERTY row: centres follow the curved dark separators
         // between the actual keycaps rather than a flat keyboard baseline.
@@ -124,13 +128,13 @@ class C3DeviceView @JvmOverloads constructor(
 
         // Bottom modifier row: centres of each keycap, measured between
         // its dark neighbouring dividers. The curved row is not evenly spaced.
-        Hotspot(88f, 1668f, 14f, C3KeyMatrix.FUNCTION),   // Diagonal-arrow Function key (upstream F12 / matrix 50)
+        Hotspot(104f, 1668f, 14f, C3KeyMatrix.FUNCTION),   // Diagonal-arrow Function key (upstream F12 / matrix 50)
         Hotspot(176f, 1699f, 14f, C3KeyMatrix.SHIFT),  // Shift
         Hotspot(266f, 1716f, 14f, C3KeyMatrix.SYMBOL),  // Symbol / Car-labelled key
         Hotspot(483f, 1735f, 20f, C3KeyMatrix.SPACE),  // Space
         Hotspot(700f, 1717f, 14f, C3KeyMatrix.PUNCTUATION),  // Punctuation / symbol key (: and slash)
         Hotspot(792f, 1699f, 14f, C3KeyMatrix.COMMA_PERIOD),  // Comma / period key
-        Hotspot(881f, 1660f, 14f, C3KeyMatrix.CTRL)   // Ctrl (ControlLeft / ControlRight, matrix 27)
+        Hotspot(865f, 1660f, 14f, C3KeyMatrix.CTRL)   // Ctrl (ControlLeft / ControlRight, matrix 27)
     )
 
     private val hotspotFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {

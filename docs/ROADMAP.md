@@ -48,6 +48,9 @@
 - [x] Reduce host-side stalls: offload blocking audio, match upstream 16 ms slices / 15 ms frame cadence / 20 ms WFI cap, and throttle flash persistence.
 - [x] Fix dropped quick taps by retaining key-down through one complete native CPU slice; enlarge invisible touch hit areas while preserving faint marker appearance.
 - [x] Replace Activity-per-slice round trips with a continuous single-owner native worker and coalesce stale LCD frames.
+- [x] Recalibrate first two QWERTY rows to a more pronounced down-curved edge, retain the accurate third row, and move the two extreme bottom modifier hotspots inward.
+- [x] Add short Android-standard KEYBOARD_TAP haptics on unique key-down edges.
+- [x] Add C3EmuBoot terminal error + native stats diagnostics for the remaining startup-splash interruption.
 - [x] Add `C3EmuPerf` Logcat counters for cycle rate, delivered FPS and native c3emu stats; CI run 42475334037 green on commit 51e60a1.
 - [x] Pass Android CI on C3 touch matrix / key-edge tests and sparse multi-block IMAGE fixture; assemble and upload debug APK artifact `13614395927` (latest branch head `4c00850`, push + PR runs both green).
 - [x] Pin only Kotlin compiler embeddable to exclusive WSO2 Maven POM/artifact source to avoid the recurring Kotlin 2.2.10 GitHub Releases HTTP 504.
