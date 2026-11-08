@@ -13,26 +13,23 @@ import android.view.MotionEvent
 import android.view.View
 
 /**
- * Photographic Nokia C3-00 shell with the guest LCD perspective-mapped into
- * the real display opening. Touch targets follow the photographed keycaps.
+ * Nokia C3-00 shell using the exact front-facing 968 x 1920 reference photo.
+ *
+ * LCD geometry and touch coordinates are expressed in that photo's native
+ * coordinate system, so display placement and hit testing cannot drift apart
+ * when the bitmap is sampled or the view is resized.
  */
 class C3DeviceView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
+
     private data class Hotspot(
-        val left: Float,
-        val top: Float,
-        val right: Float,
-        val bottom: Float,
+        val centerX: Float,
+        val centerY: Float,
+        val radius: Float,
         val matrixIndex: Int
     ) {
-        val centerX: Float get() = (left + right) / 2f
-        val centerY: Float get() = (top + bottom) / 2f
-        val radius: Float get() = minOf(right - left, bottom - top) * 0.23f
-
-        // Each visible circle is also the actual touch target; no large invisible
-        // rectangles extend into neighboring keys.
         fun contains(x: Float, y: Float): Boolean {
             val dx = x - centerX
             val dy = y - centerY
@@ -49,75 +46,88 @@ class C3DeviceView @JvmOverloads constructor(
     private val rgbaPixels = IntArray(C3EmuEngine.LCD_WIDTH * C3EmuEngine.LCD_HEIGHT)
     private val photoPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val lcdPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-    private val hotspotFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = Color.argb(24, 255, 255, 255)
-    }
-    private val hotspotStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 1.8f
-        color = Color.argb(82, 255, 255, 255)
-    }
     private val lcdMatrix = Matrix()
     private val displayPath = Path()
     private val activePointers = mutableMapOf<Int, Int>()
+
     private var imageScale = 1f
     private var imageLeft = 0f
     private var imageTop = 0f
 
     var onMatrixKey: ((Int, Boolean) -> Unit)? = null
 
-    private val hotspots: List<Hotspot> = buildList {
-        // Left / right soft keys and their adjacent contacts / message shortcuts.
-        add(Hotspot(216f, 542f, 322f, 588f, 29))
-        add(Hotspot(313f, 550f, 354f, 592f, 38))
-        add(Hotspot(535f, 542f, 629f, 590f, 43))
-        add(Hotspot(495f, 558f, 533f, 596f, 52))
+    /**
+     * First-pass touch calibration, centred on the visible physical keycaps.
+     * These are intentionally small circular regions. We can fine-tune their
+     * centres/radii independently after the user's on-device/photo review.
+     */
+    private val hotspots = listOf(
+        // Soft keys and the two small shortcut buttons next to the navigation ring.
+        Hotspot(140f, 1129f, 22f, 29),
+        Hotspot(256f, 1135f, 17f, 38),
+        Hotspot(824f, 1129f, 22f, 43),
+        Hotspot(675f, 1135f, 17f, 52),
 
         // Green call and red end keys.
-        add(Hotspot(230f, 594f, 291f, 637f, 30))
-        add(Hotspot(535f, 594f, 590f, 638f, 255))
+        Hotspot(197f, 1207f, 21f, 30),
+        Hotspot(755f, 1207f, 21f, 255),
 
-        // Four-way navigation ring and centre select key.
-        add(Hotspot(389f, 500f, 451f, 545f, 56))
-        add(Hotspot(389f, 607f, 452f, 651f, 57))
-        add(Hotspot(342f, 543f, 390f, 610f, 58))
-        add(Hotspot(450f, 543f, 496f, 610f, 59))
-        add(Hotspot(390f, 545f, 451f, 608f, 60))
+        // Navigation ring: up, down, left, right and centre select.
+        Hotspot(480f, 1044f, 20f, 56),
+        Hotspot(480f, 1218f, 20f, 57),
+        Hotspot(343f, 1127f, 20f, 58),
+        Hotspot(616f, 1127f, 20f, 59),
+        Hotspot(480f, 1127f, 25f, 60),
 
-        val firstRow = intArrayOf(0, 1, 2, 3, 4, 5, 6, 24, 25, 26)
-        val secondRow = intArrayOf(8, 9, 10, 11, 12, 13, 14, 32, 33, 34)
-        val thirdRow = intArrayOf(16, 17, 18, 19, 20, 21, 22, 45, 28, 42)
-        addKeyboardRow(642f, 700f, firstRow)
-        addKeyboardRow(701f, 756f, secondRow)
-        addKeyboardRow(757f, 824f, thirdRow)
+        // Physical QWERTY / number row. Key centres follow the photographed caps.
+        Hotspot(95.5f, 1345f, 18f, 0),
+        Hotspot(180f, 1345f, 18f, 1),
+        Hotspot(266f, 1345f, 18f, 2),
+        Hotspot(351.5f, 1345f, 18f, 3),
+        Hotspot(437f, 1345f, 18f, 4),
+        Hotspot(523f, 1345f, 18f, 5),
+        Hotspot(608f, 1345f, 18f, 6),
+        Hotspot(694.5f, 1345f, 18f, 24),
+        Hotspot(780f, 1345f, 18f, 25),
+        Hotspot(865f, 1345f, 18f, 26),
 
-        // Modifier keys and the long space bar along the bottom edge.
-        add(Hotspot(184f, 821f, 254f, 895f, 35)) // Shift
-        add(Hotspot(254f, 831f, 330f, 905f, 48)) // Sym
-        add(Hotspot(329f, 847f, 485f, 913f, 49)) // Space
-        add(Hotspot(555f, 830f, 650f, 907f, 50)) // Fn / Ctrl
+        Hotspot(95.5f, 1472f, 18f, 8),
+        Hotspot(180f, 1472f, 18f, 9),
+        Hotspot(266f, 1472f, 18f, 10),
+        Hotspot(351.5f, 1472f, 18f, 11),
+        Hotspot(437f, 1472f, 18f, 12),
+        Hotspot(523f, 1472f, 18f, 13),
+        Hotspot(608f, 1472f, 18f, 14),
+        Hotspot(694.5f, 1472f, 18f, 32),
+        Hotspot(780f, 1472f, 18f, 33),
+        Hotspot(865f, 1472f, 18f, 34),
+
+        Hotspot(95.5f, 1600f, 18f, 16),
+        Hotspot(180f, 1600f, 18f, 17),
+        Hotspot(266f, 1600f, 18f, 18),
+        Hotspot(351.5f, 1600f, 18f, 19),
+        Hotspot(437f, 1600f, 18f, 20),
+        Hotspot(523f, 1600f, 18f, 21),
+        Hotspot(608f, 1600f, 18f, 22),
+        Hotspot(694.5f, 1600f, 18f, 45),
+        Hotspot(780f, 1600f, 18f, 28),
+        Hotspot(865f, 1600f, 18f, 42),
+
+        // Bottom modifier keys and the long space bar.
+        Hotspot(180f, 1715f, 18f, 35),
+        Hotspot(266f, 1742f, 18f, 48),
+        Hotspot(480f, 1738f, 25f, 49),
+        Hotspot(863f, 1700f, 18f, 50)
+    )
+
+    private val hotspotFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.argb(20, 255, 255, 255)
     }
-
-    private fun MutableList<Hotspot>.addKeyboardRow(
-        top: Float,
-        bottom: Float,
-        indices: IntArray
-    ) {
-        val left = 184f
-        val right = 650f
-        val width = (right - left) / indices.size
-        indices.forEachIndexed { index, matrixIndex ->
-            add(
-                Hotspot(
-                    left + index * width,
-                    top,
-                    left + (index + 1) * width,
-                    bottom,
-                    matrixIndex
-                )
-            )
-        }
+    private val hotspotStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.6f
+        color = Color.argb(76, 255, 255, 255)
     }
 
     init {
@@ -171,18 +181,20 @@ class C3DeviceView @JvmOverloads constructor(
         imageLeft = (width - image.width * imageScale) / 2f
         imageTop = (height - image.height * imageScale) / 2f
 
+        val photoScaleX = image.width / PHOTO_REFERENCE_WIDTH
+        val photoScaleY = image.height / PHOTO_REFERENCE_HEIGHT
+
         canvas.save()
         canvas.translate(imageLeft, imageTop)
         canvas.scale(imageScale, imageScale)
         canvas.drawBitmap(image, 0f, 0f, photoPaint)
 
-        // Coordinates are measured on the 750 x 1000 Commons preview.
-        val photoUnits = image.width / 750f
+        // Exact transparent LCD aperture in docs/75-205-263-02.png (968 x 1920).
         val points = floatArrayOf(
-            228f * photoUnits, 120f * photoUnits,
-            652f * photoUnits, 153f * photoUnits,
-            625f * photoUnits, 443f * photoUnits,
-            209f * photoUnits, 444f * photoUnits
+            LCD_LEFT * photoScaleX, LCD_TOP * photoScaleY,
+            LCD_RIGHT * photoScaleX, LCD_TOP * photoScaleY,
+            LCD_RIGHT * photoScaleX, LCD_BOTTOM * photoScaleY,
+            LCD_LEFT * photoScaleX, LCD_BOTTOM * photoScaleY
         )
         val source = floatArrayOf(
             0f, 0f,
@@ -204,13 +216,11 @@ class C3DeviceView @JvmOverloads constructor(
         canvas.drawBitmap(lcd, lcdMatrix, lcdPaint)
         canvas.restore()
 
-        // Subtle calibration circles are centred on the current key estimates.
-        // Their geometry is shared with hit-testing so the visible and active
-        // touch areas are identical. Positions remain easy to tune after photo review.
+        // The drawn marker and its touch target use the same native-photo centre.
         hotspots.forEach { hotspot ->
-            val x = hotspot.centerX * photoUnits
-            val y = hotspot.centerY * photoUnits
-            val radius = hotspot.radius * photoUnits
+            val x = hotspot.centerX * photoScaleX
+            val y = hotspot.centerY * photoScaleY
+            val radius = hotspot.radius * minOf(photoScaleX, photoScaleY)
             canvas.drawCircle(x, y, radius, hotspotFillPaint)
             canvas.drawCircle(x, y, radius, hotspotStrokePaint)
         }
@@ -288,8 +298,8 @@ class C3DeviceView @JvmOverloads constructor(
             localY !in 0f..image.height.toFloat()
         ) return null
 
-        val referenceX = localX / image.width * 750f
-        val referenceY = localY / image.height * 1000f
+        val referenceX = localX / image.width * PHOTO_REFERENCE_WIDTH
+        val referenceY = localY / image.height * PHOTO_REFERENCE_HEIGHT
         return hotspots.firstOrNull { it.contains(referenceX, referenceY) }?.matrixIndex
     }
 
@@ -299,4 +309,15 @@ class C3DeviceView @JvmOverloads constructor(
             BitmapFactory.decodeStream(input, null, options)
         }
     }.getOrNull()
+
+    companion object {
+        private const val PHOTO_REFERENCE_WIDTH = 968f
+        private const val PHOTO_REFERENCE_HEIGHT = 1920f
+
+        // Edge coordinates of the transparent screen window in the original photo.
+        private const val LCD_LEFT = 82f
+        private const val LCD_TOP = 289f
+        private const val LCD_RIGHT = 884f
+        private const val LCD_BOTTOM = 898f
+    }
 }
