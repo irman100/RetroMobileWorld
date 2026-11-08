@@ -223,8 +223,7 @@ class C3EmuActivity : Activity() {
                 dialog.dismiss()
                 if (which == 1) {
                     showMessage(
-                        "Nokia 6300",
-                        "Эмулятор RM-217 пока находится в разработке. " +
+                        "Nokia 6300: эмулятор RM-217 пока находится в разработке. " +
                             "Текущая сессия Nokia C3-00 не затронута."
                     )
                 }

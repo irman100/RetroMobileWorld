@@ -120,3 +120,6 @@
 - [ ] Verify WLAN scan, association, IP assignment, DNS, TCP, HTTP and HTTPS.
 - [ ] Download a real JAD/JAR from Series 40 Browser, validate the files and launch the MIDlet.
 - [ ] After WLAN works, study GPRS/ISI and implement virtual SIM/modem packet data only from captured protocol evidence.
+
+
+- [ ] Re-run Android CI after fixing the phone-picker showMessage call signature. Commit 8156a2d native JNI build succeeded; Kotlin compile failed on this single-argument API mismatch.

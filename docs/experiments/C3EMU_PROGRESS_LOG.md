@@ -456,3 +456,10 @@ CI proves source compilation, native ABI build, unit tests and APK assembly only
 
 ### Firmware attachment availability
 The user indicated that firmware was supplied in the preceding chat. No firmware archive is attached to this conversation runtime, and a search of the current conversation and the first 100 Library ZIP entries found no RM-614/Phoenix/MCUSW/PPM/IMAGE file. Do not claim firmware inspection has happened. The exact Phoenix ZIP must be re-attached in this chat before driver disassembly and firmware-specific protocol mapping.
+
+
+## 19. Исправление CI после добавления меню выбора телефона — 8 ноября 2026
+
+Первый CI для коммита 8156a2d собрал native JNI libraries для трёх ABI, но Kotlin compile остановился на новом обработчике выбора телефона: C3EmuActivity.showMessage принимает одну строку, а новый вызов передавал две. Это ошибка реализации меню, а не ошибка сетевого/native кода.
+
+Исправление: сообщение о неподдерживаемом RM-217 теперь передаётся одним аргументом. После исправления требуется повторить push и PR CI, включая Kotlin compile, unit tests и APK assembly. APK от 8156a2d не создавался и не выдавался.
