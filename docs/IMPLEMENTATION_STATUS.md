@@ -21,6 +21,7 @@ Snapshot: 8 November 2026.
 - Windows SDK discovery now supports ANDROID_SDK_ROOT, ANDROID_HOME, local.properties and D:\Android\Sdk.
 - A safe local build/install PowerShell entry point was added for physical Android phones.
 - Android app version is advanced to 0.4.1-c3emu-rm614 (versionCode 5) for the next local validation build.
+- Full CI for checkpoint 1c63d991738e2b209000271ea86dfb170894f508 passed in push run 42458429582 and PR run 42458434131; the version 0.4.1 debug APK artifact is 13608921375.
 - Firmware remains user-supplied and is not included in source control or the APK.
 
 ## C3-00 validation boundary
