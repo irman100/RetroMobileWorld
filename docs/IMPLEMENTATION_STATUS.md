@@ -62,6 +62,7 @@ The Android backend uses c3emu's own RM-614 hardware model. It must not be selec
 - Host loop uses 16 ms native slices, 15 ms LCD frame cadence and a 20 ms WFI wait cap, matching upstream worker timing. Blocking audio writes run on a separate bounded worker; dirty flash storage is throttled to 1 second with forced flush on pause/stop/failure.
 - These are host-overhead optimizations, not a measured increase beyond upstream real-time emulation. Physical-device FPS/latency measurement remains pending.
 - CI now installs Gradle 9.6.0 through `gradle/actions/setup-gradle@v6`, caches distributions/dependencies and retries transient HTTP 5xx/network failures. Current head checks remain linked from PR #3.
+- Push CI run `42469546828` passed native builds for all three Android ABIs, Android unit tests, debug APK assembly and artifact upload. Artifact `13613535664`; APK SHA-256 `e5f08448acb424aeceb4a79c6a2d8e08b1b533cafb61b81d06923d88d1927f9c`. This confirms CI build/tests, not physical-device installation or firmware boot.
 
 ## RM-217 verification
 

@@ -227,3 +227,36 @@ CI runs `42465042109` и `42465729769` подтвердили сборку nativ
 - Gradle/Android CI теперь использует `gradle/actions/setup-gradle@v6` с Gradle 9.6.0 и кэшем дистрибутива/зависимостей; сетевые 5xx/timeouts на задачах Gradle получают до трёх повторов. Wrapper networkTimeout повышен до 120000 ms.
 
 Эти изменения убирают известные задержки host-интеграции и приводят cadence ближе к upstream c3emu. Они **не доказывают увеличение guest CPU speed или FPS**: upstream synchronizes guest clock to real time. Скорость и плавность надо замерить на физическом телефоне после установки.
+
+
+## 10. CI checkpoint — 8 November 2026
+
+Текущий кодовый checkpoint: `9c1112e856ac16d5799a471d33711f44b21efcdf`.
+
+**GitHub Actions push run `42469546828` — SUCCESS.**
+- Device profile/catalogue validation — success.
+- Firmware-inspection Python tests — success.
+- Android SDK / NDK setup — success.
+- Rust Android target setup + `cargo-ndk` — success.
+- Native c3emu JNI build: `arm64-v8a`, `armeabi-v7a`, `x86_64` — success.
+- `:app:testDebugUnitTest` — success (includes IMAGE sparse multi-block fixture and C3 key matrix / key-press ledger tests).
+- `:app:assembleDebug` — success.
+- Artifact upload — success.
+
+Artifact:
+- name: `retro-mobile-world-c3emu-debug`
+- artifact ID: `13613535664`
+- archive SHA-256: `0e79171cda673b0ef73f40e7435a0c9e21ab04b80994c8855aaa2caf1fdd3884`
+- APK path inside ZIP: `app-debug.apk`
+- APK size: `12,494,146` bytes
+- APK SHA-256: `e5f08448acb424aeceb4a79c6a2d8e08b1b533cafb61b81d06923d88d1927f9c`
+- artifact expiry: 22 November 2026, 10:03 UTC.
+
+CI dependency fix:
+- `settings.gradle.kts` now uses a content-filtered WSO2 Maven Central mirror only for `org.jetbrains.kotlin:kotlin-compiler-embeddable`; other dependencies still use their normal Google/Maven Central/Plugin Portal repositories.
+- This resolved the repeated HTTP 504 on Kotlin compiler 2.2.10.
+- The first successful Kotlin compile exposed a test fixture typing error (`Int` vs `Byte` at FAT boot signature byte `0xAA)); the fixture now explicitly uses `.toByte()`, and all unit tests pass.
+
+The PR-triggered duplicate run `42469551102` has also completed native build and unit tests successfully; at this journal update it is still executing APK assembly. The successful push run above already produced and uploaded the verified debug APK.
+
+**Phone-only checks still pending:** installation on the user's physical phone, import of the actual `rm614__08.71.image_*`, first-boot C: content, real Series 40 frame/home screen, touch response on every hotspot, LCD aperture screenshot, audio, and measured FPS/input latency. CI does not prove those device-level behaviours.
