@@ -7,7 +7,7 @@ class C3KeyPressLedgerTest {
     @Test
     fun tapEmitsOneDownAndOneUpEdge() {
         val events = mutableListOf<Pair<Int, Boolean>>()
-        val ledger = C3KeyPressLedger { key, down -> events += key to down }
+        val ledger = C3KeyPressLedger { key, down -> events.add(key to down) }
 
         ledger.move(pointerId = 1, nextKey = 56)
         ledger.release(pointerId = 1)
@@ -18,7 +18,7 @@ class C3KeyPressLedgerTest {
     @Test
     fun movingBetweenCirclesReleasesOldKeyBeforePressingNewKey() {
         val events = mutableListOf<Pair<Int, Boolean>>()
-        val ledger = C3KeyPressLedger { key, down -> events += key to down }
+        val ledger = C3KeyPressLedger { key, down -> events.add(key to down) }
 
         ledger.move(pointerId = 7, nextKey = 0)
         ledger.move(pointerId = 7, nextKey = 1)
@@ -33,7 +33,7 @@ class C3KeyPressLedgerTest {
     @Test
     fun sharedKeyRemainsDownUntilEveryPointerReleasesIt() {
         val events = mutableListOf<Pair<Int, Boolean>>()
-        val ledger = C3KeyPressLedger { key, down -> events += key to down }
+        val ledger = C3KeyPressLedger { key, down -> events.add(key to down) }
 
         ledger.move(pointerId = 1, nextKey = 60)
         ledger.move(pointerId = 2, nextKey = 60)
@@ -48,7 +48,7 @@ class C3KeyPressLedgerTest {
     @Test
     fun cancelReleasesEachHeldMatrixKeyExactlyOnce() {
         val events = mutableListOf<Pair<Int, Boolean>>()
-        val ledger = C3KeyPressLedger { key, down -> events += key to down }
+        val ledger = C3KeyPressLedger { key, down -> events.add(key to down) }
 
         ledger.move(pointerId = 1, nextKey = 29)
         ledger.move(pointerId = 2, nextKey = 29)
