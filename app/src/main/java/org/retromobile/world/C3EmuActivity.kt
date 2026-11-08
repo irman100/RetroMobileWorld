@@ -23,7 +23,10 @@ import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
 import java.io.File
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.Executors
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import kotlin.math.ceil
 
 /**
@@ -41,6 +44,17 @@ class C3EmuActivity : Activity() {
         Thread(task, "c3emu-files").apply { isDaemon = true }
     }
     private val mainHandler = Handler(Looper.getMainLooper())
+    // Keep blocking AudioTrack writes off the single native-emulation worker.
+    // A small bounded queue drops stale audio rather than slowing CPU execution.
+    private val audioExecutor = ThreadPoolExecutor(
+        1,
+        1,
+        0L,
+        TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue(4),
+        { task -> Thread(task, "c3emu-audio").apply { isDaemon = true } },
+        ThreadPoolExecutor.DiscardOldestPolicy()
+    )
 
     @Volatile private var audioTrack: AudioTrack? = null
     private var runningLoop = false
@@ -53,18 +67,7 @@ class C3EmuActivity : Activity() {
             cycleInFlight = true
             engine.runCycleAsync(CPU_BUDGET_MICROS) { result ->
                 // Audio is handed to AudioTrack away from the UI thread.
-                result.getOrNull()?.audio?.samples?.let { samples ->
-                    if (samples.isNotEmpty()) {
-                        runCatching {
-                            audioTrack?.write(
-                                samples,
-                                0,
-                                samples.size,
-                                AudioTrack.WRITE_BLOCKING
-                            )
-                        }
-                    }
-                }
+                result.getOrNull()?.audio?.samples?.let(::queueAudio)
                 runOnUiThread {
                     cycleInFlight = false
                     if (destroyed) return@runOnUiThread
@@ -76,8 +79,11 @@ class C3EmuActivity : Activity() {
                             stopAudio()
                             showMessage("Эмулятор остановлен: " + (cycle.step.diagnostic ?: "ошибка"))
                         } else if (runningLoop) {
+                            // Match upstream c3emu's short WFI sleep cap. A long
+                            // host delay otherwise postpones key input and the next
+                            // visible frame even when the guest has become runnable.
                             val delay = if (cycle.waitMillis > 0.0) {
-                                ceil(cycle.waitMillis).toLong().coerceIn(1L, 1000L)
+                                ceil(cycle.waitMillis).toLong().coerceIn(1L, 20L)
                             } else {
                                 0L
                             }
@@ -311,6 +317,26 @@ class C3EmuActivity : Activity() {
         mainHandler.removeCallbacks(loopRunnable)
     }
 
+    private fun queueAudio(samples: ShortArray) {
+        if (samples.isEmpty()) return
+        val track = audioTrack ?: return
+        runCatching {
+            audioExecutor.execute {
+                var offset = 0
+                while (offset < samples.size) {
+                    val written = track.write(
+                        samples,
+                        offset,
+                        samples.size - offset,
+                        AudioTrack.WRITE_BLOCKING
+                    )
+                    if (written <= 0) break
+                    offset += written
+                }
+            }
+        }
+    }
+
     private fun startAudio() {
         stopAudio()
         val minimum = AudioTrack.getMinBufferSize(
@@ -318,7 +344,7 @@ class C3EmuActivity : Activity() {
             AudioFormat.CHANNEL_OUT_STEREO,
             AudioFormat.ENCODING_PCM_16BIT
         ).coerceAtLeast(4096)
-        audioTrack = AudioTrack.Builder()
+        val track = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_GAME)
@@ -335,17 +361,25 @@ class C3EmuActivity : Activity() {
             .setBufferSizeInBytes(minimum * 2)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
-            .apply { play() }
+        audioTrack = track
+        track.play()
     }
 
     private fun stopAudio() {
-        runCatching {
-            audioTrack?.pause()
-            audioTrack?.flush()
-            audioTrack?.stop()
-            audioTrack?.release()
-        }
+        val track = audioTrack ?: return
         audioTrack = null
+        runCatching {
+            audioExecutor.execute {
+                runCatching {
+                    track.pause()
+                    track.flush()
+                    track.stop()
+                }
+                track.release()
+            }
+        }.onFailure {
+            runCatching { track.release() }
+        }
     }
 
     private fun refreshFirmwareStatus() {
@@ -418,6 +452,7 @@ class C3EmuActivity : Activity() {
         destroyed = true
         stopRunLoop()
         stopAudio()
+        audioExecutor.shutdown()
         fileExecutor.execute { engine.close() }
         fileExecutor.shutdown()
         super.onDestroy()
@@ -431,6 +466,7 @@ class C3EmuActivity : Activity() {
         private const val MENU_IMPORT_IMAGE = 4
         private const val MENU_BOOT = 5
         private const val MENU_STOP = 6
-        private const val CPU_BUDGET_MICROS = 12_000L
+        // c3emu upstream web runner uses a 16 ms slice.
+        private const val CPU_BUDGET_MICROS = 16_000L
     }
 }
