@@ -169,7 +169,7 @@ object FirmwareImageInspector {
         val blockMagic = byteArrayOf(
             0x54, 0x01, 0x30, 0x15, 0x00, 0x03, 0x00
         )
-        const valHeaderBytes: Int = 26
+        val headerBytes = 26
 
         try {
             RandomAccessFile(file, "r").use { input ->
@@ -184,7 +184,7 @@ object FirmwareImageInspector {
                 var payloadBytes = 0L
                 var bootSector: ByteArray? = null
 
-                while (cursor + constHeaderBytes <= fileLength) {
+                while (cursor + headerBytes <= fileLength) {
                     input.seek(cursor)
                     val marker = ByteArray(blockMagic.size)
                     if (input.read(marker) != marker.size || !marker.contentEquals(blockMagic)) {
@@ -200,7 +200,7 @@ object FirmwareImageInspector {
                     val dataLength = readUInt32(input)
                     input.seek(cursor + 21L)
                     val address = readUInt32(input)
-                    val dataOffset = cursor + constHeaderBytes
+                    val dataOffset = cursor + headerBytes
 
                     require(dataLength <= MAX_FILE_BYTES) {
                         "RM-614 IMAGE data block is too large."
