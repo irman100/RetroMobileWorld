@@ -32,6 +32,9 @@ const SPI_IOLOG_BASE: u64 = 0x088D_0000;
 const SPI_IOLOG_LENGTH: u64 = 0x2_000;
 const BUS_TRACE_EVENT_LIMIT: usize = 24;
 const BUS_TRACE_LOG_MAX_BYTES: usize = 3_072;
+/// Bound exact-mode instruction slices so the upstream 20,000-event list cannot
+/// fill between Android's periodic log snapshots.
+const BUS_TRACE_SLICE_INSNS: u64 = 8_192;
 
 #[derive(Default)]
 struct Emu {
@@ -43,6 +46,12 @@ struct Emu {
     audio: Vec<i16>,
     result: Vec<u8>,
     stopped: Option<String>,
+    /// Rolling SPI-host transaction window, harvested at every bounded CPU slice.
+    bus_trace: Vec<(u64, String)>,
+    /// Lifetime counts for the selected SPI range and unrelated native events.
+    bus_trace_total: u64,
+    bus_trace_overwritten: u64,
+    bus_trace_other_events: u64,
     /// Time of day for the phone's clock at boot (seconds since 2000).
     epoch: Option<u64>,
 }
@@ -153,9 +162,59 @@ fn compact_trace_json(
     )
 }
 
-/// Compact access-by-access SPI-host MMIO records from Machine::iolog.
-/// Each row is [icount, operation+width, address, value, guest_pc].
-fn compact_bus_trace_json(events: &[(u64, String)]) -> String {
+/// True for one access-by-access event in the firmware-identified SPI-host range.
+fn is_spi_bus_event(line: &str) -> bool {
+    let mut parts = line.split_whitespace();
+    if parts.next() != Some("io") {
+        return false;
+    }
+    let Some(op) = parts.next() else { return false };
+    if !(op.starts_with('R') || op.starts_with('W')) {
+        return false;
+    }
+    let Some(address) = parts.next().and_then(|part| part.strip_prefix("0x")) else {
+        return false;
+    };
+    let Ok(address) = u32::from_str_radix(address, 16) else {
+        return false;
+    };
+    (SPI_IOLOG_BASE..SPI_IOLOG_BASE + SPI_IOLOG_LENGTH).contains(&(address as u64))
+}
+
+/// Move the current upstream event batch into a dedicated rolling SPI window.
+///
+/// The Android wrapper does not call Machine::report(); its user-visible diagnostics
+/// are C3EmuTrace and C3EmuBus. Draining each bounded CPU slice prevents unrelated
+/// events from consuming the upstream State::events 20,000-entry lifetime cap.
+fn collect_bus_trace_events(
+    events: &mut Vec<(u64, String)>,
+    ring: &mut Vec<(u64, String)>,
+    event_total: &mut u64,
+    overwritten: &mut u64,
+    other_event_total: &mut u64,
+) {
+    for (icount, line) in events.drain(..) {
+        if is_spi_bus_event(&line) {
+            *event_total = (*event_total).saturating_add(1);
+            if ring.len() >= BUS_TRACE_EVENT_LIMIT {
+                ring.remove(0);
+                *overwritten = (*overwritten).saturating_add(1);
+            }
+            ring.push((icount, line));
+        } else {
+            *other_event_total = (*other_event_total).saturating_add(1);
+        }
+    }
+}
+
+/// Compact rolling SPI-host MMIO records. Each row is
+/// [icount, operation+width, address, value, guest_pc].
+fn compact_bus_trace_json(
+    events: &[(u64, String)],
+    event_count: u64,
+    overwritten: u64,
+    other_event_count: u64,
+) -> String {
     let mut parsed = events
         .iter()
         .filter_map(|(icount, line)| {
@@ -180,9 +239,9 @@ fn compact_bus_trace_json(events: &[(u64, String)]) -> String {
         })
         .collect::<Vec<_>>();
 
-    let event_count = parsed.len();
     let keep_from = parsed.len().saturating_sub(BUS_TRACE_EVENT_LIMIT);
     let recent = &parsed[keep_from..];
+    let buffered_count = recent.len();
     let rows = recent
         .iter()
         .map(|(icount, op, addr, value, pc)| {
@@ -199,7 +258,7 @@ fn compact_bus_trace_json(events: &[(u64, String)]) -> String {
     parsed.clear();
 
     format!(
-        "{{\"range\":\"088D0000-088D1FFF\",\"eventCount\":{event_count},\"events\":[{rows}]}}"
+        "{{\"range\":\"088D0000-088D1FFF\",\"eventCount\":{event_count},\"bufferedCount\":{buffered_count},\"overwritten\":{overwritten},\"otherEventCount\":{other_event_count},\"events\":[{rows}]}}"
     )
 }
 
@@ -383,11 +442,17 @@ pub extern "C" fn c3_set_time(unix: f64, utc_offset: f64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn c3_boot() -> i32 {
     let result = catch_unwind(AssertUnwindSafe(|| {
-        with(|e| match boot(e) {
-            Ok(()) => 0,
-            Err(msg) => {
-                set_result(e, msg.into_bytes());
-                1
+        with(|e| {
+            e.bus_trace.clear();
+            e.bus_trace_total = 0;
+            e.bus_trace_overwritten = 0;
+            e.bus_trace_other_events = 0;
+            match boot(e) {
+                Ok(()) => 0,
+                Err(msg) => {
+                    set_result(e, msg.into_bytes());
+                    1
+                }
             }
         })
     }));
@@ -418,7 +483,20 @@ pub extern "C" fn c3_run(budget_ms: f64) -> f64 {
             }
             let t0 = Instant::now();
             loop {
-                if let Err(why) = m.fast_slice(u64::MAX) {
+                let current_icount = m.st.borrow().icount;
+                let slice_limit = current_icount.saturating_add(BUS_TRACE_SLICE_INSNS);
+                let slice_result = m.fast_slice(slice_limit);
+                {
+                    let mut state = m.st.borrow_mut();
+                    collect_bus_trace_events(
+                        &mut state.events,
+                        &mut e.bus_trace,
+                        &mut e.bus_trace_total,
+                        &mut e.bus_trace_overwritten,
+                        &mut e.bus_trace_other_events,
+                    );
+                }
+                if let Err(why) = slice_result {
                     e.result = why.clone().into_bytes();
                     e.stopped = Some(why);
                     return -1.0;
@@ -598,13 +676,12 @@ pub extern "C" fn c3_trace_stats() {
 #[unsafe(no_mangle)]
 pub extern "C" fn c3_bus_trace_stats() {
     with(|e| {
-        let snapshot = match e.machine.as_ref() {
-            Some(machine) => {
-                let st = machine.st.borrow();
-                compact_bus_trace_json(&st.events)
-            }
-            None => compact_bus_trace_json(&[]),
-        };
+        let snapshot = compact_bus_trace_json(
+            &e.bus_trace,
+            e.bus_trace_total,
+            e.bus_trace_overwritten,
+            e.bus_trace_other_events,
+        );
         e.result = snapshot.into_bytes();
     })
 }
@@ -768,15 +845,59 @@ mod android_wrapper_tests {
             "io R4 0x088c0000 = 0x0 pc=0x80810000".into(),
         ));
 
-        let trace = compact_bus_trace_json(&events);
+        let trace = compact_bus_trace_json(&events, 100, 76, 2);
 
         assert!(trace.len() <= BUS_TRACE_LOG_MAX_BYTES, "trace was {} bytes", trace.len());
         assert!(trace.starts_with("{\"range\":\"088D0000-088D1FFF\""));
         assert!(trace.contains("\"eventCount\":100"));
+        assert!(trace.contains("\"bufferedCount\":24"));
+        assert!(trace.contains("\"overwritten\":76"));
         assert!(trace.contains("088D018C"));
         assert!(!trace.contains("088D012C"));
         assert!(!trace.contains("088C0000"));
         assert_eq!(trace.matches("],[").count(), BUS_TRACE_EVENT_LIMIT - 1);
+    }
+
+    #[test]
+    fn spi_trace_drains_the_shared_event_cap_and_keeps_a_rolling_tail() {
+        let mut events = Vec::with_capacity(20_000);
+        for index in 0..13_868u64 {
+            events.push((
+                index,
+                format!("io R1 0x088d000c = 0x0 pc=0x8073a838"),
+            ));
+        }
+        for index in 13_868..20_000u64 {
+            events.push((index, format!("DSP diagnostic event {index}")));
+        }
+
+        let mut ring = Vec::new();
+        let mut event_total = 0;
+        let mut overwritten = 0;
+        let mut other_event_total = 0;
+        collect_bus_trace_events(
+            &mut events,
+            &mut ring,
+            &mut event_total,
+            &mut overwritten,
+            &mut other_event_total,
+        );
+
+        assert!(events.is_empty(), "the upstream event batch must be drained");
+        assert_eq!(event_total, 13_868);
+        assert_eq!(other_event_total, 6_132);
+        assert_eq!(ring.len(), BUS_TRACE_EVENT_LIMIT);
+        assert_eq!(overwritten, 13_868 - BUS_TRACE_EVENT_LIMIT);
+        assert_eq!(ring.first().map(|(icount, _)| *icount), Some(13_868 - BUS_TRACE_EVENT_LIMIT as u64));
+        assert_eq!(ring.last().map(|(icount, _)| *icount), Some(13_867));
+
+        let trace = compact_bus_trace_json(&ring, event_total, overwritten, other_event_total);
+        assert!(trace.len() <= BUS_TRACE_LOG_MAX_BYTES);
+        assert!(trace.contains("\"eventCount\":13868"));
+        assert!(trace.contains("\"bufferedCount\":24"));
+        assert!(trace.contains("\"overwritten\":13844"));
+        assert!(trace.contains("\"otherEventCount\":6132"));
+        assert!(trace.contains("[13867,"));
     }
 
     #[test]
