@@ -740,3 +740,22 @@ timed out and whether the next phase or request repeated.
    diagnostic is the non-blocking `adb devices -l` listing; installation and
    fresh log capture remain pending until the phone is visible and authorized.
 
+## 32. ADB connection restored for physical-device capture — 9 November 2026
+
+The user ran `adb devices -l` from PowerShell and supplied:
+
+```text
+List of devices attached
+6ea05c65               device product:curtana_global model:Redmi_Note_9S device:curtana transport_id:1
+```
+
+ADB now sees the Redmi Note 9S as an authorized `device`. The earlier
+`Waiting for device` condition is no longer present at the device-discovery
+layer. The next capture commands must explicitly target serial
+`6ea05c65` with `adb -s 6ea05c65`, to avoid ambiguity.
+
+Physical trace validation is still pending: confirm the package is installed,
+start the logcat capture with the explicit serial, launch the app and boot/run
+the RM-614 guest, then verify that `C3EmuPerf`, `C3EmuTrace` and
+`C3EmuBus` lines are written to the capture file.
+
