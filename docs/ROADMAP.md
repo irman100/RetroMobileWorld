@@ -191,3 +191,12 @@ The archive is analyzed locally only (SHA-256 `5239534da21345e5fc7bc1fbe5277f7d2
 - [ ] Implement the observed Nokia SoC SPI-master + board-pin behavior, then attach the Broadcom gSPI target.
 - [ ] Build the guest packet path and Android host egress; do not treat VpnService or INTERNET permission alone as a complete bridge.
 
+### Rolling SPI trace buffer — 9 November 2026
+
+- [x] Drain upstream `State.events` after bounded 8,192-instruction interpreter slices so the global 20,000-event limit cannot freeze the selected trace.
+- [x] Retain the last 24 SPI MMIO events in an independent ring and expose lifetime, overwritten and unrelated-event counters.
+- [x] Add a Rust saturation/chronology/size test for 13,868 SPI events plus 6,132 unrelated events.
+- [x] Pass push CI #510 and PR CI #511, including all three Android JNI ABIs, Android unit tests and debug APK assembly.
+- [ ] Install APK on the physical phone and capture a fresh trace through guest watchdog stop.
+- [ ] Decode the instructions and branch condition around guest PC 0x8073A838 before assigning any meaning to host register 0x088D000C.
+- [ ] Implement the observed Nokia SoC SPI-master and board signal behavior, then connect the Broadcom gSPI target and guest packet path.
