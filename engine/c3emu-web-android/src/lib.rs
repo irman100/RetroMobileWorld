@@ -887,7 +887,7 @@ mod android_wrapper_tests {
         assert_eq!(event_total, 13_868);
         assert_eq!(other_event_total, 6_132);
         assert_eq!(ring.len(), BUS_TRACE_EVENT_LIMIT);
-        assert_eq!(overwritten, 13_868 - BUS_TRACE_EVENT_LIMIT);
+        assert_eq!(overwritten, 13_868u64 - BUS_TRACE_EVENT_LIMIT as u64);
         assert_eq!(ring.first().map(|(icount, _)| *icount), Some(13_868 - BUS_TRACE_EVENT_LIMIT as u64));
         assert_eq!(ring.last().map(|(icount, _)| *icount), Some(13_867));
 
