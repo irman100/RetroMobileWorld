@@ -255,3 +255,12 @@ The current source changes are awaiting CI. Do not assemble or install an APK
 until CI passes. After that, use the explicit ADB serial `6ea05c65` for
 physical-device verification and preserve the existing app data.
 
+### SPI host integration CI gate — 9 November 2026
+
+The first integration commit `e9903d6` passed push CI #526, including all
+three Android native ABIs, wrapper Rust tests, Android unit tests and APK
+assembly. Review found that Cargo does not run a path dependency's own unit
+tests from the wrapper's `cargo test`; therefore a dedicated
+`cargo test --no-default-features` step for `engine/c3emu-core` has been
+added. Await this follow-up CI before installing the branch APK.
+

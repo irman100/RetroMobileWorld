@@ -214,3 +214,9 @@ The archive is analyzed locally only (SHA-256 `5239534da21345e5fc7bc1fbe5277f7d2
 - [ ] Implement Broadcom gSPI as a separate target endpoint, not as guessed host-register constants.
 - [ ] Validate target identity, firmware download, SDPCM/BDC RX/TX, scan and association before any Internet claim.
 
+### SPI-host verification note — 9 November 2026
+
+- [x] Compile the local c3emu-core fork and JNI wrapper for all Android ABIs; push CI #526 passed.
+- [ ] Execute the vendored c3emu-core unit tests directly (including the new SPI-host tests) in CI.
+- [ ] Re-run CI and review the APK artifact before physical installation.
+

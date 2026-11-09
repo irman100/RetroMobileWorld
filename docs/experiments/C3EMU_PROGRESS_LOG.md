@@ -953,3 +953,35 @@ Next steps:
 4. only then implement a separately tested Broadcom gSPI target, after exact
    silicon/firmware identity is established.
 
+## 35. First SPI-host integration CI and dedicated core-test gate — 9 November 2026
+
+Push workflow #526 for commit `e9903d6c9fac1ea93034b16d9ebf542853c5a997`
+completed successfully:
+
+- Android catalogue and firmware tooling checks passed.
+- Rust `c3emu-web` wrapper tests passed.
+- Native JNI builds passed for `arm64-v8a`, `armeabi-v7a` and `x86_64`.
+- Android unit tests passed.
+- Debug APK assembly and artifact upload passed.
+
+The first workflow did not execute unit tests located inside the vendored
+`c3emu-core` path dependency: `cargo test` in the wrapper tests that package,
+not the dependency's own `#[cfg(test)]` module. This was identified during
+review before physical installation.
+
+A separate CI step now runs:
+
+```sh
+cd engine/c3emu-core
+cargo test --no-default-features
+```
+
+This explicitly executes the four SPI-host tests and the vendored core's
+existing unit tests. The follow-up workflow must pass before an APK from this
+branch is treated as eligible for physical-device installation.
+
+The new host model remains partial and does not claim a Broadcom target or
+Wi-Fi functionality. The next physical trace must confirm that TX-ready at
+`0x088D000C` bit 2 advances past the former PC `0x8073A838` loop and reaches
+the target-dependent RX-ready bit-3 wait.
+
