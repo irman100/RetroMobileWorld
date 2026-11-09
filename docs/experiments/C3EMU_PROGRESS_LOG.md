@@ -593,3 +593,15 @@ This explains the recorded zero at `0x088D000C`; it is not evidence that zero is
 5. Keep guest Internet marked unsupported until the Series 40 Browser completes a real JAD/JAR download and launch test.
 
 No SPI register value or status bit has been guessed, and this capture does not itself add Internet functionality.
+
+## 28. Do not conflate Broadcom target offsets with Nokia SoC MMIO — 9 November 2026
+
+Web research found Broadcom gSPI family datasheets where target-side address `0x000C` is an internal F1-info register and where the target's 32-bit status word reports data readiness, FIFO errors, F2/F3 interrupts, RX-ready and packet length. These are registers accessed *inside the Broadcom device through gSPI*.
+
+The guest log address `0x088D000C` is different: it belongs to the Nokia SoC `SOC_IO` host-controller window. The same low offset does not mean it is Broadcom F1-info. Do not transfer Broadcom status bits or reset defaults to the Nokia host register.
+
+The BCM4330/BCM4334 documents help outline a plausible Broadcom gSPI protocol family, but they do not identify the exact silicon inside N6300 / BOB1.0M-a. Keep that silicon and NVS/IDB mapping unresolved.
+
+A public search for the exact Nokia addresses and `IOCR0_REG` / `IOCR2_REG` did not find an authoritative host SoC register manual. An ARM "Juno Development Platform" TRM surfaced for the word Juno, but it is a separate ARM reference platform and is explicitly excluded from this investigation.
+
+References and the protocol-family caveat are recorded in `docs/experiments/C3EMU_NETWORK_RESEARCH.md`.
