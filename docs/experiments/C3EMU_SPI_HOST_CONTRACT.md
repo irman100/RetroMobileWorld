@@ -121,3 +121,31 @@ WLANENABLE or IRQ without tracing the SoC pin-mux/GPIO routing and schematic
 nets. The SPI host model therefore leaves `0x088D103C` in the ordinary SoC
 backing store for now.
 
+## 8. Physical-device result: no-target RX polling does not time out
+
+On 9 November 2026, the user's Redmi Note 9S capture showed the guest running
+a persistent access loop at:
+
+- `R2 0x088D0008 = 0x0000` from PC `0x8072BB4A`;
+- `R1 0x088D000C = 0x04` from PC `0x8072BB4C`.
+
+The first-touch record shows the first use of `0x088D0008` in each fresh
+process was a read. The pattern continued for minutes and the SPI event
+counter in the last process reached 116,831,543. Performance snapshots showed
+`deliveredFps=0.0` while the emulator still reported itself running.
+
+This establishes a guest-side wait/poll during the WLAN path and confirms the
+current build has not established a working Broadcom device endpoint. It does
+**not** prove the exact branch condition, whether the helper is waiting for an
+unsolicited boot event or draining an RX FIFO, or whether the real controller
+has a hidden hardware timeout. The exact MCUSW instructions around
+`0x8072BB2C–0x8072BB60` are required to decide that.
+
+Correction: the earlier expectation that a finite RX timeout would naturally
+occur with no target was unsupported. No finite timeout was observed in the
+physical run. The current build must be described as a host-controller test
+only, not a working WLAN implementation.
+
+Do not force RX-ready or inject arbitrary data to mask this. Restore the exact
+MCUSW disassembly and implement a protocol-valid Broadcom target/boot response.
+
