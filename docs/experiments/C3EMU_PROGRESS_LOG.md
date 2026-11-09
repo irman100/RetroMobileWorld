@@ -613,3 +613,50 @@ The RM-614 schematic page 7 confirms the N6300 WLAN interface wiring: `WLANENABL
 The repair/BOM listing maps board component N6300 to Nokia part 4390090, description BOB1.0M-a LGA130. The listing does not establish the WLAN die manufacturer or exact silicon model. Keep the current MCUSW evidence for Broadcom gSPI, and do not infer a BCM4329/4330/4334 part number from the module label.
 
 Source URLs and the pin map are recorded in `docs/experiments/C3EMU_NETWORK_RESEARCH.md`.
+
+## 30. Rolling SPI-MMIO event ring independent of upstream cap — 9 November 2026
+
+### Runtime implementation
+
+Commits:
+- `7c3b684dc49209e7ecb088628b2947dfffe11666`: add a dedicated SPI event ring and drain the upstream event batch.
+- `6b225126208c519788cce58f47dfee9f578b3dcd`: correct a test counter type found by the first CI run.
+- Documentation and evidence boundary are incorporated in branch head `b430fbcefff162a440100feec7f7b650b86e0b4d`.
+
+The Android c3emu wrapper no longer waits for the upstream shared event vector to fill. It runs the deterministic interpreter in bounded slices of at most 8,192 guest instructions, then drains `State.events` into an independent 24-record SPI ring. This keeps the host-side general `MAX_EVENTS=20,000` ceiling from silently freezing the C3EmuBus output. CPU register values, MMIO behavior, guest timer model and guest-visible instruction ordering are not modified by the diagnostic drain; only the host execution slice boundary is more frequent.
+
+The C3EmuBus JSON now includes:
+- `eventCount`: lifetime number of observed accesses in the selected SPI window;
+- `bufferedCount`: number currently retained (up to 24);
+- `overwritten`: number of older SPI rows displaced from the rolling window;
+- `otherEventCount`: non-SPI events drained from upstream's shared vector;
+- `events`: the most recent rows with guest instruction count, operation/width, address, value and guest PC.
+
+The ring and counters are cleared on each fresh boot. The final trace remains readable after a guest stop. `C3EmuTrace` first-touch diagnostics are unchanged.
+
+### Test and CI evidence
+
+A new Rust unit test builds a synthetic 20,000-event upstream batch containing 13,868 SPI reads at `0x088D000C` and 6,132 unrelated events. It verifies that:
+- the shared batch is fully drained;
+- all 13,868 SPI transactions are counted;
+- all 6,132 unrelated events are accounted for;
+- exactly 24 SPI rows remain buffered;
+- 13,844 older SPI rows are counted as overwritten;
+- the latest retained row is the last event in chronological order;
+- serialized output remains within 3,072 bytes.
+
+The first CI exposed only a `u64` versus `usize` assertion mismatch in this test. The test type was corrected, and the subsequent push/PR workflows both passed:
+
+- Push CI #510: https://github.com/irman100/RetroMobileWorld/actions/runs/42617527731
+- PR CI #511: https://github.com/irman100/RetroMobileWorld/actions/runs/42617533834
+- Both passed the bounded MMIO test, native JNI builds for arm64-v8a / armeabi-v7a / x86_64, Android unit tests, debug APK assembly and artifact upload.
+
+### APK for physical-device validation
+
+- Artifact ID: `13672779512`
+- Artifact name: `retro-mobile-world-c3emu-debug`
+- APK file: `app-debug.apk`
+- APK size: `12,715,047` bytes
+- SHA-256: `12b494c099293fa70eba3d586a55fe821b72a09e6ce69f0fe8085fa7e730c82b`
+
+This build is diagnostic only. It has not yet been installed or verified on the physical phone, and it does not implement the SoC SPI master, Broadcom WLAN target, or Internet packet bridge. Compare `C3EmuPerf` with the preceding build because the more frequent host slice/drain may add diagnostic overhead. The next required result is a fresh C3EmuBus trace showing whether `0x088D000C` polling continues through the watchdog and whether any other register/IRQ events appear.
