@@ -226,3 +226,11 @@ The archive is analyzed locally only (SHA-256 `5239534da21345e5fc7bc1fbe5277f7d2
 - [x] Confirm IOCR2 base `0x088D1020`, byte offset `+0x1C`, and the observed MCUSW writes `0x81`, `0x80`, `0x01`.
 - [ ] Map IOCR0/IOCR2 bit fields to SoC pin mux, GPIO direction, WLANENABLE, SPI_CSX, CLK_REQ and WLAN_IRQ; no bit meaning is inferred from write values alone.
 
+### Physical result: targetless WLAN polling — 9 November 2026
+
+- [x] Capture on Redmi Note 9S after host model integration: DATA `0x088D0008=0` at PC `0x8072BB4A`, STATUS `0x088D000C=0x04` at PC `0x8072BB4C`.
+- [x] Confirm guest remains running while display delivery drops to `deliveredFps=0.0`; last process SPI count reaches 116,831,543.
+- [ ] Recover/disassemble MCUSW instructions around `0x8072BB2C–0x8072BB60` to prove the loop exit condition; do not infer a timeout from the previous summary.
+- [ ] Attach a real protocol-valid Broadcom gSPI target only after silicon identity and boot handshake are confirmed.
+- [ ] Re-test the display and WLAN bring-up with the target connected; only later evaluate the Android packet bridge.
+
