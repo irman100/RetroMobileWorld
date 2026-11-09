@@ -1017,3 +1017,31 @@ The APK contains the native c3emu library for all three tested ABIs. This confir
 
 Next device gate: install this exact build over the existing application using `adb -s 6ea05c65 install -r` (do not uninstall or clear app data), boot the user's RM-614 firmware and capture C3EmuBus. Expected result is that the driver passes its bit-2 TX-ready loop at PC `0x8073A838` and reaches the bit-3 RX-ready wait. With no target attached, a later RX timeout is expected. It must not be masked by synthetic Broadcom replies.
 
+## 37. Additional MCUSW evidence for IOCR2 / board-mux sequencing — 9 November 2026
+
+Further Thumb disassembly around guest PC `0x80810140` confirms that
+`0x088D103C` is written through the IOCR2 base literal `0x088D1020` plus
+offset `0x1C`. Besides the previously captured initialization/error-path
+write `0x81` at PC `0x8081054C`, the same driver area contains writes:
+
+- `0x81` at PC `0x808101F8` in the initialization branch;
+- `0x80` at PC `0x8081041E` on another state/cleanup branch;
+- `0x81` at PC `0x8081054C`;
+- `0x01` at PC `0x808106AA` in a configuration branch.
+
+Strings `IOCR0_REG` and `IOCR2_REG` are present in the MCUSW diagnostic
+text. The IOCR2 base and `+0x1C` address are proven by the literal and
+instructions; the exact IOCR0 address and both registers' bit-to-pin
+semantics remain unresolved.
+
+Do not interpret these values directly as WLAN chip-select, WLANENABLE,
+CLK_REQ or WLAN_IRQ states. First trace the SoC pin mux/GPIO direction and
+board connections. The SPI-host model intentionally does not consume or
+modify `0x088D103C`; the unknown register remains in the existing sparse
+SoC backing store.
+
+The additional disassembly does not change the SPI-host implementation or
+the CI-tested APK. It sharpens the next task boundary: map IOCR0/IOCR2 and
+board signal routing before implementing target chip-select/power/IRQ
+behaviour.
+

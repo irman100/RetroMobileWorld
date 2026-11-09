@@ -285,3 +285,11 @@ explicit serial `6ea05c65`. The expected test is progression beyond the
 TX-ready poll at `0x8073A838` and entry into the target-dependent RX-ready
 phase. No Broadcom target or Internet path is implemented.
 
+### Additional pin-mux evidence — 9 November 2026
+
+MCUSW disassembly confirms the IOCR2 base literal `0x088D1020` and writes to
+`0x088D103C` with values `0x81`, `0x80` and `0x01` in different control
+paths. The exact bit-to-pin mapping and IOCR0 address remain unresolved.
+The SPI model deliberately leaves this board-control register outside its
+FIFO/status implementation.
+

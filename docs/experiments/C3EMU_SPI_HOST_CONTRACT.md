@@ -95,3 +95,29 @@ The implementation is deliberately conservative:
 - Determine the host FIFO capacity and status timing from additional driver code and traces.
 - Recover the WLAN firmware's exact IDB/NVMEM selection and silicon identity.
 - Implement the Broadcom gSPI target separately, then test command framing, device identity, firmware download and SDPCM/BDC paths.
+
+## 7. IOCR2 initialization sequence (additional disassembly)
+
+The MCUSW routine beginning at guest PC `0x80810140` uses the literal
+`0x088D1020` as the IOCR2 base. It writes byte values at offset `+0x1C`,
+which is `0x088D103C`.
+
+Observed branches in MCUSW 08.71 include:
+
+- guest PC `0x808101F8`: write `0x81` to `0x088D103C` during controller initialization;
+- guest PC `0x8081041E`: write `0x80` to the same register on a different branch;
+- guest PC `0x8081054C`: write `0x81` (also observed in the physical failure trace);
+- guest PC `0x808106AA`: write `0x01` on another state/configuration branch.
+
+The firmware also contains diagnostic strings `IOCR0_REG` and
+`IOCR2_REG`. The IOCR2 base and offset are grounded by the literal and
+instructions above; the IOCR0 string alone is not sufficient to assign a
+separate address or bit map.
+
+These values show that IOCR2 is statefully changed during SPI setup/teardown
+or mode selection, but do not identify which board signal each bit controls.
+Do not equate the `0x81`, `0x80` or `0x01` values directly with CS,
+WLANENABLE or IRQ without tracing the SoC pin-mux/GPIO routing and schematic
+nets. The SPI host model therefore leaves `0x088D103C` in the ordinary SoC
+backing store for now.
+

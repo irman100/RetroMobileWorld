@@ -221,3 +221,8 @@ The archive is analyzed locally only (SHA-256 `5239534da21345e5fc7bc1fbe5277f7d2
 - [x] Re-run full Android CI and review the APK artifact (push run #527 passed; artifact 13693026171).
 - [ ] Install the APK over the existing app and validate the new TX-ready/RX-ready sequence on the physical Redmi Note 9S.
 
+### IOCR2 static disassembly update — 9 November 2026
+
+- [x] Confirm IOCR2 base `0x088D1020`, byte offset `+0x1C`, and the observed MCUSW writes `0x81`, `0x80`, `0x01`.
+- [ ] Map IOCR0/IOCR2 bit fields to SoC pin mux, GPIO direction, WLANENABLE, SPI_CSX, CLK_REQ and WLAN_IRQ; no bit meaning is inferred from write values alone.
+
