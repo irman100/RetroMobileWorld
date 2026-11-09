@@ -264,3 +264,24 @@ tests from the wrapper's `cargo test`; therefore a dedicated
 `cargo test --no-default-features` step for `engine/c3emu-core` has been
 added. Await this follow-up CI before installing the branch APK.
 
+### SPI host model — strict CI passed (9 November 2026)
+
+Branch `feature/rm614-spi-host-master-20261109`, commit
+`18f299687f2f8eb9e5c189c0a58ba38d9d44aeb1`.
+
+Push CI #527 passed:
+https://github.com/irman100/RetroMobileWorld/actions/runs/42656241983
+
+The separate vendored-core test step ran 7 tests, including all 4 new SPI-host
+tests. The bounded wrapper tests, JNI builds for arm64-v8a/armeabi-v7a/x86_64,
+Android unit tests, debug APK assembly and upload also passed.
+
+Artifact ID: `13693026171`. Extracted APK SHA-256:
+`f0a84aee58cb5c66af82d5273346ae5ad95d1b5f893295d61758a1705f1a186c`.
+
+This APK is eligible for physical testing, but not yet physically verified.
+Preserve the user's existing app data; install with `adb install -r` to the
+explicit serial `6ea05c65`. The expected test is progression beyond the
+TX-ready poll at `0x8073A838` and entry into the target-dependent RX-ready
+phase. No Broadcom target or Internet path is implemented.
+

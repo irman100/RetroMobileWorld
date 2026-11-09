@@ -985,3 +985,35 @@ Wi-Fi functionality. The next physical trace must confirm that TX-ready at
 `0x088D000C` bit 2 advances past the former PC `0x8073A838` loop and reaches
 the target-dependent RX-ready bit-3 wait.
 
+## 36. SPI-host unit tests and full Android CI passed — 9 November 2026
+
+Follow-up commit:
+`18f299687f2f8eb9e5c189c0a58ba38d9d44aeb1`
+
+Push workflow #527 completed successfully:
+https://github.com/irman100/RetroMobileWorld/actions/runs/42656241983
+
+Verified workflow results:
+
+- Dedicated `cargo test --no-default-features` in `engine/c3emu-core`: **7 passed, 0 failed**, including all four `spi::tests`:
+  - `attached_target_response_sets_rx_ready_until_data_word_is_read`;
+  - `master_enable_exposes_tx_ready_without_fabricating_rx_data`;
+  - `observed_overrun_clear_write_clears_rx_overrun_flag`;
+  - `register_widths_are_not_silently_aliased`.
+- Existing bounded MMIO diagnostic tests in `c3emu-web`: passed.
+- Android JNI shared-library builds: passed for `arm64-v8a`, `armeabi-v7a` and `x86_64`.
+- Android unit tests: passed.
+- Debug APK assembly and artifact upload: passed.
+
+Artifact:
+- Workflow artifact ID: `13693026171`
+- Artifact name: `retro-mobile-world-c3emu-debug`
+- ZIP size: `8,034,724` bytes
+- ZIP SHA-256: `8420b3b3a8cb28d1a57fb3181083fb105b3fdc15410f91a2918e915be4af26ac`
+- Extracted APK size: `12,734,071` bytes
+- APK SHA-256: `f0a84aee58cb5c66af82d5273346ae5ad95d1b5f893295d61758a1705f1a186c`
+
+The APK contains the native c3emu library for all three tested ABIs. This confirms build/test correctness, **not** physical-device correctness. The artifact has not yet been installed or verified against the user's saved RM-614 session.
+
+Next device gate: install this exact build over the existing application using `adb -s 6ea05c65 install -r` (do not uninstall or clear app data), boot the user's RM-614 firmware and capture C3EmuBus. Expected result is that the driver passes its bit-2 TX-ready loop at PC `0x8073A838` and reaches the bit-3 RX-ready wait. With no target attached, a later RX timeout is expected. It must not be masked by synthetic Broadcom replies.
+

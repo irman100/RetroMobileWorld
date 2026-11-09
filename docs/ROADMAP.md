@@ -217,6 +217,7 @@ The archive is analyzed locally only (SHA-256 `5239534da21345e5fc7bc1fbe5277f7d2
 ### SPI-host verification note — 9 November 2026
 
 - [x] Compile the local c3emu-core fork and JNI wrapper for all Android ABIs; push CI #526 passed.
-- [ ] Execute the vendored c3emu-core unit tests directly (including the new SPI-host tests) in CI.
-- [ ] Re-run CI and review the APK artifact before physical installation.
+- [x] Execute the vendored c3emu-core unit tests directly (7 passed, including all four SPI-host tests).
+- [x] Re-run full Android CI and review the APK artifact (push run #527 passed; artifact 13693026171).
+- [ ] Install the APK over the existing app and validate the new TX-ready/RX-ready sequence on the physical Redmi Note 9S.
 
