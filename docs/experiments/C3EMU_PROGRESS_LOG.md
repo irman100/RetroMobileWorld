@@ -1045,3 +1045,78 @@ the CI-tested APK. It sharpens the next task boundary: map IOCR0/IOCR2 and
 board signal routing before implementing target chip-select/power/IRQ
 behaviour.
 
+## 38. Physical Redmi run: persistent RX-side DATA/STATUS poll; screen stops updating — 9 November 2026
+
+The user's new Logcat capture `Вставленный текст.txt` covers 19:53:50–19:58:08.
+The emulator remains reported as `running=true`, while the visible phone image
+stops changing during the attempt to enter/connect to the Internet.
+
+### MMIO evidence
+
+The first-touch trace for each fresh emulator process records the initial SPI
+setup writes, then:
+
+- read `0x088D0018` at PC `0x8072BB2C`, value `0x00` (no observed RX-overrun bit);
+- read `0x088D000C` at PC `0x8072BB4C`, value `0x04`;
+- first access to DATA `0x088D0008` is a 16-bit **read** at PC
+  `0x8072BB4A`, value `0x0000`.
+
+The first-touch ordering shows the first access to `0x088D0008` in these
+boots is a read, not a preceding write to that DATA port. The rolling trace
+then repeatedly alternates only:
+
+```
+R2 0x088D0008 = 0x0000  PC 0x8072BB4A
+R1 0x088D000C = 0x00000004  PC 0x8072BB4C
+```
+
+This pattern persists through all three observed app processes in the file
+(PIDs 2720, 4187 and 4447). In the last process, the SPI event counter grows
+from zero to 116,831,543 during the captured run; the rolling last-24 window
+contains only the repeated DATA/STATUS pair. No overrun flag is observed in
+the first-touch evidence.
+
+Performance samples repeatedly show approximately 57–61 `cycleHz` while
+`deliveredFps=0.0`. This is consistent with the guest CPU continuing to
+execute a tight poll while the guest screen stops advancing; it is not an
+Android process crash or a stopped emulator state.
+
+### Interpretation and correction to the previous expectation
+
+The stateful Nokia host model returns status `0x04` (the model's observed
+TX-ready bit) and DATA `0x0000` while its RX queue is empty. The current
+runtime does **not** attach a production `SpiTarget`; the trait exists for
+separation and unit tests only. Therefore this build has no Broadcom gSPI
+device to return any RX word.
+
+The physical trace proves that the guest remains in a DATA/STATUS polling
+path for minutes. The previous expectation that this path would naturally
+produce a finite RX timeout was not supported and is corrected here: **no
+finite timeout was observed**. Do not describe this as a completed/working
+WLAN connection or an Android Internet bridge failure. The guest has not
+reached an IP packet path.
+
+The exact branch/exit condition at PCs `0x8072BB4A` and `0x8072BB4C` still
+requires the actual MCUSW instructions around those addresses. The latest
+upload contains MMIO/PC data, not the instruction bytes. The previously
+user-supplied Phoenix archive is not present in the current file session or
+Library listing; request the archive (or extracted RM-614 MCUSW 08.71 image)
+again before changing guest-visible status semantics.
+
+### Next actions
+
+1. Keep the current host implementation; do not assert RX-ready or inject
+   dummy `0xFFFF`/`0x0000` words just to unfreeze the screen.
+2. Re-open the MCUSW routine around `0x8072BB2C–0x8072BB60` and trace the
+   actual branch that repeats the DATA/STATUS pair; confirm whether the
+   controller is waiting for an unsolicited WLAN boot response or draining
+   an RX FIFO.
+3. Decode the corresponding power, mux, chip-select and IRQ setup path,
+   including `WLANENABLE`, `CLK_REQ` and `WLAN_IRQ`.
+4. Implement a minimal but protocol-valid Broadcom gSPI target only after
+   exact silicon identity and the first boot-time command sequence are
+   established. Then test target identity/boot handshake before SDPCM/BDC,
+   association and Internet bridging.
+5. No new APK is warranted from this log alone; it tests the current CI-green
+   host-only build and identifies the next missing hardware layer.
+
