@@ -4,9 +4,9 @@
 //! upstream C ABI keeps the emulator session in thread-local state.
 
 use jni::JNIEnv;
-use jni::objects::{JByteArray, JObject};
+use jni::objects::{JByteArray, JObject, JString};
 use jni::sys::{jbyteArray, jdouble, jint, jlong, jshortArray, jstring};
-use std::{ptr, slice};
+use std::{io::Read, ptr, slice};
 
 const FRAME_BYTES: usize = 320 * 240 * 4;
 
@@ -68,6 +68,57 @@ pub extern "system" fn Java_org_retromobile_world_C3EmuNative_nativeSetFile(
     make_string(env, &result.err().unwrap_or_default())
 }
 
+/// Read a private app-storage firmware file directly into the upstream-owned
+/// buffer. This avoids File.readBytes() + JNI byte-array conversion + native copy
+/// for the large RM-614 IMAGE content package.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_retromobile_world_C3EmuNative_nativeSetFileFromPath(
+    mut env: JNIEnv<'_>,
+    _receiver: JObject<'_>,
+    kind: jint,
+    path: JString<'_>,
+) -> jstring {
+    let result = (|| -> Result<(), String> {
+        if !(0..=2).contains(&kind) {
+            return Err("Unknown c3emu firmware file kind.".into());
+        }
+        let path = env
+            .get_string(&path)
+            .map_err(|error| format!("Unable to read firmware path: {error}"))?
+            .to_string_lossy()
+            .into_owned();
+        let mut file = std::fs::File::open(&path)
+            .map_err(|error| format!("Unable to open firmware component: {error}"))?;
+        let file_len = file
+            .metadata()
+            .map_err(|error| format!("Unable to inspect firmware component: {error}"))?
+            .len();
+        if file_len == 0 || file_len > 256 * 1024 * 1024 {
+            return Err(format!("Firmware component size is outside the supported range: {file_len} bytes."));
+        }
+        let len = usize::try_from(file_len)
+            .map_err(|_| "Firmware component is too large for this device.".to_string())?;
+        let target = c3emu_web::c3_alloc(len);
+        if target.is_null() {
+            return Err("Unable to allocate native firmware buffer.".into());
+        }
+
+        let read_result = {
+            let destination = unsafe { slice::from_raw_parts_mut(target, len) };
+            file.read_exact(destination)
+        };
+        if let Err(error) = read_result {
+            unsafe { c3emu_web::c3_free(target, len) };
+            return Err(format!("Unable to read firmware component completely: {error}"));
+        }
+
+        unsafe { c3emu_web::c3_set_file(kind as usize, target, len) };
+        Ok(())
+    })();
+
+    make_string(env, &result.err().unwrap_or_default())
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_retromobile_world_C3EmuNative_nativeBoot(
     env: JNIEnv<'_>,
@@ -80,13 +131,19 @@ pub extern "system" fn Java_org_retromobile_world_C3EmuNative_nativeBoot(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_retromobile_world_C3EmuNative_nativeRun(
-    env: JNIEnv<'_>,
+    _env: JNIEnv<'_>,
     _receiver: JObject<'_>,
     budget_ms: jdouble,
+) -> jdouble {
+    c3emu_web::c3_run(budget_ms.max(0.1))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_retromobile_world_C3EmuNative_nativeResultText(
+    env: JNIEnv<'_>,
+    _receiver: JObject<'_>,
 ) -> jstring {
-    let wait_ms = c3emu_web::c3_run(budget_ms.max(0.1));
-    let message = if wait_ms < 0.0 { result_text() } else { String::new() };
-    make_string(env, &message)
+    make_string(env, &result_text())
 }
 
 #[unsafe(no_mangle)]
@@ -160,6 +217,24 @@ pub extern "system" fn Java_org_retromobile_world_C3EmuNative_nativeStats(
     _receiver: JObject<'_>,
 ) -> jstring {
     c3emu_web::c3_stats();
+    make_string(env, &result_text())
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_retromobile_world_C3EmuNative_nativeTraceStats(
+    env: JNIEnv<'_>,
+    _receiver: JObject<'_>,
+) -> jstring {
+    c3emu_web::c3_trace_stats();
+    make_string(env, &result_text())
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_retromobile_world_C3EmuNative_nativeBusTraceStats(
+    env: JNIEnv<'_>,
+    _receiver: JObject<'_>,
+) -> jstring {
+    c3emu_web::c3_bus_trace_stats();
     make_string(env, &result_text())
 }
 

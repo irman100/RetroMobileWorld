@@ -18,18 +18,59 @@ function Invoke-Checked {
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$sdkRoot = $env:ANDROID_SDK_ROOT
-if ([string]::IsNullOrWhiteSpace($sdkRoot)) {
-    $sdkRoot = $env:ANDROID_HOME
+
+# Resolve the SDK from environment, this checkout's local.properties, or common
+# Windows locations. Keep the path local to this process; do not rewrite user env.
+$sdkCandidates = @()
+if (-not [string]::IsNullOrWhiteSpace($env:ANDROID_SDK_ROOT)) {
+    $sdkCandidates += $env:ANDROID_SDK_ROOT
 }
-if ([string]::IsNullOrWhiteSpace($sdkRoot)) {
-    $sdkRoot = Join-Path $env:LOCALAPPDATA "Android\Sdk"
+if (-not [string]::IsNullOrWhiteSpace($env:ANDROID_HOME)) {
+    $sdkCandidates += $env:ANDROID_HOME
+}
+
+$localProperties = Join-Path $repoRoot "local.properties"
+if (Test-Path -LiteralPath $localProperties -PathType Leaf) {
+    $sdkLine = Get-Content -LiteralPath $localProperties |
+        Where-Object { $_ -match '^\s*sdk\.dir=' } |
+        Select-Object -First 1
+    if ($sdkLine) {
+        $localSdk = ($sdkLine -replace '^\s*sdk\.dir=', '').Trim()
+        # local.properties uses Java-properties escaping on Windows.
+        $localSdk = $localSdk.Replace('\\', '\').Replace('\:', ':').Replace('\=', '=').Replace('\ ', ' ')
+        if (-not [string]::IsNullOrWhiteSpace($localSdk)) {
+            $sdkCandidates += $localSdk
+        }
+    }
+}
+
+# D:\Android\Sdk is also supported for workstations whose SDK was moved
+# away from the Android Studio default under %LOCALAPPDATA%.
+$sdkCandidates += @(
+    'D:\Android\Sdk',
+    (Join-Path $env:LOCALAPPDATA 'Android\Sdk'),
+    (Join-Path $env:ProgramFiles 'Android\Sdk'),
+    'C:\Android\Sdk'
+)
+
+$sdkRoot = $null
+foreach ($candidate in ($sdkCandidates | Select-Object -Unique)) {
+    if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+    $candidateNdk = Join-Path $candidate "ndk\$NdkVersion"
+    if (Test-Path -LiteralPath $candidateNdk -PathType Container) {
+        $sdkRoot = (Resolve-Path -LiteralPath $candidate).Path
+        break
+    }
+}
+
+if (-not $sdkRoot) {
+    $checked = ($sdkCandidates | Select-Object -Unique) -join [Environment]::NewLine
+    throw "Android NDK $NdkVersion was not found. SDK locations checked: $checked. Install the NDK in Android Studio > SDK Manager > SDK Tools, or set ANDROID_SDK_ROOT."
 }
 
 $ndkRoot = Join-Path $sdkRoot "ndk\$NdkVersion"
-if (-not (Test-Path -LiteralPath $ndkRoot -PathType Container)) {
-    throw "Android NDK $NdkVersion was not found at '$ndkRoot'. Install it from Android Studio > SDK Manager > SDK Tools > NDK (Side by side), or set ANDROID_SDK_ROOT."
-}
+Write-Host "Using Android SDK: $sdkRoot"
+Write-Host "Using Android NDK: $ndkRoot"
 
 $env:ANDROID_SDK_ROOT = $sdkRoot
 $env:ANDROID_HOME = $sdkRoot

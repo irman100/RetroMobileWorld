@@ -9,6 +9,12 @@ import java.security.MessageDigest
 import java.util.Locale
 import java.util.zip.ZipInputStream
 
+data class C3FirmwareSelection(
+    val firmware: PhoneFirmwareSet,
+    val variant: String?,
+    val warnings: List<String>
+)
+
 /**
  * Private, device-local firmware store for Nokia C3-00 / RM-614.
  * Firmware is never copied into source control or bundled in the APK.
@@ -68,7 +74,14 @@ class C3FirmwareLibrary(context: Context) {
                 }
             }
             require(total >= 9L) { "The selected firmware component is empty or truncated." }
-            val metadata = FirmwareImageInspector.inspect(staging, safeName)
+            val metadata = try {
+                FirmwareImageInspector.inspect(staging, safeName)
+            } catch (error: IllegalArgumentException) {
+                throw IllegalArgumentException(
+                    "Firmware component '$safeName': ${error.message}",
+                    error
+                )
+            }
             require(metadata.kind == kind)
             return commit(staging, safeName, digest.digest(), metadata)
         } catch (error: Exception) {
@@ -142,7 +155,14 @@ class C3FirmwareLibrary(context: Context) {
                             require(componentBytes >= 9L) {
                                 "Firmware component ${safeName} is truncated."
                             }
-                            val metadata = FirmwareImageInspector.inspect(temp!!, safeName!!)
+                            val metadata = try {
+                                FirmwareImageInspector.inspect(temp!!, safeName!!)
+                            } catch (error: IllegalArgumentException) {
+                                throw IllegalArgumentException(
+                                    "Phoenix ZIP entry '$safeName': ${error.message}",
+                                    error
+                                )
+                            }
                             imported += commit(temp, safeName, digest!!.digest(), metadata)
                             staged.remove(temp)
                         }
@@ -164,6 +184,98 @@ class C3FirmwareLibrary(context: Context) {
         listImages()
             .filter { it.metadata.kind == kind }
             .maxByOrNull { it.file.lastModified() }
+
+    /**
+     * Select only components belonging to the MCUSW software release and, when
+     * both optional packages exist, only a PPM/IMAGE pair with the same region
+     * key (for example MH1+MH1 or MR+MR). Never combine independent "latest"
+     * results from different regional variants.
+     */
+    fun selectFirmware(): C3FirmwareSelection? {
+        val records = listImages()
+        val core = records
+            .filter { it.metadata.kind == FirmwareImageKind.CORE }
+            .maxByOrNull { it.file.lastModified() }
+            ?: return null
+        val coreStem = releaseStem(core.metadata.originalFileName)
+        val allPpm = records.filter { it.metadata.kind == FirmwareImageKind.LANGUAGE_PACK }
+        val allImages = records.filter { it.metadata.kind == FirmwareImageKind.CONTENT_PACK }
+        val ppms = allPpm.filter { releaseStem(it.metadata.originalFileName) == coreStem }
+        val images = allImages.filter { releaseStem(it.metadata.originalFileName) == coreStem }
+        val warnings = mutableListOf<String>()
+
+        if (allPpm.isNotEmpty() && ppms.isEmpty()) {
+            warnings += "PPM пропущен: его версия не совпадает с выбранным MCUSW."
+        }
+        if (allImages.isNotEmpty() && images.isEmpty()) {
+            warnings += "IMAGE пропущен: его версия не совпадает с выбранным MCUSW."
+        }
+
+        var selectedPpm: FirmwareImageRecord? = null
+        var selectedImage: FirmwareImageRecord? = null
+        var selectedVariant: String? = null
+
+        if (ppms.isNotEmpty() && images.isNotEmpty()) {
+            val ppmByVariant = ppms.groupBy(::variantOf)
+                .mapNotNull { (variant, matches) ->
+                    variant?.let { it to matches.maxBy { record -> record.file.lastModified() } }
+                }.toMap()
+            val imageByVariant = images.groupBy(::variantOf)
+                .mapNotNull { (variant, matches) ->
+                    variant?.let { it to matches.maxBy { record -> record.file.lastModified() } }
+                }.toMap()
+            val commonVariants = ppmByVariant.keys.intersect(imageByVariant.keys)
+            selectedVariant = commonVariants.maxByOrNull { variant ->
+                maxOf(
+                    ppmByVariant.getValue(variant).file.lastModified(),
+                    imageByVariant.getValue(variant).file.lastModified()
+                )
+            }
+            if (selectedVariant != null) {
+                selectedPpm = ppmByVariant.getValue(selectedVariant!!)
+                selectedImage = imageByVariant.getValue(selectedVariant!!)
+            } else {
+                warnings += "PPM и IMAGE найдены, но региональные варианты не совпадают. Оба пакета пропущены; загрузка продолжится с MCUSW."
+            }
+        } else {
+            selectedPpm = ppms.maxByOrNull { it.file.lastModified() }
+            selectedImage = images.maxByOrNull { it.file.lastModified() }
+            selectedVariant = selectedPpm?.let(::variantOf) ?: selectedImage?.let(::variantOf)
+        }
+
+        return C3FirmwareSelection(
+            firmware = PhoneFirmwareSet(
+                core = core,
+                languagePack = selectedPpm,
+                contentPack = selectedImage
+            ),
+            variant = selectedVariant,
+            warnings = warnings
+        )
+    }
+
+    private fun releaseStem(fileName: String): String? {
+        val lower = fileName.lowercase(Locale.ROOT)
+        val marker = listOf(".mcusw", ".ppm_", ".image_")
+            .map { lower.indexOf(it) }
+            .filter { it >= 0 }
+            .minOrNull()
+            ?: return null
+        return lower.substring(0, marker)
+    }
+
+    private fun variantOf(record: FirmwareImageRecord): String? {
+        val extension = record.metadata.originalFileName
+            .substringAfterLast('.', "")
+            .lowercase(Locale.ROOT)
+        return when (record.metadata.kind) {
+            FirmwareImageKind.LANGUAGE_PACK ->
+                extension.removePrefix("ppm_").substringBefore('_').takeIf { it.isNotBlank() }
+            FirmwareImageKind.CONTENT_PACK ->
+                extension.removePrefix("image_").substringBefore('_').takeIf { it.isNotBlank() }
+            FirmwareImageKind.CORE -> null
+        }
+    }
 
     private fun commit(
         staging: File,

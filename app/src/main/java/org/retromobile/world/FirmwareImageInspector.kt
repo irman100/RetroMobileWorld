@@ -37,6 +37,12 @@ object FirmwareImageInspector {
             "Firmware component must be between 9 bytes and 256 MiB."
         }
         val kind = classify(originalFileName)
+        val extension = originalFileName.substringAfterLast('.', "")
+        if (kind == FirmwareImageKind.CONTENT_PACK &&
+            extension.startsWith("image_", ignoreCase = true)
+        ) {
+            return inspectContentImage(file, originalFileName)
+        }
 
         try {
             RandomAccessFile(file, "r").use { input ->
@@ -114,18 +120,16 @@ object FirmwareImageInspector {
                     require(dataOffset <= fileLength) { "FPSX data block header is truncated." }
                     input.seek(lengthOffset)
                     val dataLength = readUInt32(input)
-                    val flashAddress = readUInt32(input)
                     require(dataLength <= MAX_FILE_BYTES) { "FPSX data block is too large." }
+                    input.seek(addressOffset)
+                    // Validate and consume the 32-bit address field, but do not reject
+                    // a region because address + length crosses 0xFFFFFFFF. FPSX stores
+                    // the start address as u32; the upstream c3emu parser accepts that
+                    // field as-is and maps named MCUSW/PPM regions in its boot layer.
+                    // Container safety is enforced by the file-boundary check below.
+                    readUInt32(input)
                     require(dataOffset + dataLength <= fileLength) {
                         "FPSX data block extends beyond the file."
-                    }
-                    // BB5 uses 0xFFFFFFFF for special unmapped blocks such as PAPUBKEYS.
-                    // That sentinel is not a normal flash address and must not be range-checked.
-                    require(
-                        flashAddress == UNMAPPED_FLASH_ADDRESS ||
-                            flashAddress + dataLength <= 0x1_0000_0000L
-                    ) {
-                        "FPSX flash address range overflows 32 bits."
                     }
 
                     payloadBytes += dataLength
@@ -154,6 +158,159 @@ object FirmwareImageInspector {
         }
     }
 
+
+    /**
+     * RM-614 .image_* files are not ordinary FPSX firmware containers. They
+     * contain sparse FAT volume blocks identified by the 54 01 30 15 00 03 00
+     * marker. This mirrors c3emu::content::parse rather than treating bytes in
+     * the filesystem payload as FPSX block headers.
+     */
+    private fun inspectContentImage(
+        file: File,
+        originalFileName: String
+    ): FirmwareImageMetadata {
+        val blockMagic = byteArrayOf(
+            0x54, 0x01, 0x30, 0x15, 0x00, 0x03, 0x00
+        )
+        val headerBytes = 26
+
+        try {
+            RandomAccessFile(file, "r").use { input ->
+                val fileLength = input.length()
+                val start = findContentBlockStart(input, fileLength, blockMagic)
+                require(start >= 0L) {
+                    "RM-614 IMAGE does not contain a recognized C: data-block sequence."
+                }
+
+                var cursor = start
+                var blockCount = 0
+                var payloadBytes = 0L
+                var bootSector: ByteArray? = null
+
+                while (cursor + headerBytes <= fileLength) {
+                    input.seek(cursor)
+                    val marker = ByteArray(blockMagic.size)
+                    if (input.read(marker) != marker.size || !marker.contentEquals(blockMagic)) {
+                        break
+                    }
+
+                    blockCount += 1
+                    require(blockCount <= MAX_BLOCK_COUNT) {
+                        "RM-614 IMAGE contains too many C: data blocks."
+                    }
+
+                    input.seek(cursor + 17L)
+                    val dataLength = readUInt32(input)
+                    input.seek(cursor + 21L)
+                    val address = readUInt32(input)
+                    val dataOffset = cursor + headerBytes
+
+                    require(dataLength <= MAX_FILE_BYTES) {
+                        "RM-614 IMAGE data block is too large."
+                    }
+                    require(dataOffset + dataLength <= fileLength) {
+                        "RM-614 IMAGE data block extends beyond the file."
+                    }
+
+                    payloadBytes += dataLength
+                    require(payloadBytes <= MAX_FILE_BYTES) {
+                        "RM-614 IMAGE expanded payload is too large."
+                    }
+
+                    if (address == 0L) {
+                        require(dataLength >= 512L) {
+                            "RM-614 IMAGE block 0 is shorter than a FAT boot sector."
+                        }
+                        bootSector = ByteArray(512).also { bytes ->
+                            input.seek(dataOffset)
+                            input.readFully(bytes)
+                        }
+                    }
+                    cursor = dataOffset + dataLength
+                }
+
+                require(blockCount > 0) {
+                    "RM-614 IMAGE contains no C: data blocks."
+                }
+                val boot = bootSector
+                    ?: throw IllegalArgumentException("RM-614 IMAGE has no FAT boot sector at address 0.")
+                require(
+                    (boot[510].toInt() and 0xFF) == 0x55 &&
+                    (boot[511].toInt() and 0xFF) == 0xAA
+                ) {
+                    "RM-614 IMAGE block 0 is not a valid FAT boot sector."
+                }
+
+                val bytesPerSector = readLittleEndianUInt16(boot, 11).toLong()
+                val totalSectors16 = readLittleEndianUInt16(boot, 19).toLong()
+                val totalSectors32 = readLittleEndianUInt32(boot, 32)
+                val totalSectors = if (totalSectors16 != 0L) {
+                    totalSectors16
+                } else {
+                    totalSectors32
+                }
+                require(bytesPerSector > 0L && totalSectors > 0L) {
+                    "RM-614 IMAGE FAT boot sector has an invalid volume size."
+                }
+                try {
+                    Math.multiplyExact(bytesPerSector, totalSectors)
+                } catch (error: ArithmeticException) {
+                    throw IllegalArgumentException("RM-614 IMAGE FAT volume size overflows.", error)
+                }
+
+                return FirmwareImageMetadata(
+                    originalFileName = originalFileName,
+                    kind = FirmwareImageKind.CONTENT_PACK,
+                    format = "Nokia RM-614 C: content image",
+                    namedRegions = emptyList(),
+                    payloadBytes = payloadBytes,
+                    blockCount = blockCount
+                )
+            }
+        } catch (error: IOException) {
+            throw IllegalArgumentException("The RM-614 factory content image is damaged or unreadable.", error)
+        }
+    }
+
+    private fun findContentBlockStart(
+        input: RandomAccessFile,
+        fileLength: Long,
+        marker: ByteArray
+    ): Long {
+        val buffer = ByteArray(64 * 1024 + marker.size - 1)
+        var offset = 0L
+        while (offset < fileLength) {
+            input.seek(offset)
+            val requested = minOf(buffer.size.toLong(), fileLength - offset).toInt()
+            val count = input.read(buffer, 0, requested)
+            if (count < marker.size) return -1L
+
+            val lastStart = count - marker.size
+            for (index in 0..lastStart) {
+                var matches = true
+                for (markerIndex in marker.indices) {
+                    if (buffer[index + markerIndex] != marker[markerIndex]) {
+                        matches = false
+                        break
+                    }
+                }
+                if (matches) return offset + index
+            }
+            offset += (count - marker.size + 1).toLong()
+        }
+        return -1L
+    }
+
+    private fun readLittleEndianUInt16(bytes: ByteArray, offset: Int): Int =
+        (bytes[offset].toInt() and 0xFF) or
+            ((bytes[offset + 1].toInt() and 0xFF) shl 8)
+
+    private fun readLittleEndianUInt32(bytes: ByteArray, offset: Int): Long =
+        (bytes[offset].toLong() and 0xFFL) or
+            ((bytes[offset + 1].toLong() and 0xFFL) shl 8) or
+            ((bytes[offset + 2].toLong() and 0xFFL) shl 16) or
+            ((bytes[offset + 3].toLong() and 0xFFL) shl 24)
+
     fun classify(fileName: String): FirmwareImageKind {
         val name = fileName.lowercase()
         return when {
@@ -164,7 +321,7 @@ object FirmwareImageInspector {
                 name.substringAfterLast('.', "").length > "image_".length -> FirmwareImageKind.CONTENT_PACK
             name.endsWith(".fpsimage") -> FirmwareImageKind.CONTENT_PACK
             else -> throw IllegalArgumentException(
-                "Choose an extracted RM-217 .mcusw, .ppm_* or .image_* firmware component."
+                "Choose an extracted RM-614 .mcusw, .ppm_* or .image_* firmware component."
             )
         }
     }

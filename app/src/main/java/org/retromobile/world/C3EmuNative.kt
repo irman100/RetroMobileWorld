@@ -12,14 +12,18 @@ internal object C3EmuNative {
     }
 
     external fun nativeSetFile(kind: Int, data: ByteArray): String
+    external fun nativeSetFileFromPath(kind: Int, absolutePath: String): String
     external fun nativeBoot(): String
-    external fun nativeRun(budgetMillis: Double): String
+    external fun nativeRun(budgetMillis: Double): Double
+    external fun nativeResultText(): String
     external fun nativeFrameSerial(): Int
     external fun nativeFrame(): ByteArray
     external fun nativeDrainAudio(): ShortArray
     external fun nativeDrainDirtyDisks(): ByteArray
     external fun nativeKey(index: Int, down: Int)
     external fun nativeStats(): String
+    external fun nativeTraceStats(): String
+    external fun nativeBusTraceStats(): String
     external fun nativeSetTime(unixSeconds: Double, utcOffsetSeconds: Double)
     external fun nativeClearDisks()
     external fun nativeSetDiskSize(device: Int, sizeBytes: Long)

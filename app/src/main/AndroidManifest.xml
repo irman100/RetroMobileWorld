@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.VIBRATE" />
     <application
         android:allowBackup="false"
         android:label="Retro Mobile World"
@@ -17,15 +18,12 @@
         <activity
             android:name=".C3EmuActivity"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="false" />
-        <activity
-            android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
     </application>
 </manifest>

@@ -1,42 +1,76 @@
 # Implementation status
 
-Snapshot: 7 November 2026.
+Snapshot: 8 November 2026.
 
 ## Implemented
 
 - Android application entry point and the Nokia 6300 / RM-217 firmware-intake shell.
 - Local-only RM-217 Phoenix ZIP intake with MCU, PPM and IMAGE component selection.
 - FPSX structural checks, matching VPL manifest lookup and CRC-32 reporting.
-- Separate `PhoneSystemEngine` contract for CPU/SoC/firmware emulation, video frames, PCM audio and key down/up events.
+- Separate PhoneSystemEngine contract for CPU/SoC/firmware emulation, video frames, PCM audio and key down/up events.
 - Desktop RM-217 boot-probe tooling and trace summarizer tests.
 - Experimental Nokia C3-00 / RM-614 engine integration:
-  - native Rust crate links the pinned upstream `c3emu-web` C ABI;
+  - native Rust crate links the pinned upstream c3emu-web C ABI;
   - JNI methods are serialized on one native worker thread because upstream c3emu keeps the emulator session in thread-local state;
   - Android engine implements bounded execution slices, 320×240 RGBA LCD frame transfer, stereo 44.1-kHz PCM drain and C3-00 keyboard matrix input;
   - flash-backed C: storage chunks are persisted in app-private storage;
-  - a separate C3-00 activity supports Phoenix ZIP import or individual RM-614 MCUSW / PPM / IMAGE files.
-- Android CI cross-builds native libraries for ARM64, ARMv7 and x86_64 before assembling the debug APK.
+  - separate C3-00 activity supports Phoenix ZIP import or individual RM-614 MCUSW / PPM / IMAGE files;
+  - selected front-facing C3-00 profile asset is packaged from the pinned repository blob with a build-time integrity check;
+  - FPSX preflight no longer rejects a u32 address just because address + payload length crosses the unsigned 32-bit boundary; actual file-boundary checks remain.
+- Android CI run 42457493795 passed the C3-00 native build for ARM64, ARMv7 and x86_64, Android unit tests, APK assembly and artifact upload.
+- Windows SDK discovery now supports ANDROID_SDK_ROOT, ANDROID_HOME, local.properties and D:\Android\Sdk.
+- A safe local build/install PowerShell entry point was added for physical Android phones.
+- Android app version is advanced to 0.4.1-c3emu-rm614 (versionCode 5) for the next local validation build.
+- Full CI for checkpoint 1c63d991738e2b209000271ea86dfb170894f508 passed in push run 42458429582 and PR run 42458434131; the version 0.4.1 debug APK artifact is 13608921375.
 - Firmware remains user-supplied and is not included in source control or the APK.
 
 ## C3-00 validation boundary
 
-The Android integration is newly added and still requires CI compilation and physical-device testing. The C3-00 app screen is not evidence of a successful guest boot. A successful boot must be demonstrated by the guest OS producing a real LCD frame and responding to key input.
+The user has confirmed that the selected C3-00 shell image is visible in the installed GitHub build. This confirms the shell asset is packaged and rendered; it does not prove that RM-614 Series 40 boots.
+
+The FPSX error was traced to an over-restrictive Kotlin preflight check, not to a demonstrated failure in the native c3emu parser. The upstream parser reads the flash target as u32 and checks payload availability within the container; it does not reject solely because start address plus length crosses 0xFFFFFFFF. A dedicated regression test covers this boundary and passed CI.
+
+The corrected APK still needs to be built from the latest local branch and installed on the physical phone. The user's ADB installation path is D:\Android\Sdk\platform-tools\adb.exe (ADB 1.0.41, platform-tools 37.0.0-14910828). The USB device serial/model has not yet been captured in this project log.
+
+Required next device validation:
+1. Enable Developer options and USB debugging on the phone, unlock it, and authorize this PC's RSA key.
+2. Run scripts/build-install-c3emu-phone.ps1 from the repository root. It updates the C3-00 branch safely, builds and tests locally, then installs the local APK using an explicit physical-device serial. It excludes emulator serials.
+3. Open Nokia C3-00 · Open emulator.
+4. Import the same user-supplied RM-614 Phoenix ZIP and confirm the 32-bit FPSX error is gone.
+5. Start Series 40 and verify a real guest LCD frame/home screen and key response.
+6. Then test audio and persistent C: storage separately.
+
+A successful import is not a successful boot. A successful boot must be demonstrated by a real guest OS frame and input response.
 
 The Android backend uses c3emu's own RM-614 hardware model. It must not be selected for Nokia 6300 / RM-217 firmware.
 
-Required first device validation:
-1. Install the C3-00-enabled APK.
-2. Open **Nokia C3-00 · Open emulator** from the RM-217 screen.
-3. Import the user's own RM-614 MCUSW (PPM and IMAGE remain optional).
-4. Start Series 40 and verify a real home screen, navigation, sound and storage persistence.
-5. Record any first-boot errors and emulator diagnostics without changing the RM-217 implementation.
+## C3-00 UI follow-up
+
+- The exact front-facing shell image `docs/75-205-263-02.png` (968×1920) is the only geometry reference. Do not replace it with another photo.
+- The LCD source is 320×240 and is stretched to the full cutout using exclusive photo edges (82,289)–(885,899). A physical-phone screenshot check is still required.
+- Touch circles have a near-transparent fill and low-alpha outline (fill alpha 2/255, stroke alpha 24/255); marker centres and touch hit centres are identical.
+- Physical matrix indices are centralized in `C3KeyMatrix.kt` and cross-checked against pinned upstream c3emu. Contacts=38, Messaging=52, Function=50, Ctrl=27; D-pad=56–60; soft keys=29/43; Call=30; End=255.
+- `C3KeyPressLedger` handles key-down/key-up, pointer movement, multi-touch ref-counting and cancel. Unit tests cover those behaviours.
+- Lowest QWERTY row and bottom modifier keycap centres follow the photographed curved separators, recorded in `docs/experiments/C3EMU_PROGRESS_LOG.md`.
+- These are source-photo calibrations and unit-level input-path checks. Real phone alignment and physical touch response are still pending.
+
+## C3-00 firmware intake and host-loop tuning
+
+- `.image_*` uses the RM-614 sparse FAT16 content-image parser, not the generic FPSX parser. The parser validates the boot sector and multi-block boundaries; actual import of the user's IMAGE file on the phone is not yet confirmed.
+- MCUSW, PPM and IMAGE selection is matched by software release and shared regional suffix (MH1 with MH1; MR with MR). A saved C: disk is preserved; a new IMAGE only seeds C: when no saved disk exists.
+- JNI now reads imported app-private firmware paths directly into c3emu-owned native buffers to avoid several copies of large IMAGE files.
+- Host loop uses 16 ms native slices, 15 ms LCD frame cadence and a 20 ms WFI wait cap, matching upstream worker timing. Blocking audio writes run on a separate bounded worker; dirty flash storage is throttled to 1 second with forced flush on pause/stop/failure.
+- These are host-overhead optimizations, not a measured increase beyond upstream real-time emulation. Physical-device FPS/latency measurement remains pending.
+- CI uses Gradle 9.6.0 through `gradle/actions/setup-gradle@v6`, caches the distribution and dependencies, and retries transient network 5xx failures. The Kotlin compiler module is exclusively pinned to WSO2 with POM/artifact metadata to avoid GitHub Releases 504 redirects; other dependencies retain normal repositories.
+- **Latest head `4c00850ea09fb681257d303d6e01f03ef2a763aa`: both push run `42472380211` and PR run `42472383487` passed.** Native builds, Android unit tests, APK assembly and upload all succeeded.
+- Current artifact: `13614395927`, ZIP SHA-256 `c3d85b501a1c1483707c029df3d8e2c8b2112b9caa9001334782aa9b3198b42e`; expires 22 November 2026 10:43 UTC. CI success is not a physical-device validation.
 
 ## RM-217 verification
 
 The inspected Nokia 6300 / RM-217 07.30 archive previously showed:
 - MCU CRC matches the selected VPL;
 - IMAGE CRC matches the selected VPL;
-- PPM CRC mismatch: expected `C585B71C`, actual `613D565F`.
+- PPM CRC mismatch: expected C585B71C, actual 613D565F.
 
 The app retains structurally valid files but must not label this set fully verified or bootable.
 
@@ -45,7 +79,160 @@ The RM-217 desktop probe still does not boot the Nokia 6300 operating system. It
 ## Known scope limits
 
 - c3emu documents no SIM or cellular network emulation.
-- Physical handset flashing is not implemented.
+- Physical handset flashing is not implemented; the Android application emulates the guest environment.
 - Android frame and audio delivery need measurement on the test phone.
 - C3-00 QWERTY support is via an on-screen key matrix; device-specific key mapping still needs end-to-end verification.
 - No successful RM-217 OS boot has been achieved.
+
+
+## C3-00 — first confirmed physical Series 40 boot and responsiveness follow-up (8 November 2026)
+
+The user has confirmed that the RM-614 Phoenix ZIP imports and launches the full Series 40 firmware on the physical phone. The user can navigate the firmware menus and attempt to launch applications. Some touch keys still appear to miss taps and transitions are sluggish; full input/performance verification is not complete.
+
+New responsiveness code at `51e60a11dc5b1c4be1eb20cff0324c26ce81c086`:
+- `C3MatrixInputQueue` applies input edges immediately before native CPU slices and guarantees a quick tap is visible for at least one complete slice.
+- Touch hit areas are larger without changing the faint visible marker diameter/alpha.
+- c3emu runs in a continuous single-owner native worker rather than bouncing through the Activity main thread after every slice.
+- LCD frames are coalesced to avoid a backlog of stale images.
+- `C3EmuPerf` Logcat telemetry reports cycle rate, delivered FPS, average/max cycle time and upstream c3emu stats every two seconds.
+
+**CI run 42475334037 on 51e60a1: SUCCESS** — native build for arm64-v8a/armeabi-v7a/x86_64, Android unit tests (including 4 C3MatrixInputQueue tests), debug APK assembly and upload.
+
+Artifact ID: `13615556057`; ZIP SHA-256: `9e6cf0f7eeb7cbdf55611a97576cbd9cc1820e4a546ebb743b93d3c496ffb531`; APK SHA-256: `d5ccb5e691afd1b9c0ae886c8fd314bb19bd14cc0bb3d18775f0fe063dbc0a30`. CI run: https://github.com/irman100/RetroMobileWorld/actions/runs/42475334037.
+
+The new build has not yet been installed and measured on the physical phone. Do not claim a measured speed/FPS gain until `C3EmuPerf` logs and real key tests are captured. Preserve existing app-private storage and C: data.
+
+
+### C3-00 LCD rendering responsiveness follow-up (8 November 2026)
+
+The per-frame RGBA-to-ARGB conversion and Bitmap update have been moved off the Android UI/input thread to a dedicated single-thread frame-render executor. Frame coalescing remains in place, so stale LCD frames do not queue up. The final Bitmap update is synchronized against drawing and requests redraw with `postInvalidate()`. Physical FPS/input latency still require measurement.
+
+
+### C3-00 keyboard tactile feedback and startup-splash diagnostics (8 November 2026)
+
+- Reversed the first two QWERTY row curves around each row's centre line: the two central key centres remain fixed while the outer keys rise symmetrically. The third QWERTY row is unchanged.
+- Shifted only the two outermost bottom modifier hotspots (Function and Ctrl) 16 source-photo pixels inward.
+- Added one short Android-standard `KEYBOARD_TAP` haptic on each new key-down edge; key releases and duplicate multi-pointer ownership do not vibrate.
+- Added `C3EmuBoot` terminal diagnostics with the guest stop reason and final native stats. Periodic `C3EmuPerf` logs continue to report host cycle/FPS and guest LCD counters. The Nokia Connecting People splash interruption is still undiagnosed until the phone log is captured.
+
+
+### C3-00 keyboard, frame-pacing, clock and failure containment — 8 November 2026
+
+- Re-measured the first two QWERTY rows against the original 968×1920 shell photo. Their marker centres now sit at the geometric centres of each photographed keycap; invisible touch regions are per-key ellipses (40×52 source-photo px) to improve finger capture without overlapping adjacent keys.
+- The third QWERTY row and fourth modifier row are unchanged by this calibration.
+- The View explicitly enables Android keyboard haptics and logs whether KEYBOARD_TAP was accepted. It continues to respect the device-wide haptic preference; no forced vibration bypass is used.
+- Cached shell/LCD geometry is rebuilt only when the View size changes. Frame invalidation is scheduled on the next display animation frame instead of posting an unconstrained invalidation for every decoded frame.
+- The Android activity refreshes guest time at boot/resume and after Android time, timezone and minute-tick broadcasts. Updates are applied on the one native owner thread; the local c3emu-web wrapper now writes the live PMU RTC registers as well as the next-boot epoch.
+- The pinned c3emu-web wrapper is vendored at the exact upstream revision with narrow Android hardening: Rust panics during boot/run are contained inside the C ABI, converted into diagnostics, and the failed volatile machine instance is dropped. Persistent flash remains available for manual reboot. Normal guest fatal errors remain visible instead of being silently ignored.
+- Internet remains unsupported in this build. The pinned upstream c3emu has no modem/network device or packet bridge; its SIM model explicitly represents no card, and its ISI layer traces internal messages without a network transport. Enabling Android INTERNET permission alone would not provide guest connectivity. A real implementation needs a virtual SIM/modem + GPRS/packet/ISI transport bridge and guest-side validation; it is recorded as a separate follow-up rather than a fake toggle.
+
+
+## C3-00 device feedback — 8 November 2026
+
+The user confirmed that the corrected upper-row key marker/hit-region placement now lands on the intended physical keys. Preserve this calibration; rows three and four were not part of it.
+
+The previous `KEYBOARD_TAP` View feedback did not produce perceptible vibration on the user's phone. A direct short platform `VibrationEffect.EFFECT_CLICK` path with the normal VIBRATE permission and system-setting check has been added, but it is not yet device-verified.
+
+The host-to-guest RTC path exists in code, but the user reports the displayed guest date/time still does not follow Android. New diagnostics log host Unix time, Android timezone/offset, and guest PMU RTC register values. Do not mark RTC sync as complete until those values and the Series 40 display agree.
+
+Guest Internet is not implemented in the pinned c3emu revision: there is no virtual modem or packet bridge, the SIM model has no card, and ISI only records internal messages. Launching a network-dependent guest application can stop/freeze the guest; root cause remains unconfirmed until its stop reason and SIM/ISI counters are captured. Panic containment does not imply arbitrary guest errors are recoverable.
+
+
+## C3-00 guest Internet investigation — 8 November 2026
+
+Research confirms that Nokia C3-00 supports both WLAN and GPRS packet data in the original Series 40 user guide. The RM-614 service schematic shows a separate WLAN controller interface with enable/IRQ and SPI/SDIO signal names.
+
+The pinned c3emu Android port currently emulates neither path. The SIM model is no-card; ISI instrumentation is observational only; no WLAN/SDIO peripheral or packet bridge exists. Android INTERNET permission alone is insufficient.
+
+A WLAN-first architecture note has been added at docs/experiments/C3EMU_NETWORK_RESEARCH.md. Candidate libraries reviewed:
+- smoltcp (Rust TCP/IP and Ethernet/TAP interfaces, not a WLAN chip emulator);
+- lwIP (TCP/IP APIs, not a WLAN chip emulator);
+- Linux Phonet documentation (Nokia modem IPC/RPC framing, not the IP stack);
+- Android VpnService TUN + protected bridge sockets.
+
+New native diagnostics expose ISI resource/message counters, recent TX/RX trace lines, and first-touch peripheral/SoC MMIO addresses. This is preparation for mapping the actual WLAN/GPRS protocol, not a working network feature.
+
+Firmware-specific disassembly is blocked: the Phoenix archive mentioned in the previous chat is not present in the current conversation or found in the first 100 Library ZIP entries. Reattach the same user-owned RM-614 Phoenix ZIP in this chat. No firmware bytes were included in this commit.
+
+Launcher/navigation update:
+- The old landing page is no longer the Android launcher.
+- The app now opens directly into the C3-00 shell/emulator.
+- The three-dot menu has a "Выбрать телефон…" entry; C3-00 is selectable, while RM-217 is clearly marked not yet implemented. The current C3 session is not disturbed by opening this picker.
+
+No Internet capability is claimed. Acceptance requires actual Series 40 Browser .jad + .jar download and installation.
+
+
+### CI correction — 8 November 2026
+
+The first CI for commit 8156a2d built all c3emu JNI ABIs, then failed Kotlin compilation because the new phone-picker dialog called showMessage with two arguments while the Activity helper accepts one String. The call has been corrected to one String. Re-run full Android CI before marking the launcher/menu change validated or distributing an APK.
+
+
+### Network register telemetry refinement — 8 November 2026
+
+Native stats now return the latest 64 unique SoC/peripheral register touches in chronological order, improving visibility when WLAN/GPRS services are entered later in a running Series 40 session. This only exposes activity; it does not provide network support.
+
+
+### WLAN component identification — 8 November 2026
+
+Research now identifies the RM-614 board's WLAN-capable connectivity component as N6300 / Nokia part 4390090 / BOB1.0M-a (LGA130), with W6000 WLAN antenna and Z6300 WLAN RF band-pass filter. The schematic maps WLAN enable/IRQ, clock request and shared SPI/SDIO pins. This narrows target driver research, but the internal transceiver silicon and selected host bus are not yet confirmed. A different BOB1.0M-b revision used in other Nokia phones is documented with TI WL1271; do not assume that applies to C3-00 BOB1.0M-a.
+
+The exact Phoenix firmware was not found in this chat's attachment/library inventory. Reattach the RM-614 archive before disassembly. No WLAN chipset register model has been guessed or added.
+
+
+## C3-00 WLAN firmware findings — 8 November 2026
+
+The exact user-supplied RM-614 Phoenix archive is now available and its MCUSW 08.71 has undergone static analysis (archive SHA-256 `5239534da21345e5fc7bc1fbe5277f7d25a7798e9196742fcc77dc5d34445b11`). This supersedes the earlier note that firmware-specific analysis was blocked by the missing attachment.
+
+The MCUSW contains a Broadcom S60 WLAN HAL/PDD (`BcmWha`), explicit `802.11n gSPI` configuration, `WlanSpiaImpl` SPI transaction callbacks, and `WlanHpaImpl` power/IRQ callbacks. Broadcom SDPCMD/SDPCM/BDC, LMAC scan/join commands, FIFO/interrupt paths, device firmware version `4.218.227.19`, and WHA download/IDB code+NVMEM validation messages are also present. This establishes a firmware-selected Broadcom gSPI host stack and a device firmware download path; it does not yet recover the full IDB payload or confirm the exact silicon/revision inside BOB1.0M-a.
+
+The `BCM4329B1...` text in MCUSW is located in a WMV3/Windows Media block and is not treated as chip-ID proof. The BOB-specific NVS labels likewise need a direct board/profile mapping. No controller registers or packet behavior have been invented, and guest Internet is still not implemented.
+
+Next: recover the WLAN IDB code/NVMEM sections; trace SPI MMIO, chip-select, enable, clock-request and IRQ while the guest scans; implement the minimal observed gSPI/SDPCM controller; then validate real Browser JAD/JAR downloads. The original firmware archive remains outside the repository.
+
+
+## C3-00 host-side SPI emulation gap — 8 November 2026
+
+A direct review of the pinned c3emu source confirms that it currently has no SPI-master, SDIO-host or WLAN target device. Unclaimed MMIO falls back to a sparse backing store, so writes can be read back without producing hardware side effects. The GPIO model only handles its existing interrupt-status latches and INTC line; WLAN enable/CLK_REQ/IRQ pin behavior is not yet modeled.
+
+The current Android `io_touches` report contains first-touch information for unique MMIO addresses, not the repeated register transaction sequence needed to implement SPI. Upstream exposes `Machine::iolog(addr,len)` for selected access-by-access logging, but the Android wrapper does not yet expose range selection/event retrieval. The event list is capped at 20,000 entries and is printed by `Machine::report()`.
+
+Implementation boundary is now explicit: add opt-in bounded MMIO tracing; decode the actual Nokia SoC SPI-master/GPIO register use; implement SoC SPI and board signals; attach the Broadcom gSPI target; then bridge guest IP packets. No guessed register map has been added.
+
+
+## Compact native diagnostic output — 8 November 2026
+
+Periodic logging no longer appends the full native statistics JSON to the performance line. A dedicated JNI/C ABI method emits a compact `C3EmuTrace` snapshot with at most 40 recent unique SoC/peripheral first-touch records, running/stop state and small SIM/ISI totals. Each entry preserves region, read/write op, address, value and guest PC. Stop reason is truncated to 160 characters. A Rust test limits the line to 3,072 bytes and is now part of CI.
+
+This prevents the Logcat truncation found in the user's previous capture. It remains first-touch address discovery; repeated register transactions and timing are not part of this snapshot.
+
+
+## CI correction — compact MMIO trace test — 8 November 2026
+
+The first push CI for commit `eff0b81` failed in the new `cargo test` step because the Rust `android_wrapper_tests` module was missing its final closing delimiter. The compiler reported an unclosed delimiter at end of file. The missing module brace has been added; the corrected follow-up commit is subject to a fresh push and PR run. No APK from the failed attempt was produced or distributed.
+
+
+## 9 November 2026 — SPI host is now identified by runtime evidence
+
+The latest compact device log captured the first real guest accesses to the SoC SPI host window 0x088D0000..0x088D1FFF immediately before a guest BB hardware watchdog reset. Static MCUSW disassembly at the logged PCs confirms SPI_Init, ConfigSPISelectMux, and SPI_Set_Clock code paths, with IOCR0_REG / IOCR2_REG diagnostics. c3emu pinned bus currently has no SPI-master model, so the range is still handled by generic sparse backing. The first-touch reads at +0x18 and +0x0C return zero, but the captured data does not show repeated polling or IRQ completion and therefore does not uniquely prove the watchdog's exact trigger.
+
+A follow-up build enables bounded access-by-access Machine::iolog for this 8 KiB range and exposes the last 24 records as C3EmuBus. This is instrumentation only; the SPI host and WLAN target remain unimplemented.
+
+## 9 November 2026 — SPI polling evidence and network design refinement
+
+The newest guest log contains repeated byte reads from `0x088D000C`, all returning `0x00`, at guest PC `0x8073A838`; recorded reads are eight guest instruction counts apart. The final guest stop is `BB H/W watchdog reset` at 14:26:06.841. This establishes a repeated polling path in the captured records, but not the exact status-bit semantics or continuous polling through the watchdog.
+
+The access-by-access C3EmuBus output is currently derived from upstream `State.events`, whose `MAX_EVENTS` is 20,000 and whose append path stops at the cap. The filtered `eventCount=13868` can therefore plateau while the guest continues running. The next diagnostic change must use a separate rolling SPI-MMIO event ring and expose overwrite/drop information.
+
+Source review confirms that unclaimed `0x088Dxxxx` registers fall through to sparse backing storage: untouched bytes read as zero and writes only store bytes. No SPI-master side effects, FIFO, chip-select, clock or IRQ are implemented there. Do not patch in a guessed status bit; decode PC `0x8073A838` and correlate it with a non-saturating trace first.
+
+Internet research was expanded to Broadcom gSPI framing, Linux Broadcom SDPCM/BDC references and Android per-network sockets. The Android design is refined: use per-`Network` socket binding for host egress where appropriate; treat `VpnService` TUN as an optional packet-interface mechanism requiring user consent, not as an automatic guest packet bridge. The SoC SPI host, Broadcom gSPI target and guest-packet-to-Android transport remain separate implementation layers.
+
+No WLAN controller or packet bridge has been implemented yet. Guest Internet remains unsupported until Browser JAD/JAR download and MIDlet launch succeed on the device.
+
+## 9 November 2026 — rolling SPI trace ring
+
+The SPI transaction diagnostics now use a dedicated rolling 24-entry ring in the Android c3emu wrapper. The wrapper drains the upstream shared event vector after each maximum 8,192-instruction exact-interpreter slice, so unrelated diagnostic traffic cannot permanently fill the upstream 20,000-event cap before SPI transactions are retrieved. C3EmuBus reports lifetime SPI event count, current buffer size, overwritten count and unrelated events drained.
+
+A Rust unit test exercises the former saturation scenario (13,868 SPI reads plus 6,132 unrelated events) and verifies complete drain, rolling retention, chronological tail and bounded JSON output. Push CI #510 and PR CI #511 both passed the Rust test, arm64-v8a/armeabi-v7a/x86_64 JNI builds, Android unit tests and debug APK assembly.
+
+The validated CI artifact is ID 13672779512. APK size 12,715,047 bytes; SHA-256 `12b494c099293fa70eba3d586a55fe821b72a09e6ce69f0fe8085fa7e730c82b`. No physical-device run has yet been made with this APK. Do not claim the watchdog is fixed: the build improves trace continuity only. The guest PC 0x8073A838 and the exact status-bit/branch semantics at host address 0x088D000C still need machine-code confirmation. The Nokia SPI master, Broadcom gSPI target and Android guest-packet bridge remain unimplemented.
