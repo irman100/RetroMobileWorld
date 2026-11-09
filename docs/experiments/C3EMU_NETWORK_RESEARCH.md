@@ -302,3 +302,23 @@ References:
 - RM-614 host-side WLAN pinout: https://documents.cdn.ifixit.com/ORvCvsmrQTL2IJVq.pdf
 
 A public search for the exact Nokia host address `0x088D000C`, `0x088D0000` and the MCUSW names `IOCR0_REG` / `IOCR2_REG` did not produce an authoritative RM-614/Juno SoC register manual. Search results for the "Juno ARM Development Platform" technical reference manual describe a different ARM development board and are not applicable to Nokia C3-00. The host-register meaning must therefore come from the exact MCUSW disassembly/runtime sequence or a Nokia Juno-specific source, not from similarly named platform documentation.
+
+## RM-614 board-level WLAN package and pin multiplexing — 9 November 2026
+
+The Nokia RM-614 service schematic page 7 labels the WLAN/BT/FM component as `N6300` and exposes the WLAN control and data pins. The drawing maps the N6300 side as follows:
+
+- `H2 = WLANENABLE`
+- `K3 = WLAN_IRQ` (the board signal is also labelled `SDIO_D1/WLAN_IRQ`)
+- `K2 = SPI_CLK/SDIO_CLK`
+- `H3 = SPI_MOSI/SDIO_CMD`
+- `L1 = SPI_MISO/SDIO_D0`
+- `K4 = SPI_CSX/SDIO_D3`
+- `K1 = CLK_REQ`
+
+The same physical lines therefore have SPI and SDIO alternate-function names on the module/board drawing. This supports the firmware-observed gSPI route, but does not prove that the silicon is a particular Broadcom part or that the RM-614 firmware can switch to SDIO. The MCU's selected pin mux and the actual boot sequence still have to be taken from MCUSW.
+
+The public repair/BOM listing identifies board reference `N6300` as Nokia part `4390090`, description `BOB1.0M-a LGA130`. This identifies the Nokia component/package label, not the die manufacturer or WLAN silicon model; chip-level identity remains unresolved.
+
+References:
+- Nokia RM-614 service schematic, page 7: https://manuals.plus/m/418e28a014610a174618153cb10e76d4571ae774120ed73dee23545214dd1653.pdf
+- Nokia C3-00 repair/BOM listing: https://www.radioradar.net/repair_electronic_technics/phones_repair/nokia_c3_00_mobile_phone_repair.html
