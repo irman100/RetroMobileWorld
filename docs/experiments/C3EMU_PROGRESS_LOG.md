@@ -551,3 +551,45 @@ Push CI №489 дошёл до нового шага `cargo test`, но комп
 Прошивка MCUSW 08.71 разобрана по точным PC из журнала. Инструкции на этих адресах принадлежат SPI host-драйверу: рядом находятся строки SPI_Init, ConfigSPISelectMux, SPI_Set_Clock, IOCR2_REG, IOCR0_REG. Это подтверждает, что прошивка начинает настройку SoC SPI controller непосредственно перед watchdog. Сам watchdog пока нельзя однозначно приписать одному регистру: текущий first-touch не показывает повторное polling и IRQ.
 
 В текущий диагностический build добавляется адресная access-by-access трасса через Machine::iolog(0x088D0000, 0x2000). Тег C3EmuBus выдаёт последние 24 SPI MMIO transactions с icount, шириной операции, address, value и guest PC; строка ограничена 3072 байтами и покрыта Rust-тестом. Это только инструментирование, не модель SPI-контроллера.
+
+## 27. Repeated SPI status polling and global trace saturation — 9 November 2026
+
+The next device capture supplied by the user contains repeated one-byte reads of SoC MMIO address `0x088D000C`:
+
+- operation: `R1`;
+- returned value: `0x00`;
+- guest PC: `0x8073A838`;
+- consecutive recorded reads are separated by 8 guest instruction counts;
+- the last 24 records retained in the compact output show this same read pattern;
+- the guest eventually reports `BB H/W watchdog reset` at 14:26:06.841.
+
+This is direct evidence that the firmware entered a repeated polling/read path at `0x088D000C` and that the current bus model returned zero for the recorded reads. It does **not** yet prove which status bit is expected, what branch condition should terminate the loop, or that the same polling continued uninterrupted until the watchdog. The PC at `0x8073A838` must be decoded together with its load, test and branch instructions before assigning register semantics.
+
+### Why the trace stopped growing at 13,868 SPI records
+
+The compact C3EmuBus function reads `State.events` and filters that shared historical vector for the selected SPI MMIO range. It does not own a separate rolling buffer.
+
+The pinned upstream source confirms:
+
+- `MAX_EVENTS = 20000`;
+- `State::event()` appends only while `events.len() < MAX_EVENTS`;
+- once the shared vector reaches the cap, new events are silently not appended;
+- `c3_bus_trace_stats()` snapshots that same vector and `compact_bus_trace_json()` filters it down to SPI events and retains the last 24 matching rows.
+
+Therefore, a stable filtered `eventCount=13868` is consistent with saturation of the shared 20,000-entry event vector by SPI and non-SPI events. The current JSON does not expose the total vector length or a saturation flag, so the precise split is not recorded. The unchanged 24 rows are the last retained SPI records, not proof that the loop stopped or that it remained unchanged through the watchdog.
+
+### Exact source-level reason for the zero read
+
+In the pinned upstream `bus.rs`, a read first asks the implemented SoC/I2C/LCD/SIM/DMAC/keypad/timer/GPIO/RTC handlers and then falls back to the sparse `Backing` store. For an address not claimed by a device model, an uninitialized byte reads as zero. Writes update the sparse byte store, but they do not trigger SPI transfer, FIFO, chip-select, clock, DMA or WLAN interrupt behavior. The `0x088D0000..0x088D1FFF` window is currently unclaimed by an SPI-master model.
+
+This explains the recorded zero at `0x088D000C`; it is not evidence that zero is the correct hardware reset/status value.
+
+### Required next engineering work
+
+1. Replace reliance on the global 20,000-entry `State.events` vector with a dedicated rolling SPI-MMIO ring buffer at the MMIO access point. It must continue collecting new records after the general diagnostic list fills and expose dropped/overwritten counts.
+2. Disassemble the MCUSW code around guest PC `0x8073A838`, record the exact load width, register destination, mask/test and branch target, then identify the expected status transition.
+3. Capture a fresh trace with the ring buffer and correlate writes, repeated status reads, DMA/FIFO activity and interrupt state.
+4. Only after the register behavior is mapped, implement the minimum Nokia SoC SPI-master and board signal behavior; then connect the Broadcom gSPI target.
+5. Keep guest Internet marked unsupported until the Series 40 Browser completes a real JAD/JAR download and launch test.
+
+No SPI register value or status bit has been guessed, and this capture does not itself add Internet functionality.
