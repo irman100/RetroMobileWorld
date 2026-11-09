@@ -236,3 +236,76 @@ The SPI transaction diagnostics now use a dedicated rolling 24-entry ring in the
 A Rust unit test exercises the former saturation scenario (13,868 SPI reads plus 6,132 unrelated events) and verifies complete drain, rolling retention, chronological tail and bounded JSON output. Push CI #510 and PR CI #511 both passed the Rust test, arm64-v8a/armeabi-v7a/x86_64 JNI builds, Android unit tests and debug APK assembly.
 
 The validated CI artifact is ID 13672779512. APK size 12,715,047 bytes; SHA-256 `12b494c099293fa70eba3d586a55fe821b72a09e6ce69f0fe8085fa7e730c82b`. No physical-device run has yet been made with this APK. Do not claim the watchdog is fixed: the build improves trace continuity only. The guest PC 0x8073A838 and the exact status-bit/branch semantics at host address 0x088D000C still need machine-code confirmation. The Nokia SPI master, Broadcom gSPI target and Android guest-packet bridge remain unimplemented.
+
+## RM-614 SPI host bring-up — 9 November 2026
+
+The physical C3EmuBus capture confirmed the previous boot stopped in the
+firmware's TX-ready polling path because the pinned upstream c3emu had no
+SPI-host MMIO implementation. Static disassembly of MCUSW 08.71 established
+the first register subset; the exact evidence and limits are recorded in
+`docs/experiments/C3EMU_SPI_HOST_CONTRACT.md`.
+
+The pinned upstream c3emu source has been vendored at
+`engine/c3emu-core` with its original GPL-3.0-or-later licence and source
+identity retained. The first stateful SPI host model is separate from the
+future Broadcom WLAN target. It produces no RX response in the absence of an
+attached target and does not claim WLAN or Internet support.
+
+The current source changes are awaiting CI. Do not assemble or install an APK
+until CI passes. After that, use the explicit ADB serial `6ea05c65` for
+physical-device verification and preserve the existing app data.
+
+### SPI host integration CI gate — 9 November 2026
+
+The first integration commit `e9903d6` passed push CI #526, including all
+three Android native ABIs, wrapper Rust tests, Android unit tests and APK
+assembly. Review found that Cargo does not run a path dependency's own unit
+tests from the wrapper's `cargo test`; therefore a dedicated
+`cargo test --no-default-features` step for `engine/c3emu-core` has been
+added. Await this follow-up CI before installing the branch APK.
+
+### SPI host model — strict CI passed (9 November 2026)
+
+Branch `feature/rm614-spi-host-master-20261109`, commit
+`18f299687f2f8eb9e5c189c0a58ba38d9d44aeb1`.
+
+Push CI #527 passed:
+https://github.com/irman100/RetroMobileWorld/actions/runs/42656241983
+
+The separate vendored-core test step ran 7 tests, including all 4 new SPI-host
+tests. The bounded wrapper tests, JNI builds for arm64-v8a/armeabi-v7a/x86_64,
+Android unit tests, debug APK assembly and upload also passed.
+
+Artifact ID: `13693026171`. Extracted APK SHA-256:
+`f0a84aee58cb5c66af82d5273346ae5ad95d1b5f893295d61758a1705f1a186c`.
+
+This APK is eligible for physical testing, but not yet physically verified.
+Preserve the user's existing app data; install with `adb install -r` to the
+explicit serial `6ea05c65`. The expected test is progression beyond the
+TX-ready poll at `0x8073A838` and entry into the target-dependent RX-ready
+phase. No Broadcom target or Internet path is implemented.
+
+### Additional pin-mux evidence — 9 November 2026
+
+MCUSW disassembly confirms the IOCR2 base literal `0x088D1020` and writes to
+`0x088D103C` with values `0x81`, `0x80` and `0x01` in different control
+paths. The exact bit-to-pin mapping and IOCR0 address remain unresolved.
+The SPI model deliberately leaves this board-control register outside its
+FIFO/status implementation.
+
+### Physical run after SPI-host integration — 9 November 2026
+
+A new Redmi Note 9S capture confirms that the emulator does not crash or stop:
+`running=true` continues, but the guest repeatedly reads DATA
+`0x088D0008=0` at PC `0x8072BB4A` and STATUS
+`0x088D000C=0x04` at PC `0x8072BB4C`. The first-touch evidence shows the
+first access to DATA is a read. In the last process the SPI trace counter
+reached 116,831,543. Performance logs show `deliveredFps=0.0`.
+
+The current runtime has no attached Broadcom `SpiTarget`; therefore no RX
+word can be supplied. The guest remains in an RX-side WLAN polling path and
+does not reach an IP/Android Internet bridge. Contrary to the earlier
+expectation, this helper did not produce a finite timeout in the captured
+minutes. Exact branch semantics require MCUSW disassembly at
+`0x8072BB2C–0x8072BB60`. Do not fabricate RX data or claim Wi-Fi support.
+

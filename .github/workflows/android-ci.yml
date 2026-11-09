@@ -64,6 +64,10 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
 
+      - name: Test vendored c3emu core (including SPI host)
+        working-directory: engine/c3emu-core
+        run: cargo test --no-default-features
+
       - name: Test bounded c3emu MMIO diagnostic
         working-directory: engine/c3emu-web-android
         run: cargo test

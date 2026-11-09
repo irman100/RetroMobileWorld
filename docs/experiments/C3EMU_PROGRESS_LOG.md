@@ -870,3 +870,253 @@ This capture validates that the independent rolling ring works on a physical
 Android device. It does not yet validate a modeled SPI controller or WLAN
 target.
 
+## 34. First stateful Nokia SPI-host model and explicit target boundary — 9 November 2026
+
+### Source-level contract recovered
+
+The RM-614 MCUSW 08.71 image was reconstructed from the user-supplied Phoenix
+archive. The named MCUSW image is loaded by the pinned c3emu layout at
+`0x80130000`; therefore guest PC mappings use that base.
+
+The disassembly and physical trace establish the first host-controller subset:
+
+- `0x088D0000` is a 16-bit configuration word. `SPI_Set_Clock` preserves its
+  low byte and writes a computed divider into the high byte.
+- `0x088D0004` is a byte control register modified by `SPI_Set_Master_Mode`.
+  The routine clears bit 2, conditionally sets bit 2 from its argument, and
+  always sets bit 1. The observed initialization call passes argument 1.
+- `0x088D0008` is the 16-bit data/FIFO port.
+- `0x088D000C` is a byte status register. Firmware tests bit 2 before the
+  halfword data write and bit 3 before the halfword data read.
+- `0x088D0010` receives byte value 2 in `SPI_Set_Clock`.
+- `0x088D0018` bit 7 is tested as RX FIFO overrun.
+- `0x088D0020` is written with 1 immediately after the overrun branch; init
+  writes 3. The acknowledgement/clear role is strongly suggested, but other
+  bits remain undocumented.
+- `0x088D0024` receives byte value 3 during initialization.
+- `0x088D103C` is derived from literal pointer `0x088D1020 + 0x1C`.
+  Nearby strings name `IOCR2_REG`; firmware writes `0x81` and `0x80` on
+  different paths. It is separate pin-mux/board-control space, not an SPI FIFO
+  register. `IOCR0_REG` also appears in strings; its mapping is unresolved.
+
+The exact evidence and confidence boundaries are written in
+`docs/experiments/C3EMU_SPI_HOST_CONTRACT.md`.
+
+### Isolated core fork and first implementation
+
+A new branch `feature/rm614-spi-host-master-20261109` was created from the
+then-current project head so the SPI work does not modify the prior development
+branch directly.
+
+The pinned upstream c3emu crate is being vendored at
+`engine/c3emu-core` from
+`androettop/c3emu@9b0d3ae2da326e109428f64d8760ea823ee1b648`. Its original
+GPL-3.0-or-later licence and shell asset are preserved. The Android wrapper is
+changed to depend on this local source copy, allowing the SoC bus dispatcher
+to call a stateful device model.
+
+The first `spi.rs` model is intentionally partial:
+
+- exact access-width matching for the observed byte/halfword registers;
+- bit 1 of control `+0x04` gates the initial TX-ready signal;
+- bit 2 of status `+0x0C` reports a free immediate TX slot;
+- bit 3 of status `+0x0C` is set only when a connected target supplies an RX
+  halfword;
+- data-port writes are sent to an explicit `SpiTarget` endpoint;
+- no RX word is fabricated when no target is attached;
+- the overrun status location and the observed acknowledgement write are
+  represented, but FIFO depth/timing and most side effects remain unmodelled.
+
+This does not yet model the Broadcom gSPI target, board power/IRQ/mux pins,
+chip-select timing, clock waveform, or a cycle-accurate hardware FIFO. The
+software RX queue is unbounded until its physical depth is established. No
+Wi-Fi scan, association or Internet support is claimed.
+
+### Tests and physical validation still pending
+
+Four unit tests cover:
+1. TX-ready is not exposed until the observed master-enable bit is set;
+2. an unconnected target does not generate synthetic RX data;
+3. an attached test target supplies an RX word and RX-ready clears when read;
+4. the observed overrun status/acknowledgement path and access widths.
+
+These tests and the Android native build are not yet CI-validated at the time
+this section is written. The next gate is CI, then a fresh physical RM-614 run.
+The expected first improvement is that the guest passes the former TX-ready
+poll at `0x8073A838` and reaches the next target-dependent RX phase. If no
+target is attached, an RX timeout is expected and must remain visible.
+
+Next steps:
+1. complete CI validation of the vendored core and SPI host model;
+2. inspect the new trace after the guest passes the TX-ready wait;
+3. decode the remaining `IOCR0/IOCR2`, CS, WLANENABLE, CLK_REQ and IRQ sequence;
+4. only then implement a separately tested Broadcom gSPI target, after exact
+   silicon/firmware identity is established.
+
+## 35. First SPI-host integration CI and dedicated core-test gate — 9 November 2026
+
+Push workflow #526 for commit `e9903d6c9fac1ea93034b16d9ebf542853c5a997`
+completed successfully:
+
+- Android catalogue and firmware tooling checks passed.
+- Rust `c3emu-web` wrapper tests passed.
+- Native JNI builds passed for `arm64-v8a`, `armeabi-v7a` and `x86_64`.
+- Android unit tests passed.
+- Debug APK assembly and artifact upload passed.
+
+The first workflow did not execute unit tests located inside the vendored
+`c3emu-core` path dependency: `cargo test` in the wrapper tests that package,
+not the dependency's own `#[cfg(test)]` module. This was identified during
+review before physical installation.
+
+A separate CI step now runs:
+
+```sh
+cd engine/c3emu-core
+cargo test --no-default-features
+```
+
+This explicitly executes the four SPI-host tests and the vendored core's
+existing unit tests. The follow-up workflow must pass before an APK from this
+branch is treated as eligible for physical-device installation.
+
+The new host model remains partial and does not claim a Broadcom target or
+Wi-Fi functionality. The next physical trace must confirm that TX-ready at
+`0x088D000C` bit 2 advances past the former PC `0x8073A838` loop and reaches
+the target-dependent RX-ready bit-3 wait.
+
+## 36. SPI-host unit tests and full Android CI passed — 9 November 2026
+
+Follow-up commit:
+`18f299687f2f8eb9e5c189c0a58ba38d9d44aeb1`
+
+Push workflow #527 completed successfully:
+https://github.com/irman100/RetroMobileWorld/actions/runs/42656241983
+
+Verified workflow results:
+
+- Dedicated `cargo test --no-default-features` in `engine/c3emu-core`: **7 passed, 0 failed**, including all four `spi::tests`:
+  - `attached_target_response_sets_rx_ready_until_data_word_is_read`;
+  - `master_enable_exposes_tx_ready_without_fabricating_rx_data`;
+  - `observed_overrun_clear_write_clears_rx_overrun_flag`;
+  - `register_widths_are_not_silently_aliased`.
+- Existing bounded MMIO diagnostic tests in `c3emu-web`: passed.
+- Android JNI shared-library builds: passed for `arm64-v8a`, `armeabi-v7a` and `x86_64`.
+- Android unit tests: passed.
+- Debug APK assembly and artifact upload: passed.
+
+Artifact:
+- Workflow artifact ID: `13693026171`
+- Artifact name: `retro-mobile-world-c3emu-debug`
+- ZIP size: `8,034,724` bytes
+- ZIP SHA-256: `8420b3b3a8cb28d1a57fb3181083fb105b3fdc15410f91a2918e915be4af26ac`
+- Extracted APK size: `12,734,071` bytes
+- APK SHA-256: `f0a84aee58cb5c66af82d5273346ae5ad95d1b5f893295d61758a1705f1a186c`
+
+The APK contains the native c3emu library for all three tested ABIs. This confirms build/test correctness, **not** physical-device correctness. The artifact has not yet been installed or verified against the user's saved RM-614 session.
+
+Next device gate: install this exact build over the existing application using `adb -s 6ea05c65 install -r` (do not uninstall or clear app data), boot the user's RM-614 firmware and capture C3EmuBus. Expected result is that the driver passes its bit-2 TX-ready loop at PC `0x8073A838` and reaches the bit-3 RX-ready wait. With no target attached, a later RX timeout is expected. It must not be masked by synthetic Broadcom replies.
+
+## 37. Additional MCUSW evidence for IOCR2 / board-mux sequencing — 9 November 2026
+
+Further Thumb disassembly around guest PC `0x80810140` confirms that
+`0x088D103C` is written through the IOCR2 base literal `0x088D1020` plus
+offset `0x1C`. Besides the previously captured initialization/error-path
+write `0x81` at PC `0x8081054C`, the same driver area contains writes:
+
+- `0x81` at PC `0x808101F8` in the initialization branch;
+- `0x80` at PC `0x8081041E` on another state/cleanup branch;
+- `0x81` at PC `0x8081054C`;
+- `0x01` at PC `0x808106AA` in a configuration branch.
+
+Strings `IOCR0_REG` and `IOCR2_REG` are present in the MCUSW diagnostic
+text. The IOCR2 base and `+0x1C` address are proven by the literal and
+instructions; the exact IOCR0 address and both registers' bit-to-pin
+semantics remain unresolved.
+
+Do not interpret these values directly as WLAN chip-select, WLANENABLE,
+CLK_REQ or WLAN_IRQ states. First trace the SoC pin mux/GPIO direction and
+board connections. The SPI-host model intentionally does not consume or
+modify `0x088D103C`; the unknown register remains in the existing sparse
+SoC backing store.
+
+The additional disassembly does not change the SPI-host implementation or
+the CI-tested APK. It sharpens the next task boundary: map IOCR0/IOCR2 and
+board signal routing before implementing target chip-select/power/IRQ
+behaviour.
+
+## 38. Physical Redmi run: persistent RX-side DATA/STATUS poll; screen stops updating — 9 November 2026
+
+The user's new Logcat capture `Вставленный текст.txt` covers 19:53:50–19:58:08.
+The emulator remains reported as `running=true`, while the visible phone image
+stops changing during the attempt to enter/connect to the Internet.
+
+### MMIO evidence
+
+The first-touch trace for each fresh emulator process records the initial SPI
+setup writes, then:
+
+- read `0x088D0018` at PC `0x8072BB2C`, value `0x00` (no observed RX-overrun bit);
+- read `0x088D000C` at PC `0x8072BB4C`, value `0x04`;
+- first access to DATA `0x088D0008` is a 16-bit **read** at PC
+  `0x8072BB4A`, value `0x0000`.
+
+The first-touch ordering shows the first access to `0x088D0008` in these
+boots is a read, not a preceding write to that DATA port. The rolling trace
+then repeatedly alternates only:
+
+```
+R2 0x088D0008 = 0x0000  PC 0x8072BB4A
+R1 0x088D000C = 0x00000004  PC 0x8072BB4C
+```
+
+This pattern persists through all three observed app processes in the file
+(PIDs 2720, 4187 and 4447). In the last process, the SPI event counter grows
+from zero to 116,831,543 during the captured run; the rolling last-24 window
+contains only the repeated DATA/STATUS pair. No overrun flag is observed in
+the first-touch evidence.
+
+Performance samples repeatedly show approximately 57–61 `cycleHz` while
+`deliveredFps=0.0`. This is consistent with the guest CPU continuing to
+execute a tight poll while the guest screen stops advancing; it is not an
+Android process crash or a stopped emulator state.
+
+### Interpretation and correction to the previous expectation
+
+The stateful Nokia host model returns status `0x04` (the model's observed
+TX-ready bit) and DATA `0x0000` while its RX queue is empty. The current
+runtime does **not** attach a production `SpiTarget`; the trait exists for
+separation and unit tests only. Therefore this build has no Broadcom gSPI
+device to return any RX word.
+
+The physical trace proves that the guest remains in a DATA/STATUS polling
+path for minutes. The previous expectation that this path would naturally
+produce a finite RX timeout was not supported and is corrected here: **no
+finite timeout was observed**. Do not describe this as a completed/working
+WLAN connection or an Android Internet bridge failure. The guest has not
+reached an IP packet path.
+
+The exact branch/exit condition at PCs `0x8072BB4A` and `0x8072BB4C` still
+requires the actual MCUSW instructions around those addresses. The latest
+upload contains MMIO/PC data, not the instruction bytes. The previously
+user-supplied Phoenix archive is not present in the current file session or
+Library listing; request the archive (or extracted RM-614 MCUSW 08.71 image)
+again before changing guest-visible status semantics.
+
+### Next actions
+
+1. Keep the current host implementation; do not assert RX-ready or inject
+   dummy `0xFFFF`/`0x0000` words just to unfreeze the screen.
+2. Re-open the MCUSW routine around `0x8072BB2C–0x8072BB60` and trace the
+   actual branch that repeats the DATA/STATUS pair; confirm whether the
+   controller is waiting for an unsolicited WLAN boot response or draining
+   an RX FIFO.
+3. Decode the corresponding power, mux, chip-select and IRQ setup path,
+   including `WLANENABLE`, `CLK_REQ` and `WLAN_IRQ`.
+4. Implement a minimal but protocol-valid Broadcom gSPI target only after
+   exact silicon identity and the first boot-time command sequence are
+   established. Then test target identity/boot handshake before SDPCM/BDC,
+   association and Internet bridging.
+5. No new APK is warranted from this log alone; it tests the current CI-green
+   host-only build and identifies the next missing hardware layer.
+

@@ -200,3 +200,37 @@ The archive is analyzed locally only (SHA-256 `5239534da21345e5fc7bc1fbe5277f7d2
 - [ ] Install APK on the physical phone and capture a fresh trace through guest watchdog stop.
 - [ ] Decode the instructions and branch condition around guest PC 0x8073A838 before assigning any meaning to host register 0x088D000C.
 - [ ] Implement the observed Nokia SoC SPI-master and board signal behavior, then connect the Broadcom gSPI target and guest packet path.
+
+## RM-614 SPI host / WLAN bring-up — 9 November 2026
+
+- [x] Reconstruct MCUSW 08.71 at the correct guest base and decode the TX/RX polling register accesses.
+- [x] Document the firmware-observed SPI host register contract and distinguish the SoC `IOCR2` mux register from the SPI FIFO.
+- [x] Isolate the pinned c3emu core into a local GPL-3.0-or-later vendored source tree so MMIO side effects can be implemented and tested.
+- [ ] Pass CI with the first stateful Nokia SPI-host model before requesting a new APK.
+- [ ] Validate on the Redmi Note 9S that bit-2 TX-ready polling advances beyond the former `0x8073A838` timeout.
+- [ ] Decode and model IOCR0/IOCR2, SPI chip-select routing, WLANENABLE, CLK_REQ and WLAN_IRQ.
+- [ ] Establish physical SPI transaction widths, timing and FIFO depth from further disassembly and runtime traces.
+- [ ] Identify the exact N6300 / BOB1.0M-a WLAN silicon revision and matching IDB/NVMEM profile.
+- [ ] Implement Broadcom gSPI as a separate target endpoint, not as guessed host-register constants.
+- [ ] Validate target identity, firmware download, SDPCM/BDC RX/TX, scan and association before any Internet claim.
+
+### SPI-host verification note — 9 November 2026
+
+- [x] Compile the local c3emu-core fork and JNI wrapper for all Android ABIs; push CI #526 passed.
+- [x] Execute the vendored c3emu-core unit tests directly (7 passed, including all four SPI-host tests).
+- [x] Re-run full Android CI and review the APK artifact (push run #527 passed; artifact 13693026171).
+- [ ] Install the APK over the existing app and validate the new TX-ready/RX-ready sequence on the physical Redmi Note 9S.
+
+### IOCR2 static disassembly update — 9 November 2026
+
+- [x] Confirm IOCR2 base `0x088D1020`, byte offset `+0x1C`, and the observed MCUSW writes `0x81`, `0x80`, `0x01`.
+- [ ] Map IOCR0/IOCR2 bit fields to SoC pin mux, GPIO direction, WLANENABLE, SPI_CSX, CLK_REQ and WLAN_IRQ; no bit meaning is inferred from write values alone.
+
+### Physical result: targetless WLAN polling — 9 November 2026
+
+- [x] Capture on Redmi Note 9S after host model integration: DATA `0x088D0008=0` at PC `0x8072BB4A`, STATUS `0x088D000C=0x04` at PC `0x8072BB4C`.
+- [x] Confirm guest remains running while display delivery drops to `deliveredFps=0.0`; last process SPI count reaches 116,831,543.
+- [ ] Recover/disassemble MCUSW instructions around `0x8072BB2C–0x8072BB60` to prove the loop exit condition; do not infer a timeout from the previous summary.
+- [ ] Attach a real protocol-valid Broadcom gSPI target only after silicon identity and boot handshake are confirmed.
+- [ ] Re-test the display and WLAN bring-up with the target connected; only later evaluate the Android packet bridge.
+

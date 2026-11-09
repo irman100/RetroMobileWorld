@@ -9,10 +9,12 @@ Retro Mobile World uses separately licensed components. Preserve their notices a
 - Licence: GNU General Public License v3.0 or later (GPL-3.0-or-later).
 - The Android native library links the upstream `c3emu-web` crate and uses its C ABI for firmware handoff, execution slices, LCD frames, audio, key events and persistent flash chunks.
 - Its RM-614 machine implementation is used only by the Nokia C3-00 profile. Do not present its RAPIDO/BCM2153 device model as an RM-217 / Nokia 6300 implementation.
-- The dependency is fetched by Cargo at build time; the application repository does not include Nokia firmware.
+- The upstream crate is vendored under `engine/c3emu-core` from the exact revision above; the local fork is used by the Android wrapper through a Cargo path dependency.
+- Local modifications add only the firmware-observed Nokia SPI-host MMIO subset and a target interface; no Broadcom gSPI target or network packet backend is claimed.
+- Preserve the original upstream source identity, copyright notices and GPL-3.0-or-later licence. The vendored crate's Cargo manifest records that licence.
 - Upstream licence and source: https://github.com/androettop/c3emu/blob/9b0d3ae2da326e109428f64d8760ea823ee1b648/LICENSE
 
-The application's GPL-3.0 project licence is compatible with this GPL-3.0-or-later dependency. The corresponding upstream source revision and licence must remain identifiable in distributed builds.
+The application's GPL-3.0 project licence is compatible with this GPL-3.0-or-later dependency. Distributed builds must identify the upstream revision, the local modifications, and provide the corresponding source under the applicable GPL terms.
 
 ## JNI binding
 
