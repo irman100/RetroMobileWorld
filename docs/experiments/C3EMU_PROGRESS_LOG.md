@@ -870,3 +870,86 @@ This capture validates that the independent rolling ring works on a physical
 Android device. It does not yet validate a modeled SPI controller or WLAN
 target.
 
+## 34. First stateful Nokia SPI-host model and explicit target boundary — 9 November 2026
+
+### Source-level contract recovered
+
+The RM-614 MCUSW 08.71 image was reconstructed from the user-supplied Phoenix
+archive. The named MCUSW image is loaded by the pinned c3emu layout at
+`0x80130000`; therefore guest PC mappings use that base.
+
+The disassembly and physical trace establish the first host-controller subset:
+
+- `0x088D0000` is a 16-bit configuration word. `SPI_Set_Clock` preserves its
+  low byte and writes a computed divider into the high byte.
+- `0x088D0004` is a byte control register modified by `SPI_Set_Master_Mode`.
+  The routine clears bit 2, conditionally sets bit 2 from its argument, and
+  always sets bit 1. The observed initialization call passes argument 1.
+- `0x088D0008` is the 16-bit data/FIFO port.
+- `0x088D000C` is a byte status register. Firmware tests bit 2 before the
+  halfword data write and bit 3 before the halfword data read.
+- `0x088D0010` receives byte value 2 in `SPI_Set_Clock`.
+- `0x088D0018` bit 7 is tested as RX FIFO overrun.
+- `0x088D0020` is written with 1 immediately after the overrun branch; init
+  writes 3. The acknowledgement/clear role is strongly suggested, but other
+  bits remain undocumented.
+- `0x088D0024` receives byte value 3 during initialization.
+- `0x088D103C` is derived from literal pointer `0x088D1020 + 0x1C`.
+  Nearby strings name `IOCR2_REG`; firmware writes `0x81` and `0x80` on
+  different paths. It is separate pin-mux/board-control space, not an SPI FIFO
+  register. `IOCR0_REG` also appears in strings; its mapping is unresolved.
+
+The exact evidence and confidence boundaries are written in
+`docs/experiments/C3EMU_SPI_HOST_CONTRACT.md`.
+
+### Isolated core fork and first implementation
+
+A new branch `feature/rm614-spi-host-master-20261109` was created from the
+then-current project head so the SPI work does not modify the prior development
+branch directly.
+
+The pinned upstream c3emu crate is being vendored at
+`engine/c3emu-core` from
+`androettop/c3emu@9b0d3ae2da326e109428f64d8760ea823ee1b648`. Its original
+GPL-3.0-or-later licence and shell asset are preserved. The Android wrapper is
+changed to depend on this local source copy, allowing the SoC bus dispatcher
+to call a stateful device model.
+
+The first `spi.rs` model is intentionally partial:
+
+- exact access-width matching for the observed byte/halfword registers;
+- bit 1 of control `+0x04` gates the initial TX-ready signal;
+- bit 2 of status `+0x0C` reports a free immediate TX slot;
+- bit 3 of status `+0x0C` is set only when a connected target supplies an RX
+  halfword;
+- data-port writes are sent to an explicit `SpiTarget` endpoint;
+- no RX word is fabricated when no target is attached;
+- the overrun status location and the observed acknowledgement write are
+  represented, but FIFO depth/timing and most side effects remain unmodelled.
+
+This does not yet model the Broadcom gSPI target, board power/IRQ/mux pins,
+chip-select timing, clock waveform, or a cycle-accurate hardware FIFO. The
+software RX queue is unbounded until its physical depth is established. No
+Wi-Fi scan, association or Internet support is claimed.
+
+### Tests and physical validation still pending
+
+Four unit tests cover:
+1. TX-ready is not exposed until the observed master-enable bit is set;
+2. an unconnected target does not generate synthetic RX data;
+3. an attached test target supplies an RX word and RX-ready clears when read;
+4. the observed overrun status/acknowledgement path and access widths.
+
+These tests and the Android native build are not yet CI-validated at the time
+this section is written. The next gate is CI, then a fresh physical RM-614 run.
+The expected first improvement is that the guest passes the former TX-ready
+poll at `0x8073A838` and reaches the next target-dependent RX phase. If no
+target is attached, an RX timeout is expected and must remain visible.
+
+Next steps:
+1. complete CI validation of the vendored core and SPI host model;
+2. inspect the new trace after the guest passes the TX-ready wait;
+3. decode the remaining `IOCR0/IOCR2`, CS, WLANENABLE, CLK_REQ and IRQ sequence;
+4. only then implement a separately tested Broadcom gSPI target, after exact
+   silicon/firmware identity is established.
+

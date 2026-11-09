@@ -236,3 +236,22 @@ The SPI transaction diagnostics now use a dedicated rolling 24-entry ring in the
 A Rust unit test exercises the former saturation scenario (13,868 SPI reads plus 6,132 unrelated events) and verifies complete drain, rolling retention, chronological tail and bounded JSON output. Push CI #510 and PR CI #511 both passed the Rust test, arm64-v8a/armeabi-v7a/x86_64 JNI builds, Android unit tests and debug APK assembly.
 
 The validated CI artifact is ID 13672779512. APK size 12,715,047 bytes; SHA-256 `12b494c099293fa70eba3d586a55fe821b72a09e6ce69f0fe8085fa7e730c82b`. No physical-device run has yet been made with this APK. Do not claim the watchdog is fixed: the build improves trace continuity only. The guest PC 0x8073A838 and the exact status-bit/branch semantics at host address 0x088D000C still need machine-code confirmation. The Nokia SPI master, Broadcom gSPI target and Android guest-packet bridge remain unimplemented.
+
+## RM-614 SPI host bring-up — 9 November 2026
+
+The physical C3EmuBus capture confirmed the previous boot stopped in the
+firmware's TX-ready polling path because the pinned upstream c3emu had no
+SPI-host MMIO implementation. Static disassembly of MCUSW 08.71 established
+the first register subset; the exact evidence and limits are recorded in
+`docs/experiments/C3EMU_SPI_HOST_CONTRACT.md`.
+
+The pinned upstream c3emu source has been vendored at
+`engine/c3emu-core` with its original GPL-3.0-or-later licence and source
+identity retained. The first stateful SPI host model is separate from the
+future Broadcom WLAN target. It produces no RX response in the absence of an
+attached target and does not claim WLAN or Internet support.
+
+The current source changes are awaiting CI. Do not assemble or install an APK
+until CI passes. After that, use the explicit ADB serial `6ea05c65` for
+physical-device verification and preserve the existing app data.
+
