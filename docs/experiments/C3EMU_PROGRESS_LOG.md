@@ -605,3 +605,11 @@ The BCM4330/BCM4334 documents help outline a plausible Broadcom gSPI protocol fa
 A public search for the exact Nokia addresses and `IOCR0_REG` / `IOCR2_REG` did not find an authoritative host SoC register manual. An ARM "Juno Development Platform" TRM surfaced for the word Juno, but it is a separate ARM reference platform and is explicitly excluded from this investigation.
 
 References and the protocol-family caveat are recorded in `docs/experiments/C3EMU_NETWORK_RESEARCH.md`.
+
+## 29. RM-614 WLAN board signals verified from schematic — 9 November 2026
+
+The RM-614 schematic page 7 confirms the N6300 WLAN interface wiring: `WLANENABLE` on H2, `WLAN_IRQ` on K3, `SPI_CLK` on K2, `SPI_MOSI` on H3, `SPI_MISO` on L1, `SPI_CSX` on K4, and `CLK_REQ` on K1. The same data/control pads are shown with SDIO alternate-function names (`SDIO_CLK`, `SDIO_CMD`, `SDIO_D0`, `SDIO_D3`, and `SDIO_D1/WLAN_IRQ`).
+
+The repair/BOM listing maps board component N6300 to Nokia part 4390090, description BOB1.0M-a LGA130. The listing does not establish the WLAN die manufacturer or exact silicon model. Keep the current MCUSW evidence for Broadcom gSPI, and do not infer a BCM4329/4330/4334 part number from the module label.
+
+Source URLs and the pin map are recorded in `docs/experiments/C3EMU_NETWORK_RESEARCH.md`.
