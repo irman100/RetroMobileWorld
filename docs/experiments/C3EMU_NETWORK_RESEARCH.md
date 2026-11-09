@@ -220,3 +220,20 @@ adb logcat -v time -s C3EmuPerf:I C3EmuTrace:I C3EmuBoot:E |
 ## Diagnostic-test CI correction — 8 November 2026
 
 The first CI run for the compact trace change reached `cargo test` and exposed an unclosed `android_wrapper_tests` module after the new test was inserted. The helper/string escaping was already corrected before that run; the compiler reported only the missing final module delimiter. A closing brace was added. No runtime implementation or existing phone state was changed. The follow-up push/PR CI must pass this Rust test before any APK is distributed.
+
+
+## First observed SPI-host initialization and watchdog stop — 9 November 2026
+
+The 9 November device capture (Android PID 1192) remained in running=true from 13:52:42 through 13:54:46 and reported a guest BB H/W watchdog reset at 13:54:48.436, reset PC 0x80702931. This is a guest firmware stop; the capture does not show an Android process restart or an application reinstall.
+
+At 13:54:44.918 the first new SoC MMIO accesses appeared in the 0x088D window. The following two-second interval added accesses at offsets +0x10, +0x24, +0x18, and +0x0C. The exact first-touch records and guest PCs are preserved in the supplied capture.
+
+The MCUSW 08.71 image was parsed as FPSX and the logged guest PCs were disassembled from its MCUSW region. They land in code with strings/symbolic diagnostics SPI_Init, ConfigSPISelectMux, SPI_Set_Clock, IOCR2_REG, and IOCR0_REG. In particular, the logged writes at PCs 0x8081018C, 0x80810198, 0x808101E0, 0x808101E8, 0x808101F8, 0x80833D0C, and 0x80810AB4 are inside the SPI initialization / mux / clock paths. This is direct evidence that the guest is initializing its SoC SPI host controller at 0x088D0000 and related mux registers.
+
+The address window is within c3emu SOC_IO (0x08800000..0x08A00000). The pinned upstream bus dispatch has no SPI-master model; unclaimed addresses are served by the sparse backing store. The observed reads from 0x088D0018 and 0x088D000C return zero on their first touch. Because the current first-touch mechanism does not capture repeated polls, this alone does not prove which status bit or missing interrupt caused the watchdog. It does prove that the guest reached the SPI host-driver path shortly before stopping.
+
+### Targeted transaction tracing added
+
+The next diagnostic build enables upstream Machine::iolog only for 0x088D0000..0x088D1FFF. This records every read/write with operation width, address, value, instruction count and guest PC. A separate C3EmuBus line returns only the latest 24 transactions in compact JSON; output is bounded to 3,072 bytes. C3EmuTrace continues to provide first-touch address discovery. A Rust unit test verifies filtering, chronological retention, and the line-size bound.
+
+This remains instrumentation only: it does not emulate the SPI host or Broadcom target, and it does not claim working WLAN. The transaction trace should tell us whether the guest is polling a register, waiting for DMA/IRQ completion, or issuing another setup sequence before the watchdog.

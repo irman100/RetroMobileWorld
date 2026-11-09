@@ -209,3 +209,10 @@ This prevents the Logcat truncation found in the user's previous capture. It rem
 ## CI correction — compact MMIO trace test — 8 November 2026
 
 The first push CI for commit `eff0b81` failed in the new `cargo test` step because the Rust `android_wrapper_tests` module was missing its final closing delimiter. The compiler reported an unclosed delimiter at end of file. The missing module brace has been added; the corrected follow-up commit is subject to a fresh push and PR run. No APK from the failed attempt was produced or distributed.
+
+
+## 9 November 2026 — SPI host is now identified by runtime evidence
+
+The latest compact device log captured the first real guest accesses to the SoC SPI host window 0x088D0000..0x088D1FFF immediately before a guest BB hardware watchdog reset. Static MCUSW disassembly at the logged PCs confirms SPI_Init, ConfigSPISelectMux, and SPI_Set_Clock code paths, with IOCR0_REG / IOCR2_REG diagnostics. c3emu pinned bus currently has no SPI-master model, so the range is still handled by generic sparse backing. The first-touch reads at +0x18 and +0x0C return zero, but the captured data does not show repeated polling or IRQ completion and therefore does not uniquely prove the watchdog's exact trigger.
+
+A follow-up build enables bounded access-by-access Machine::iolog for this 8 KiB range and exposes the last 24 records as C3EmuBus. This is instrumentation only; the SPI host and WLAN target remain unimplemented.

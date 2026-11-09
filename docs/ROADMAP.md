@@ -168,3 +168,14 @@ The archive is analyzed locally only (SHA-256 `5239534da21345e5fc7bc1fbe5277f7d2
 
 - [x] Fix the missing closing delimiter in the new Rust compact-MMIO test module found by CI run 489.
 - [ ] Pass fresh push and PR CI, including the Rust size/retention test, JNI builds, Android unit tests and debug APK assembly.
+
+
+### SPI host runtime evidence and next trace
+
+- [x] Capture guest MMIO accesses at 0x088D0000..0x088D1FFF before the watchdog stop.
+- [x] Confirm logged PCs belong to MCUSW SPI_Init / ConfigSPISelectMux / SPI_Set_Clock paths.
+- [x] Confirm this range lies in the current generic SOC_IO sparse-backing path; no SPI-master behavior is implemented yet.
+- [x] Add targeted repeated-access tracing through upstream Machine::iolog, exposed as bounded C3EmuBus output (last 24 transactions, max 3,072 bytes).
+- [ ] Inspect repeated SPI status polling, DMA register activity, and interrupt completion from the new trace.
+- [ ] Implement the observed SoC SPI-master register behavior and board mux/IRQ effects; do not guess missing status semantics.
+- [ ] Attach the Broadcom gSPI WLAN device only after the host controller path is operational.

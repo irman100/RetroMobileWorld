@@ -23,6 +23,7 @@ internal object C3EmuNative {
     external fun nativeKey(index: Int, down: Int)
     external fun nativeStats(): String
     external fun nativeTraceStats(): String
+    external fun nativeBusTraceStats(): String
     external fun nativeSetTime(unixSeconds: Double, utcOffsetSeconds: Double)
     external fun nativeClearDisks()
     external fun nativeSetDiskSize(device: Int, sizeBytes: Long)

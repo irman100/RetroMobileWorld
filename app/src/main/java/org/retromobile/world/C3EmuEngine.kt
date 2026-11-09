@@ -258,6 +258,8 @@ class C3EmuEngine : PhoneSystemEngine {
                 if (windowElapsed >= 2_000_000_000L) {
                     val nativeTrace = runCatching { C3EmuNative.nativeTraceStats() }
                         .getOrDefault("unavailable")
+                    val nativeBusTrace = runCatching { C3EmuNative.nativeBusTraceStats() }
+                        .getOrDefault("unavailable")
                     val cycleHz = windowCycles * 1_000_000_000.0 / windowElapsed
                     val frameHz = windowFrames * 1_000_000_000.0 / windowElapsed
                     val averageMs = if (windowCycles == 0) 0.0
@@ -269,6 +271,7 @@ class C3EmuEngine : PhoneSystemEngine {
                             "cycleAvgMs=$averageMs cycleMaxMs=$maxMs"
                     )
                     Log.i("C3EmuTrace", "capture=first-touch $nativeTrace")
+                    Log.i("C3EmuBus", "capture=spi-mmio $nativeBusTrace")
                     windowStartNanos = now
                     windowCycles = 0
                     windowFrames = 0
@@ -293,11 +296,14 @@ class C3EmuEngine : PhoneSystemEngine {
                 if (cycle.step.state == PhoneMachineState.FAILED) {
                     val finalTrace = runCatching { C3EmuNative.nativeTraceStats() }
                         .getOrDefault("unavailable")
+                    val finalBusTrace = runCatching { C3EmuNative.nativeBusTraceStats() }
+                        .getOrDefault("unavailable")
                     Log.e(
                         "C3EmuBoot",
                         "Guest OS stopped: ${cycle.step.diagnostic ?: "no diagnostic"}"
                     )
                     Log.e("C3EmuTrace", "capture=first-touch $finalTrace")
+                    Log.e("C3EmuBus", "capture=spi-mmio $finalBusTrace")
                     realtimeLoopRequested = false
                     break
                 }

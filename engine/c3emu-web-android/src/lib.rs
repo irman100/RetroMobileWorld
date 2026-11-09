@@ -27,6 +27,11 @@ const DRIVE_C: u32 = 0;
 /// Limit periodic Android diagnostics to a comfortably Logcat-safe payload.
 const TRACE_TOUCH_LIMIT: usize = 40;
 const TRACE_LOG_MAX_BYTES: usize = 3_072;
+/// Firmware-identified SPI host-controller MMIO range (SOC_IO).
+const SPI_IOLOG_BASE: u64 = 0x088D_0000;
+const SPI_IOLOG_LENGTH: u64 = 0x2_000;
+const BUS_TRACE_EVENT_LIMIT: usize = 24;
+const BUS_TRACE_LOG_MAX_BYTES: usize = 3_072;
 
 #[derive(Default)]
 struct Emu {
@@ -145,6 +150,56 @@ fn compact_trace_json(
 
     format!(
         "{{\"running\":{running},\"stopped\":{stopped_json},\"simTimeouts\":{sim_timeouts},\"isiMessages\":{isi_messages},\"firstTouch\":[{first_touch}]}}"
+    )
+}
+
+/// Compact access-by-access SPI-host MMIO records from Machine::iolog.
+/// Each row is [icount, operation+width, address, value, guest_pc].
+fn compact_bus_trace_json(events: &[(u64, String)]) -> String {
+    let mut parsed = events
+        .iter()
+        .filter_map(|(icount, line)| {
+            let mut parts = line.split_whitespace();
+            if parts.next()? != "io" {
+                return None;
+            }
+            let op = parts.next()?;
+            if !(op.starts_with('R') || op.starts_with('W')) {
+                return None;
+            }
+            let addr = u32::from_str_radix(parts.next()?.strip_prefix("0x")?, 16).ok()?;
+            if !(SPI_IOLOG_BASE..SPI_IOLOG_BASE + SPI_IOLOG_LENGTH).contains(&(addr as u64)) {
+                return None;
+            }
+            if parts.next()? != "=" {
+                return None;
+            }
+            let value = u32::from_str_radix(parts.next()?.strip_prefix("0x")?, 16).ok()?;
+            let pc = u32::from_str_radix(parts.next()?.strip_prefix("pc=0x")?, 16).ok()?;
+            Some((*icount, op.to_string(), addr, value, pc))
+        })
+        .collect::<Vec<_>>();
+
+    let event_count = parsed.len();
+    let keep_from = parsed.len().saturating_sub(BUS_TRACE_EVENT_LIMIT);
+    let recent = &parsed[keep_from..];
+    let rows = recent
+        .iter()
+        .map(|(icount, op, addr, value, pc)| {
+            format!(
+                "[{icount},{},{},{},{}]",
+                json_str(op),
+                json_str(&format!("{addr:08X}")),
+                json_str(&format!("{value:08X}")),
+                json_str(&format!("{pc:08X}"))
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    parsed.clear();
+
+    format!(
+        "{{\"range\":\"088D0000-088D1FFF\",\"eventCount\":{event_count},\"events\":[{rows}]}}"
     )
 }
 
@@ -290,6 +345,8 @@ fn boot(e: &mut Emu) -> Result<(), String> {
             st.rtc.epoch = ep;
         }
     }
+    m.iolog(SPI_IOLOG_BASE, SPI_IOLOG_LENGTH)
+        .map_err(|error| format!("unable to enable SPI-host MMIO trace: {error}"))?;
     m.fast_start(entry);
     e.machine = Some(m);
     Ok(())
@@ -537,6 +594,21 @@ pub extern "C" fn c3_trace_stats() {
     })
 }
 
+/// Recent access-by-access transactions in the firmware-identified SPI-host range.
+#[unsafe(no_mangle)]
+pub extern "C" fn c3_bus_trace_stats() {
+    with(|e| {
+        let snapshot = match e.machine.as_ref() {
+            Some(machine) => {
+                let st = machine.st.borrow();
+                compact_bus_trace_json(&st.events)
+            }
+            None => compact_bus_trace_json(&[]),
+        };
+        e.result = snapshot.into_bytes();
+    })
+}
+
 /// Stop the phone (before changing its files; boot again afterwards).
 #[unsafe(no_mangle)]
 pub extern "C" fn c3_stop() {
@@ -673,6 +745,38 @@ mod android_wrapper_tests {
         let central_europe = c3emu::rtc::epoch_from_unix(unix, 3_600);
         assert_eq!(host_rtc_fields(utc), [5, 4, 9, 4, 29, 2, 24]);
         assert_eq!(host_rtc_fields(central_europe), [5, 4, 10, 4, 29, 2, 24]);
+    }
+
+    #[test]
+    fn compact_spi_bus_trace_is_bounded_and_keeps_latest_transactions() {
+        let mut events = (0..100u64)
+            .map(|index| {
+                let addr = SPI_IOLOG_BASE + index * 4;
+                (
+                    index,
+                    format!(
+                        "io W4 0x{addr:08x} = 0x{:x} pc=0x{:08x}",
+                        0xA500_0000u32 + index as u32,
+                        0x8081_0000u32 + index as u32
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        events.push((101, "DSP cmd[0] 000b e540 00aa 0000".into()));
+        events.push((
+            102,
+            "io R4 0x088c0000 = 0x0 pc=0x80810000".into(),
+        ));
+
+        let trace = compact_bus_trace_json(&events);
+
+        assert!(trace.len() <= BUS_TRACE_LOG_MAX_BYTES, "trace was {} bytes", trace.len());
+        assert!(trace.starts_with("{\"range\":\"088D0000-088D1FFF\""));
+        assert!(trace.contains("\"eventCount\":100"));
+        assert!(trace.contains("088D018C"));
+        assert!(!trace.contains("088D012C"));
+        assert!(!trace.contains("088C0000"));
+        assert_eq!(trace.matches("],[").count(), BUS_TRACE_EVENT_LIMIT - 1);
     }
 
     #[test]
