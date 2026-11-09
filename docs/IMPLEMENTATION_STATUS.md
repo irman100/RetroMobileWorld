@@ -228,3 +228,11 @@ Source review confirms that unclaimed `0x088Dxxxx` registers fall through to spa
 Internet research was expanded to Broadcom gSPI framing, Linux Broadcom SDPCM/BDC references and Android per-network sockets. The Android design is refined: use per-`Network` socket binding for host egress where appropriate; treat `VpnService` TUN as an optional packet-interface mechanism requiring user consent, not as an automatic guest packet bridge. The SoC SPI host, Broadcom gSPI target and guest-packet-to-Android transport remain separate implementation layers.
 
 No WLAN controller or packet bridge has been implemented yet. Guest Internet remains unsupported until Browser JAD/JAR download and MIDlet launch succeed on the device.
+
+## 9 November 2026 — rolling SPI trace ring
+
+The SPI transaction diagnostics now use a dedicated rolling 24-entry ring in the Android c3emu wrapper. The wrapper drains the upstream shared event vector after each maximum 8,192-instruction exact-interpreter slice, so unrelated diagnostic traffic cannot permanently fill the upstream 20,000-event cap before SPI transactions are retrieved. C3EmuBus reports lifetime SPI event count, current buffer size, overwritten count and unrelated events drained.
+
+A Rust unit test exercises the former saturation scenario (13,868 SPI reads plus 6,132 unrelated events) and verifies complete drain, rolling retention, chronological tail and bounded JSON output. Push CI #510 and PR CI #511 both passed the Rust test, arm64-v8a/armeabi-v7a/x86_64 JNI builds, Android unit tests and debug APK assembly.
+
+The validated CI artifact is ID 13672779512. APK size 12,715,047 bytes; SHA-256 `12b494c099293fa70eba3d586a55fe821b72a09e6ce69f0fe8085fa7e730c82b`. No physical-device run has yet been made with this APK. Do not claim the watchdog is fixed: the build improves trace continuity only. The guest PC 0x8073A838 and the exact status-bit/branch semantics at host address 0x088D000C still need machine-code confirmation. The Nokia SPI master, Broadcom gSPI target and Android guest-packet bridge remain unimplemented.
