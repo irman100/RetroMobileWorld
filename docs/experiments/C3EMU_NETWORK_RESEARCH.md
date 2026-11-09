@@ -287,3 +287,18 @@ The guest packet transport still needs a real bridge. Android `INTERNET` permiss
 The 9 November SPI capture shows repeated `R1 0x088D000C = 0` reads from guest PC `0x8073A838`, separated by 8 guest instruction counts. The shared upstream event vector is capped at 20,000 entries, so the filtered `eventCount=13868` plateau can be a trace-source saturation effect rather than the end of guest polling. A separate rolling MMIO event ring is required before the complete poll-to-watchdog sequence can be established.
 
 No WLAN chipset registers have been inferred from the gSPI specification, no TUN bridge has been implemented, and guest Internet remains unsupported.
+
+## Register-map separation: Nokia host MMIO versus Broadcom gSPI target — 9 November 2026
+
+A further datasheet search found a potentially misleading offset match. Some Broadcom gSPI datasheets (for example BCM4330/BCM4334 family references) place an internal F1-info register at target-side gSPI address `0x000C`; they also describe a 32-bit gSPI status word containing data-not-available, FIFO underflow/overflow, F2/F3 interrupt, RX-ready and packet-available/length fields.
+
+These are **register addresses inside the Broadcom target**, reached through a completed gSPI transaction. They are not the Nokia Juno SoC's CPU-visible MMIO address map. The captured `0x088D000C` access is in the Nokia SoC `SOC_IO` range and occurs at the host SPI-controller guest PC. The matching low offset `+0x0C` is only a coincidence until the MCUSW instruction sequence proves its meaning. Do not assign Broadcom F1-info/status semantics to `0x088D000C`.
+
+The Broadcom datasheets are protocol-family references only; the exact N6300 / BOB1.0M-a silicon and revision are still unconfirmed. In particular, do not implement a BCM4330/4334 internal register map merely because those public documents are easier to find.
+
+References:
+- BCM4330 gSPI command/status reference: https://www.digikey.tw/htmldatasheets/production/2092456/0/0/1/BCM4330.pdf
+- BCM4334 gSPI register/status reference: https://device.report/m/acff856fabf42a66a5aff0277d40c8ce90c98c318dfbf6eaedbc71d9ba24b84f.pdf
+- RM-614 host-side WLAN pinout: https://documents.cdn.ifixit.com/ORvCvsmrQTL2IJVq.pdf
+
+A public search for the exact Nokia host address `0x088D000C`, `0x088D0000` and the MCUSW names `IOCR0_REG` / `IOCR2_REG` did not produce an authoritative RM-614/Juno SoC register manual. Search results for the "Juno ARM Development Platform" technical reference manual describe a different ARM development board and are not applicable to Nokia C3-00. The host-register meaning must therefore come from the exact MCUSW disassembly/runtime sequence or a Nokia Juno-specific source, not from similarly named platform documentation.
