@@ -660,3 +660,83 @@ The first CI exposed only a `u64` versus `usize` assertion mismatch in this test
 - SHA-256: `12b494c099293fa70eba3d586a55fe821b72a09e6ce69f0fe8085fa7e730c82b`
 
 This build is diagnostic only. It has not yet been installed or verified on the physical phone, and it does not implement the SoC SPI master, Broadcom WLAN target, or Internet packet bridge. Compare `C3EmuPerf` with the preceding build because the more frequent host slice/drain may add diagnostic overhead. The next required result is a fresh C3EmuBus trace showing whether `0x088D000C` polling continues through the watchdog and whether any other register/IRQ events appear.
+
+## 31. RM-614 MCUSW polling code decoded at 0x8073A838 — 9 November 2026
+
+### Firmware container and runtime address mapping
+
+The user re-attached the original Phoenix archive. Its SHA-256 is
+`5239534da21345e5fc7bc1fbe5277f7d25a7798e9196742fcc77dc5d34445b11`,
+matching the previously recorded archive. The archive contains
+`rm614__08.71.mcusw` (29,271,181 bytes).
+
+The MCUSW is an FPSX/B2 container. The named `MCUSW` region begins at flash
+address `0x00420000`, contains 253 data blocks and reconstructs to
+`0x00DBD200` bytes. The pinned upstream parser defines a named `0x5D` block
+and contiguous `0x54` continuation blocks. The pinned `layout.rs` loads
+the complete MCUSW region at virtual address `0x80130000`. Therefore guest
+PC `0x8073A838` maps to offset `0x0060A838` within that MCUSW region.
+A direct `PC - 0x80000000` offset is incorrect for this image.
+
+### Disassembly and observed register contract
+
+The bytes at that image offset decode as Thumb instructions. The surrounding
+literal pool identifies the enclosing routine as
+`SPIDRV: -Do_Read_Polling(bytesToRead=%d)`.
+
+At guest PC `0x8073A838`:
+
+- `0x8073A838: ldrb r3, [r2, #0x0c]` reads one byte from the status register.
+- The literal loaded into `r2` is `0x088D0000`, so the actual address is
+  `0x088D000C`.
+- `0x8073A83A: lsls r3, r3, #30` moves status bit 2 into the sign bit.
+- `0x8073A83C: bpl 0x8073A81E` repeats the poll while bit 2 is clear.
+
+After bit 2 is observed set, this routine writes a 16-bit word to the data
+register at offset `+0x08` (`strh r0, [r2, #0x08]`). It then polls the same
+status byte again at `0x8073A852`, shifts it by 29 and branches back while
+bit 3 is clear. Once bit 3 is set, it reads a 16-bit word from the data
+register at `+0x08` (`ldrh r0, [r2, #0x08]`).
+
+This establishes the firmware's minimum observed polling contract:
+
+- status `0x088D000C` is read as an 8-bit value;
+- status bit 2 gates a 16-bit write to `0x088D0008`;
+- status bit 3 gates a 16-bit read from `0x088D0008`.
+
+This is evidence of the driver's expected sequencing, not yet proof of the
+hardware register's complete specification, reset value, or meanings of other
+bits. Do not infer Broadcom target-side status bits from this Nokia SoC
+host-controller register.
+
+### Poll retry bound and interpretation of the old log
+
+The same routine initializes a retry counter and compares it with
+`0x8000`. On a failed status test it increments the counter and returns to
+the read at `0x8073A838`; the compare/branch sequence bounds an individual
+poll phase to `0x8000` attempts before its timeout path. The repeated
+`icount` spacing of eight instructions in the earlier trace matches this
+small polling loop.
+
+Consequently, the old last-24-record window is evidence of repeated entry
+into this specific TX-ready test. It does not prove that one invocation ran
+continuously until the watchdog: the function has a finite retry path, and
+higher-level retries or subsequent calls remain possible. The new rolling
+ring capture is still needed to establish what happened after a poll phase
+timed out and whether the next phase or request repeated.
+
+### Engineering implications and outstanding validation
+
+1. The next SPI model should expose the status conditions needed by this
+   observed sequence: bit 2 before a halfword write to `+0x08`, and bit 3
+   before a halfword read from `+0x08`. Do not implement speculative values
+   for the other bits.
+2. Continue disassembling the caller and the matching write-poll routine to
+   determine startup/teardown, chip-select, transfer length, and error handling.
+3. Do not implement a guessed status value or claim the physical peripheral has
+   been validated from this static analysis alone.
+4. Physical validation of the rolling trace is currently blocked: the user
+   reports ADB displays `Waiting for device` and no log appears. The next
+   diagnostic is the non-blocking `adb devices -l` listing; installation and
+   fresh log capture remain pending until the phone is visible and authorized.
+
