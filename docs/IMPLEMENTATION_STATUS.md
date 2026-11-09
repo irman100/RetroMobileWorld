@@ -293,3 +293,19 @@ paths. The exact bit-to-pin mapping and IOCR0 address remain unresolved.
 The SPI model deliberately leaves this board-control register outside its
 FIFO/status implementation.
 
+### Physical run after SPI-host integration — 9 November 2026
+
+A new Redmi Note 9S capture confirms that the emulator does not crash or stop:
+`running=true` continues, but the guest repeatedly reads DATA
+`0x088D0008=0` at PC `0x8072BB4A` and STATUS
+`0x088D000C=0x04` at PC `0x8072BB4C`. The first-touch evidence shows the
+first access to DATA is a read. In the last process the SPI trace counter
+reached 116,831,543. Performance logs show `deliveredFps=0.0`.
+
+The current runtime has no attached Broadcom `SpiTarget`; therefore no RX
+word can be supplied. The guest remains in an RX-side WLAN polling path and
+does not reach an IP/Android Internet bridge. Contrary to the earlier
+expectation, this helper did not produce a finite timeout in the captured
+minutes. Exact branch semantics require MCUSW disassembly at
+`0x8072BB2C–0x8072BB60`. Do not fabricate RX data or claim Wi-Fi support.
+
