@@ -237,3 +237,53 @@ The address window is within c3emu SOC_IO (0x08800000..0x08A00000). The pinned u
 The next diagnostic build enables upstream Machine::iolog only for 0x088D0000..0x088D1FFF. This records every read/write with operation width, address, value, instruction count and guest PC. A separate C3EmuBus line returns only the latest 24 transactions in compact JSON; output is bounded to 3,072 bytes. C3EmuTrace continues to provide first-touch address discovery. A Rust unit test verifies filtering, chronological retention, and the line-size bound.
 
 This remains instrumentation only: it does not emulate the SPI host or Broadcom target, and it does not claim working WLAN. The transaction trace should tell us whether the guest is polling a register, waiting for DMA/IRQ completion, or issuing another setup sequence before the watchdog.
+
+## Research update — gSPI framing and Android egress boundaries — 9 November 2026
+
+### Broadcom gSPI protocol references
+
+The exact transceiver silicon inside the RM-614 N6300 / BOB1.0M-a module remains unconfirmed. The MCUSW evidence (`802.11n gSPI`, `WlanSpiaImpl`, Broadcom S60 WLAN HAL) establishes the firmware-selected gSPI host path, but it does not justify naming the chip BCM4329 or importing a chip-specific register map.
+
+A Broadcom 802.11n gSPI specification is useful as a protocol-family reference. It describes a 32-bit command word with packet length, address, function, fixed/incrementing access and read/write fields. The documented function roles include F0 for SPI-specific registers, F1 for device registers/memory, F2 for WLAN packet DMA and optional F3 for a second packet channel. The length encoding and two-phase read behavior must be checked against the exact device firmware/profile before they are treated as RM-614 requirements.
+
+Reference: https://www.fccid.io/m/5b5f9fee14b4be35262b499257d8edd4f65478cc9d12b4efe9d410367ccd9053.pdf
+
+Broadcom's older `bcmspibrcm.c` source is explicitly marked unpublished proprietary source; it is not copied into this project. It is useful only as a pointer to the historical Broadcom gSPI transport layer:
+https://android.googlesource.com/kernel/msm.git/+/3f2bc4d6eb5a4fada842462ba22bb6bbb41d00c7/drivers/net/wireless/bcm4329/bcmspibrcm.c
+
+### SDPCM/BDC is a separate layer from gSPI
+
+Linux mainline `brcmfmac` provides a useful reference for Broadcom SDPCM framing: a 4-byte hardware header plus an 8-byte software header, with control, event, data and glom channel identifiers. This helps interpret the MCUSW strings for SDPCM/BDC and the packet path above the bus.
+
+Important limitation: the current Linux `brcmfmac` fullmac bus implementations are documented around SDIO, USB and PCIe; this is not a drop-in implementation of the Nokia's gSPI host controller. Reuse the protocol concepts only, not the SDIO register/host implementation.
+
+References:
+- https://github.com/torvalds/linux/blob/master/drivers/net/wireless/broadcom/brcm80211/brcmfmac/sdio.c
+- https://wireless.docs.kernel.org/en/latest/en/users/drivers/brcm80211.html
+
+### Android network egress: per-network sockets first, TUN only by design
+
+Android's `Network.getSocketFactory()` creates sockets bound to one selected Android `Network`; `Network.bindSocket()` can bind an individual unconnected socket. This supports an emulator-owned egress layer that selects the active Wi-Fi/cellular network per connection without rebinding the entire Android process.
+
+A `VpnService` is a different mechanism: it establishes a TUN interface after the user grants VPN consent. Its `protect(Socket)` / `protect(DatagramSocket)` methods keep the service's own upstream sockets outside the VPN route and prevent a routing loop. TUN does **not** automatically translate arbitrary guest IP packets into Internet flows; packet routing/forwarding or transport-flow termination still has to be implemented by the app.
+
+References:
+- https://developer.android.com/reference/android/net/Network
+- https://developer.android.com/reference/android/net/VpnService
+
+### Architecture decision refined
+
+Keep the implementation in distinct layers:
+
+1. Nokia Juno SoC SPI-master and board signals (WLAN enable, chip-select, CLK_REQ, IRQ).
+2. Broadcom gSPI target: reset/clock readiness, control/register access, device firmware/NVS download, packet FIFO and SDPCM/BDC framing — only as supported by the captured RM-614 firmware sequence.
+3. A guest-facing packet boundary that preserves the Series 40 TCP/IP stack. Decide between a real packet-level interface and a host socket-flow gateway only after the guest driver path and packet format are understood.
+4. Android host egress using sockets bound per `Network`. Add `VpnService` only if the selected packet architecture genuinely needs an Android TUN interface; do not make it a prerequisite by assumption.
+
+The guest packet transport still needs a real bridge. Android `INTERNET` permission and a successful host HTTP request are not sufficient acceptance tests. Required validation remains guest WLAN scan/association, IP setup, DNS, TCP/HTTP, HTTPS and a real Series 40 Browser JAD/JAR download/install/launch.
+
+### Updated evidence boundary
+
+The 9 November SPI capture shows repeated `R1 0x088D000C = 0` reads from guest PC `0x8073A838`, separated by 8 guest instruction counts. The shared upstream event vector is capped at 20,000 entries, so the filtered `eventCount=13868` plateau can be a trace-source saturation effect rather than the end of guest polling. A separate rolling MMIO event ring is required before the complete poll-to-watchdog sequence can be established.
+
+No WLAN chipset registers have been inferred from the gSPI specification, no TUN bridge has been implemented, and guest Internet remains unsupported.
