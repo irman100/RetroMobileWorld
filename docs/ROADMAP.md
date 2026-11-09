@@ -150,7 +150,7 @@ The archive is analyzed locally only (SHA-256 `5239534da21345e5fc7bc1fbe5277f7d2
 - [x] Verify pinned upstream MMIO dispatch: no SPI-master, SDIO-host or WLAN target model; unknown registers fall back to sparse backing.
 - [x] Verify GPIO/IRQ model and identify missing board-level WLAN enable/CLK_REQ/IRQ pin behavior.
 - [x] Confirm existing `io_touches` entries are first-touch-only; identify upstream filtered `Machine::iolog(addr,len)` but note it is not exposed through Android JNI.
-- [ ] Add opt-in bounded access-by-access MMIO tracing for selected host-peripheral address ranges.
+- [x] Add targeted access-by-access MMIO logging for the firmware-identified SPI host window and compact last-24 C3EmuBus output; the underlying upstream event source is still globally capped.
 - [ ] Map and implement the Nokia SoC SPI-master + WLAN board-pin/IRQ signals using captured MCUSW runtime accesses.
 - [ ] Connect the firmware-observed Broadcom gSPI target model to the SoC SPI master.
 - [ ] Bridge guest IP packets and complete the Series 40 Browser JAD/JAR acceptance test.
@@ -176,6 +176,18 @@ The archive is analyzed locally only (SHA-256 `5239534da21345e5fc7bc1fbe5277f7d2
 - [x] Confirm logged PCs belong to MCUSW SPI_Init / ConfigSPISelectMux / SPI_Set_Clock paths.
 - [x] Confirm this range lies in the current generic SOC_IO sparse-backing path; no SPI-master behavior is implemented yet.
 - [x] Add targeted repeated-access tracing through upstream Machine::iolog, exposed as bounded C3EmuBus output (last 24 transactions, max 3,072 bytes).
-- [ ] Inspect repeated SPI status polling, DMA register activity, and interrupt completion from the new trace.
+- [x] Observe repeated one-byte reads at 0x088D000C from guest PC 0x8073A838, returning zero at 8-instruction intervals in the retained trace; exact status-bit/branch semantics and full poll-to-watchdog sequence remain open.
 - [ ] Implement the observed SoC SPI-master register behavior and board mux/IRQ effects; do not guess missing status semantics.
 - [ ] Attach the Broadcom gSPI WLAN device only after the host controller path is operational.
+
+### SPI trace saturation and status-poll finding — 9 November 2026
+
+- [x] Capture repeated `R1` reads at `0x088D000C`, value `0x00`, guest PC `0x8073A838`, with an 8-instruction interval in the retained records.
+- [x] Verify upstream `MAX_EVENTS=20000`; `State::event()` stops appending at the cap, and C3EmuBus currently filters this shared vector rather than owning a rolling trace.
+- [x] Confirm unclaimed SPI-host MMIO reads fall back to sparse backing storage, where untouched bytes read as zero and writes have no SPI side effects.
+- [ ] Add a dedicated rolling SPI-MMIO event ring at the bus access point, independent of the general event cap; include overwritten/dropped counters.
+- [ ] Decode the MCUSW instructions and branch condition around guest PC `0x8073A838`; identify the exact status bit/expected transition.
+- [ ] Capture a non-saturating trace through the guest watchdog stop and correlate status polling, transfer/FIFO, DMA and IRQ events.
+- [ ] Implement the observed Nokia SoC SPI-master + board-pin behavior, then attach the Broadcom gSPI target.
+- [ ] Build the guest packet path and Android host egress; do not treat VpnService or INTERNET permission alone as a complete bridge.
+
