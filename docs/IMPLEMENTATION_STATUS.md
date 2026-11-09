@@ -216,3 +216,15 @@ The first push CI for commit `eff0b81` failed in the new `cargo test` step becau
 The latest compact device log captured the first real guest accesses to the SoC SPI host window 0x088D0000..0x088D1FFF immediately before a guest BB hardware watchdog reset. Static MCUSW disassembly at the logged PCs confirms SPI_Init, ConfigSPISelectMux, and SPI_Set_Clock code paths, with IOCR0_REG / IOCR2_REG diagnostics. c3emu pinned bus currently has no SPI-master model, so the range is still handled by generic sparse backing. The first-touch reads at +0x18 and +0x0C return zero, but the captured data does not show repeated polling or IRQ completion and therefore does not uniquely prove the watchdog's exact trigger.
 
 A follow-up build enables bounded access-by-access Machine::iolog for this 8 KiB range and exposes the last 24 records as C3EmuBus. This is instrumentation only; the SPI host and WLAN target remain unimplemented.
+
+## 9 November 2026 — SPI polling evidence and network design refinement
+
+The newest guest log contains repeated byte reads from `0x088D000C`, all returning `0x00`, at guest PC `0x8073A838`; recorded reads are eight guest instruction counts apart. The final guest stop is `BB H/W watchdog reset` at 14:26:06.841. This establishes a repeated polling path in the captured records, but not the exact status-bit semantics or continuous polling through the watchdog.
+
+The access-by-access C3EmuBus output is currently derived from upstream `State.events`, whose `MAX_EVENTS` is 20,000 and whose append path stops at the cap. The filtered `eventCount=13868` can therefore plateau while the guest continues running. The next diagnostic change must use a separate rolling SPI-MMIO event ring and expose overwrite/drop information.
+
+Source review confirms that unclaimed `0x088Dxxxx` registers fall through to sparse backing storage: untouched bytes read as zero and writes only store bytes. No SPI-master side effects, FIFO, chip-select, clock or IRQ are implemented there. Do not patch in a guessed status bit; decode PC `0x8073A838` and correlate it with a non-saturating trace first.
+
+Internet research was expanded to Broadcom gSPI framing, Linux Broadcom SDPCM/BDC references and Android per-network sockets. The Android design is refined: use per-`Network` socket binding for host egress where appropriate; treat `VpnService` TUN as an optional packet-interface mechanism requiring user consent, not as an automatic guest packet bridge. The SoC SPI host, Broadcom gSPI target and guest-packet-to-Android transport remain separate implementation layers.
+
+No WLAN controller or packet bridge has been implemented yet. Guest Internet remains unsupported until Browser JAD/JAR download and MIDlet launch succeed on the device.
