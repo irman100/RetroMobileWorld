@@ -759,3 +759,114 @@ start the logcat capture with the explicit serial, launch the app and boot/run
 the RM-614 guest, then verify that `C3EmuPerf`, `C3EmuTrace` and
 `C3EmuBus` lines are written to the capture file.
 
+## 33. First physical rolling-ring capture confirms SPI TX-ready timeout — 9 November 2026
+
+### Capture context
+
+The user restored the USB ADB connection to the Redmi Note 9S:
+`6ea05c65` (`curtana_global`; status `device`). The new APK ran and
+emitted `C3EmuPerf`, `C3EmuTrace` and `C3EmuBus` records. VPN remained
+enabled on the host so the user could access ChatGPT; USB ADB itself was
+working normally. No evidence connects the host VPN to the guest SPI failure.
+
+Guest boot began at 17:35:27.442 local log time. The guest later stopped at
+17:36:11.722 with:
+
+`OS fatal error: UKNOWN:0: BB H/W watchdog reset! (reset called from 0x80702931)`
+
+### First SPI-host register sequence
+
+The first-touch and rolling bus records expose these accesses in the selected
+`0x088D0000..0x088D1FFF` range (values and PCs exactly as captured):
+
+- `W1 0x088D0000 = 0x00` at PC `0x8081018C`;
+- `W1 0x088D0004 = 0x00` at PC `0x80810198`;
+- `W1 0x088D0014 = 0x00` at PC `0x808101E0`;
+- `W1 0x088D0020 = 0x03` at PC `0x808101E8`;
+- `W1 0x088D103C = 0x81` at PC `0x808101F8`;
+- `W1 0x088D0010 = 0x02` at PC `0x80833D0C`;
+- `W1 0x088D0024 = 0x03` at PC `0x80810AB4`;
+- `R1 0x088D0018 = 0x00` at PC `0x8072BB2C`;
+- `R1 0x088D000C = 0x00` at PC `0x8072BB4C`.
+
+The first `C3EmuBus` snapshot at 17:36:08.017 reported
+`eventCount=32801`, `bufferedCount=24`, `overwritten=32777`,
+`otherEventCount=1121`. Its 24-row rolling tail contained 23 consecutive
+`R1 0x088D000C = 0x00` reads from PC `0x8073A838`, each eight guest
+instructions apart, followed by `W1 0x088D103C = 0x81` from PC
+`0x8081054C`.
+
+Subsequent snapshots at 17:36:10.020 and the final stop at 17:36:11.722
+still reported `eventCount=32801` with the same SPI tail. Meanwhile
+`otherEventCount` rose from 1121 to 1135 and then 1165, so the guest
+continued producing non-SPI diagnostic events after its last access to this
+SPI-host window. No additional SPI-window transaction was recorded before the
+watchdog stop.
+
+### Instruction-level interpretation
+
+The reattached MCUSW image was reconstructed using the pinned upstream FPSX
+layout: the named `MCUSW` region (flash address `0x00420000`, 253 blocks,
+14,406,144 bytes) is loaded at guest address `0x80130000`. Therefore guest
+PCs map into the region by subtracting `0x80130000`.
+
+At `0x8073A838` the Thumb routine `SPIDRV: -Do_Read_Polling(bytesToRead=%d)`
+does the following:
+
+1. Read byte status `0x088D000C`.
+2. Test bit 2; if clear, increment a 16-bit retry counter and repeat.
+3. The counter limit is `0x8000`; when reached, the function returns
+   error code `11` (`movs r0,#0x0b`).
+4. When the TX-ready test succeeds, it writes a halfword to FIFO/data
+   register `0x088D0008`.
+5. It then waits for bit 3 at the same status register and reads a halfword
+   from `0x088D0008`.
+
+A separate RX FIFO routine at guest PC `0x8072BB4C` also polls bit 3 and
+reads `0x088D0008` while bit 3 is set. Its adjacent code checks bit 7 of
+`0x088D0018` and contains the diagnostic string
+`SPIDRV: [ERIC]: RxFIFO Overrun!`.
+
+At `0x8081054C`, the instruction is
+`strb r1,[r0,#0x1c]`. The literal loaded into `r0` is
+`0x088D1020`, and `r1=0x81`, so it writes
+`0x088D103C = 0x81`. This store is in the `SPIDRV_IoRequest` path's
+non-success handling branch (the same register is also written during
+SPI initialization). The specific register meaning is not established yet.
+
+The total `eventCount=32801` is numerically `0x8000 + 33`. This is
+consistent with one complete 0x8000-attempt status timeout plus 33 other SPI
+window transactions, but `eventCount` is aggregate across the whole MMIO
+range and current output does not provide per-PC lifetime counts. Treat the
+exact number of attempts as strongly consistent, not yet independently
+proven by the trace. A future diagnostic can add a lifetime counter keyed by
+PC/address/op without retaining every event.
+
+### Root cause and next implementation boundary
+
+The pinned emulator still has no SoC SPI-master device handling for this
+`SOC_IO` range. An unclaimed, untouched register read falls through to sparse
+backing and returns zero. The captured zero is therefore the emulator's
+unimplemented-register fallback, not a measured Nokia hardware reset value.
+The firmware's bit-2 TX-ready wait consequently never completes; no
+halfword write to `0x088D0008` is reached in the retained tail. The observed
+timeout and subsequent watchdog are consistent with the missing host
+controller model.
+
+Next work must be split into two explicit layers:
+
+1. Implement a Nokia SoC SPI-host model at `0x088D0000..0x088D1FFF` using
+   only the observed register access contract: TX FIFO readiness (bit 2),
+   RX-data readiness (bit 3), halfword data access at `+0x08`, and the
+   observed auxiliary status/control registers. Add deterministic unit tests
+   for FIFO/status sequencing and avoid assigning undocumented semantics to
+   other offsets.
+2. Implement the board-connected Broadcom gSPI target as a separate device
+   model, grounded in MCUSW initialization/download/IDB/NVS evidence and
+   verified chip identity. Do not manufacture plausible target responses or
+   claim Wi-Fi/Internet support from a host-controller stub.
+
+This capture validates that the independent rolling ring works on a physical
+Android device. It does not yet validate a modeled SPI controller or WLAN
+target.
+
